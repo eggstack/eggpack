@@ -102,7 +102,7 @@ manifest M001 schema/builder
 
 Class: invariant / infrastructure
 
-Hard dependency: contract M001; interface dependency on conformance expected-file model.
+Hard dependency: Contract M002 closure, which stabilizes the expected-file/conformance interface on top of already-closed Contract M001.
 
 Define bounded types, JSON shape, ordering, validation, direct/bundle/archive fixtures.
 
@@ -142,6 +142,6 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | blocked | — | — | contract M001; conformance interface |
+| M001 | blocked | — | — | Contract M002 expected-file/conformance interface |
 | M002 | blocked | — | — | manifest M001 + conformance M002 |
 | M003 | planned | — | — | real consumer |
