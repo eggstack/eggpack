@@ -1,8 +1,8 @@
 # Contract and Conformance Milestone 001 — Workspace Bootstrap and DistributionContract v1 Import
 
-Status: ready for handoff
+Status: closing — implementation committed locally; hosted CI evidence pending
 
-Repository baseline: `f3762d81fe86d0a8b53a0cabe37562c56a2b7007`
+Repository baseline: `23a7f312589327088482a0158be611b472c80dc9`
 
 External predecessor baseline:
 

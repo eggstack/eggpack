@@ -204,6 +204,6 @@ The subsystem is complete when contract v1 is Eggpack-owned, conformance is dete
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | ready | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | — | — |
+| M001 | closing | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | pending hosted CI | hosted Linux/macOS/Windows CI |
 | M002 | blocked | not authored until M001 closure | — | M001 |
 | M003 | planned | — | — | M002 + consumer evidence |

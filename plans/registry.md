@@ -33,7 +33,7 @@ This file is the compact control surface for active interim planning. Detailed r
 
 ### Eggpack
 
-- repository began empty on 2026-09-22;
+- repository began empty on 2026-09-22; first production workspace/crate implementation is underway;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
@@ -57,7 +57,7 @@ Distribution predecessor evidence:
 
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
-| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M001 ready | predecessor evidence available |
+| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M001 closing | local checks complete; hosted CI pending |
 | External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 ready | none |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M001 + conformance interface |
 | Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | contract/manifest + backend disposition |
@@ -72,7 +72,7 @@ Two initial workstreams are dependency-ready and SHOULD proceed in parallel:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Contract and conformance | M001 workspace + DistributionContract v1 import | ready | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | canonical planning; Eggup predecessor baseline |
+| Contract and conformance | M001 workspace + DistributionContract v1 import | closing | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | hosted Linux/macOS/Windows CI |
 | External backend evaluation | M001 dist 0.33 capability spike | ready | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | none |
 
 No other implementation plan should be marked ready before these evidence gates move.
@@ -133,12 +133,12 @@ backend-selection disposition/ADR
 
 ## Next handoff
 
-Two plans are registered and ready in parallel:
+The contract M001 implementation is closing; the independent backend spike remains next in the requested execution order:
 
 1. `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md`;
 2. `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md`.
 
-After implementation, create their closure records and update source roadmaps/registry. Contract M002 remains blocked until Contract M001 closure. Any production external-backend adoption remains blocked until the dist spike closes and a backend-selection ADR is reviewed.
+Contract M002 remains blocked until Contract M001 closure. Any production external-backend adoption remains blocked until the dist spike closes and a backend-selection ADR is reviewed.
 
 ## Registry update rule
 

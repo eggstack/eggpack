@@ -1,0 +1,22 @@
+[package]
+name = "eggpack-contract"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/eggstack/eggpack"
+documentation = "https://docs.rs/eggpack-contract"
+description = "Versioned portable distribution contract schema for release tooling"
+readme = "README.md"
+authors = ["David Bowman"]
+keywords = ["distribution", "release", "installer", "packaging"]
+categories = ["development-tools"]
+exclude = ["tests/", "benches/"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.8", default-features = false, features = ["parse", "display"] }

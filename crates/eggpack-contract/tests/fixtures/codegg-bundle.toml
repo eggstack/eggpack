@@ -1,0 +1,30 @@
+schema_version = 1
+
+[product]
+id = "codegg"
+display_name = "CodeGG"
+
+# CodeGG-like three-member logical bundle: three direct runfiles form one
+# release. Naming follows the CodeGG multi-runfile installer layout.
+
+[[targets]]
+triple = "x86_64-unknown-linux-gnu"
+aliases = ["linux-x64"]
+
+[targets.asset]
+kind = "bundle"
+
+[[targets.asset.entries]]
+asset = "{product}-{version}-{target}"
+install = "{product}"
+
+[[targets.asset.entries]]
+asset = "{product}-helper-{version}-{target}"
+install = "{product}-helper"
+
+[[targets.asset.entries]]
+asset = "{product}-manifest-{version}.json"
+install = "{product}-manifest.json"
+
+[targets.checksum]
+sidecar = "{asset}.sha256"

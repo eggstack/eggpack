@@ -1,0 +1,47 @@
+schema_version = 1
+
+[product]
+id = "egress"
+display_name = "Egress"
+
+# Egress-like archive release: one archive contains multiple required
+# binaries. Member sources are literal relative paths (no templates) and
+# must remain traversal-free.
+
+[[targets]]
+triple = "x86_64-unknown-linux-gnu"
+aliases = ["linux-x64"]
+
+[targets.asset]
+kind = "archive"
+asset = "{product}-{version}-{target}.tar.gz"
+
+[[targets.asset.members]]
+source = "egress"
+install = "egress"
+
+[[targets.asset.members]]
+source = "bin/egress-helper"
+install = "egress-helper"
+
+[targets.checksum]
+sidecar = "{asset}.sha256"
+
+[[targets]]
+triple = "aarch64-apple-darwin"
+aliases = ["macos-arm64"]
+
+[targets.asset]
+kind = "archive"
+asset = "{product}-{version}-{target}.tar.gz"
+
+[[targets.asset.members]]
+source = "egress"
+install = "egress"
+
+[[targets.asset.members]]
+source = "bin/egress-helper"
+install = "egress-helper"
+
+[targets.checksum]
+sidecar = "{asset}.sha256"
