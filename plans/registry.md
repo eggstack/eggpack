@@ -37,6 +37,7 @@ This file is the compact control surface for active interim planning. Detailed r
 - last reviewed code/implementation baseline before the planning-only producer/consumer reorientation: `e3452263225fa1ea262e03b557f40b395e6a52d8`;
 - producer/consumer reorientation baseline: `5793ccecf5139d9b7b250534703ec5ee84fe44b8`; subsequent planning-only corrections preserve that ownership/cutover model;
 - Contract M002 implementation: `a36803a7c34cc5b273559520bf99cb2400cc183a`; closure record: `plans/closure/contract-conformance/002-status.md`;
+- Release Manifest M001 handoff rebaselined and tightened after M002 closure; plan commit: `e105cd5c6a410e7d025ce411c5c501ee0485f524`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
@@ -128,7 +129,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-`plans/implementation/release-manifest/001-release-manifest-v1-domain.md` is the current dependency-ready implementation handoff. Contract M002 faithfully ports and qualifies the closed Eggup M003 conformance implementation, unblocking Release Manifest M001 and authorizing Eggup M004 to retire `eggup-dist`. Build/qualification and bootstrap installers remain blocked on the manifest interface. The dist spike remains closed with disposition C; no backend-selection ADR or production adoption is authorized.
+`plans/implementation/release-manifest/001-release-manifest-v1-domain.md` is the sole dependency-ready Eggpack implementation handoff for the next round. It is rebaselined to the formal Contract M002 closure and now requires ProductId + ReleaseId + SourceRevision, relationship-preserving direct/bundle/archive artifact/member identity, exact size/SHA-256 evidence, deterministic JSON, and bounded non-trust-bearing evidence references. Do not pre-author Manifest M002, Build/Qualification M001, or Bootstrap Installers M001 until Manifest M001 closes and fixes the concrete schema boundary. Eggup M004 retirement is authorized independently in Eggup. The dist spike remains closed with disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 
