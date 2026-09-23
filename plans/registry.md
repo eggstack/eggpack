@@ -72,8 +72,8 @@ Two initial workstreams are dependency-ready and SHOULD proceed in parallel:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Contract and conformance | M001 workspace + DistributionContract v1 import | plan pending initial handoff commit | — | canonical planning; Eggup predecessor baseline |
-| External backend evaluation | M001 dist 0.33 capability spike | plan pending initial handoff commit | — | none |
+| Contract and conformance | M001 workspace + DistributionContract v1 import | ready | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | canonical planning; Eggup predecessor baseline |
+| External backend evaluation | M001 dist 0.33 capability spike | ready | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | none |
 
 No other implementation plan should be marked ready before these evidence gates move.
 
@@ -133,14 +133,12 @@ backend-selection disposition/ADR
 
 ## Next handoff
 
-After this planning foundation lands:
+Two plans are registered and ready in parallel:
 
-1. author/register Contract M001 against this exact Eggpack baseline and Eggup `cf5b3d3...`;
-2. author/register External Backend M001 against `dist` 0.33.0;
-3. implement either/both;
-4. create closure records;
-5. update subsystem roadmaps and this registry;
-6. only then author conformance M002 and any backend-selection ADR.
+1. `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md`;
+2. `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md`.
+
+After implementation, create their closure records and update source roadmaps/registry. Contract M002 remains blocked until Contract M001 closure. Any production external-backend adoption remains blocked until the dist spike closes and a backend-selection ADR is reviewed.
 
 ## Registry update rule
 
