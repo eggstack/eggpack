@@ -2,7 +2,7 @@
 
 Status: closed
 
-Repository baseline: `c5fd88f` (Contract M002 formally closed; implementation started from the clean planning baseline)
+Repository baseline: `c5fd88f5a44a17104f00f93c9888b568272a01ea` (Contract M002 formally closed; implementation started from the clean planning baseline)
 
 Closure record: `plans/closure/release-manifest/001-status.md`
 

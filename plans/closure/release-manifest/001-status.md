@@ -8,7 +8,7 @@ Roadmap: `plans/subsystems/release-manifest-roadmap.md`
 
 Reviewed baseline: `c5fd88f5a44a17104f00f93c9888b568272a01ea` (clean baseline after Contract M002 closure)
 
-Implementation commit: recorded in Git history; this closure follows the implementation commit.
+Implementation and closure commit: `b5df057a0ab8d30664aeccc26aa7944678626930`.
 
 ## Executive finding
 
@@ -58,7 +58,7 @@ All listed commands passed in the implementation worktree:
 - `./scripts/check-local.sh`
 - `git diff --check`
 
-Hosted Linux, macOS, and Windows CI has not yet been observed for the implementation commit at the time this record was drafted. It is an outstanding operational evidence item and will be appended after the pushed commit's checks complete; it does not alter local verification results.
+Hosted GitHub Actions CI run [`35860964277`](https://github.com/eggstack/eggpack/actions/runs/35860964277) passed for implementation commit `b5df057a0ab8d30664aeccc26aa7944678626930`: Linux stable passed format, check, workspace tests, Clippy, and docs; Linux Rust 1.89 passed check and workspace tests; macOS and Windows passed check and workspace tests. The workflow does not run package publication verification; the local `cargo package` check passed separately.
 
 ## Invariant, failure, and recovery review
 
@@ -74,7 +74,7 @@ This is the first Eggpack manifest schema and carries an explicit version. The o
 
 ## Unresolved findings
 
-No implementation finding blocks closure. Hosted cross-platform CI was pending at draft time; the post-push result must be recorded as observed or remain explicitly unavailable. JSON Schema export remains out of scope pending a real consumer. No signing-byte canonicalization is claimed.
+No implementation finding blocks closure. JSON Schema export remains out of scope pending a real consumer. No signing-byte canonicalization is claimed.
 
 ## Roadmap disposition and dependency transitions
 
