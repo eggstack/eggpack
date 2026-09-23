@@ -1,6 +1,6 @@
 # Bootstrap Installers Roadmap
 
-Status: proposed
+Status: active
 
 Long-term references:
 
@@ -88,4 +88,4 @@ At least two consumers have removed duplicated mapping/checksum authority from b
 
 ## 12. Milestone status
 
-Blocked on Release Manifest M001; contract conformance M002 is closed.
+M001 generator model and direct installer fixtures is ready: Manifest M001 and contract conformance M002 are closed. Bundle/archive safety and adoption retain their later milestone dependencies.

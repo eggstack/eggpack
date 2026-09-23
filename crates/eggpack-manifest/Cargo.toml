@@ -1,0 +1,21 @@
+[package]
+name = "eggpack-manifest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage = "https://github.com/eggstack/eggpack"
+documentation = "https://docs.rs/eggpack-manifest"
+description = "Bounded schema-v1 evidence for finalized Eggpack release bytes"
+readme = "README.md"
+authors = ["David Bowman"]
+keywords = ["release", "manifest", "artifact", "integrity"]
+categories = ["development-tools"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

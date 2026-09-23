@@ -66,11 +66,11 @@ Distribution predecessor evidence:
 |---|---|---|---|---|
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement authorized |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
-| Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 ready | Contract M001/M002 closed |
-| Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | Release Manifest M001; dist disposition C is closed |
-| Bootstrap installers | proposed | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 blocked | Release Manifest M001; conformance M002 closed |
-| CI/release orchestration | proposed | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 blocked | build/qualification architecture |
-| Eggup interoperability | proposed | `plans/subsystems/eggup-interoperability-roadmap.md` | M001 blocked | manifest v1 |
+| Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 closed; M002 ready | Contract M001/M002 closed |
+| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001 ready | Manifest M001 closed; dist disposition C remains prior art only |
+| Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 ready | Manifest M001 and conformance M002 closed |
+| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 blocked | Build/qualification M001 interface |
+| Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | M001 unblocked (Eggpack planning) | Eggup-side plan required for cross-repository changes |
 | Ecosystem adoption | proposed | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 blocked | required core pieces |
 
 ## Dependency-ready implementation work
@@ -79,17 +79,19 @@ Current dependency-ready implementation work:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Release manifest | M001 v1 domain and deterministic serialization | ready | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | Contract M001/M002 closure |
+| Build and qualification | M001 PackConfig and ReleasePlan | ready to plan | — | Release Manifest M001 + contract M001/M002 closed; backend replaceability retained |
+| Bootstrap installers | M001 generator model + direct installer fixtures | ready to plan | — | Release Manifest M001 + contract conformance M002 closed |
+| Eggup interoperability | M001 cross-repository interface contract/fixtures | unblocked to plan | — | Eggup-side registration required before Eggup changes |
 
 ## Planned / blocked work
 
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 | Eggup distribution | M004 retire eggup-dist | ready / authorized | Eggpack Contract M002 closed; execution remains in Eggup |
-| Build/qualification | M001 PackConfig/ReleasePlan | blocked | Release Manifest M001 |
-| Bootstrap installers | M001 direct generator | blocked | Release Manifest M001 |
+| Build/qualification | M001 PackConfig/ReleasePlan | ready to plan | — |
+| Bootstrap installers | M001 direct generator | ready to plan | — |
 | CI orchestration | M001 CIPlan/renderer | blocked | build-plan interface |
-| Eggup interoperability | M001 cross-repo interface fixtures | blocked | manifest v1 |
+| Eggup interoperability | M001 cross-repo interface fixtures | unblocked to plan | Eggup-side plan required for Eggup changes |
 | Adoption | eggsact/stegoeggo | blocked | contract + required generator/CI pieces |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
@@ -129,7 +131,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-`plans/implementation/release-manifest/001-release-manifest-v1-domain.md` is the sole dependency-ready Eggpack implementation handoff for the next round. It is rebaselined to the formal Contract M002 closure and now requires ProductId + ReleaseId + SourceRevision, relationship-preserving direct/bundle/archive artifact/member identity, exact size/SHA-256 evidence, deterministic JSON, and bounded non-trust-bearing evidence references. Do not pre-author Manifest M002, Build/Qualification M001, or Bootstrap Installers M001 until Manifest M001 closes and fixes the concrete schema boundary. Eggup M004 retirement is authorized independently in Eggup. The dist spike remains closed with disposition C; no backend-selection ADR or production adoption is authorized.
+Release Manifest M001 is closed with schema v1 and deterministic JSON. The next ready-to-plan work is Manifest M002 final-artifact builder, Build/Qualification M001, Bootstrap Installers M001, and Eggup interoperability M001 on the Eggpack side. Eggup changes still require its own registered plan. CI orchestration remains gated on the build-plan interface; broad ecosystem adoption remains gated on core producer capabilities. Eggup M004 retirement is authorized independently in Eggup. The dist spike remains closed with disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 

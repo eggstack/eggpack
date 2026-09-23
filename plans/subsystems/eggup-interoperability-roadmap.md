@@ -1,6 +1,6 @@
 # Eggup Interoperability Roadmap
 
-Status: proposed
+Status: active
 
 Long-term references:
 
@@ -104,4 +104,4 @@ A real Eggup consumer updates from Eggpack manifest evidence with less duplicate
 
 ## 12. Milestone status
 
-Blocked on ReleaseManifest v1.
+M001 cross-repository interface contract and fixtures is unblocked by ReleaseManifest v1. It still requires a registered Eggup-side plan before changes to Eggup; this roadmap does not claim any Eggup migration.

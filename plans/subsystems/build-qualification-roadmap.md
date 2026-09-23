@@ -1,6 +1,6 @@
 # Build and Qualification Roadmap
 
-Status: proposed
+Status: active
 
 Long-term references:
 
@@ -139,4 +139,4 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-All milestones remain blocked pending Release Manifest M001. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not itself authorize a backend or unblock build implementation ahead of the manifest interface.
+M001 PackConfig and ReleasePlan is ready now that Release Manifest M001 is closed. Later milestones retain their dependencies on implementation evidence and qualification architecture. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not authorize a backend.

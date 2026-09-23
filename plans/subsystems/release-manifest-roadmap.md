@@ -145,6 +145,6 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | ready | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | — | Contract M001/M002 closed |
-| M002 | blocked | — | — | manifest M001 + conformance M002 |
+| M001 | closed | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | `plans/closure/release-manifest/001-status.md` | — |
+| M002 | ready | — | — | Manifest M001 + conformance M002 closed |
 | M003 | planned | — | — | real consumer |

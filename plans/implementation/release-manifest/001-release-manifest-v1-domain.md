@@ -1,8 +1,10 @@
 # Release Manifest Milestone 001 — V1 Domain and Deterministic Serialization
 
-Status: ready for handoff
+Status: closed
 
-Repository baseline: `82f799f3d971b2999ac14c2d8fc1b965370e0f58` (Contract M002 formally closed; finalized implementation `a36803a7c34cc5b273559520bf99cb2400cc183a`; hosted CI green)
+Repository baseline: `c5fd88f` (Contract M002 formally closed; implementation started from the clean planning baseline)
+
+Closure record: `plans/closure/release-manifest/001-status.md`
 
 Source roadmap: `plans/subsystems/release-manifest-roadmap.md`
 

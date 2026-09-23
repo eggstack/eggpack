@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/eggpack-contract"]
+members = ["crates/eggpack-contract", "crates/eggpack-manifest"]
 
 [workspace.package]
 version = "0.1.0"
@@ -14,4 +14,3 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-
