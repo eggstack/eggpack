@@ -2,14 +2,15 @@
 
 Status: ready for handoff
 
-Repository baseline: `028668d7abf9f9cb2a040a9732ecd7a4c2f6d626` (Contract M001 closed; dist 0.33 evaluation closed with disposition C; latest hosted CI green)
+Repository baseline: `e3452263225fa1ea262e03b557f40b395e6a52d8` (Contract M001 closed; dist 0.33 evaluation closed with disposition C; producer/consumer boundary registered)
 
 External predecessor evidence:
 
 - repository: `eggstack/eggup`
-- reviewed main: `cf5b3d3819c168eb2dbf841daa8332f3eb28c915`
+- terminal predecessor implementation: `9941c58d7039410c728860f9e4e382881d4ccf54`
+- predecessor closure: `4169c8021b447fe73c8ee3ea71a80a535c940f54`
 - source plan: `plans/implementation/distribution-bootstrap/003-release-installer-conformance-validators.md`
-- source plan blob: `29c1f95d3f3bc3280241d9e4ae49de32efc50dca`
+- Eggup retirement plan: `plans/implementation/distribution-bootstrap/004-retire-eggup-dist-authority.md`
 
 Source roadmap: `plans/subsystems/contract-conformance-roadmap.md`
 
@@ -28,19 +29,19 @@ Primary class: capability / infrastructure
 
 ## 1. Objective
 
-Extend `eggpack-contract` with deterministic, pure conformance validators for caller-supplied release inventories, archive-member inventories, and product-supplied target mapping observations. This moves the validated intent of Eggup's distribution M003 to Eggpack after the contract migration. It must not discover releases, open archives, parse scripts, build installers, or perform deployment.
+Port the closed Eggup distribution M003 conformance surface into `eggpack-contract` and independently qualify it as Eggpack-owned behavior. The target surface covers caller-supplied release inventories, archive-member inventories, product-supplied target mapping observations, expected-release-file derivation, and deterministic structured reports. This is a fidelity migration first, not a new conformance design. It must not discover releases, open archives, parse scripts, build installers, or perform deployment.
 
 ## 2. Readiness and dependencies
 
 Hard dependency: Contract M001 is closed with schema-v1 direct/bundle/archive expansion and predecessor safety guarantees.
 
-Interface evidence: Eggup's registered M003 validator plan was reviewed at the external baseline above. It is adapted here to the Eggpack crate/API boundary; Eggpack is not claiming Eggup implementation or closure.
+Predecessor evidence: Eggup M003 is implemented and closed at the immutable SHAs above. Its public types, bounds, deterministic ordering, fixtures, and negative cases are the migration source. Eggpack must reproduce or explicitly map every closed behavior before refactoring. The Eggup repository has frozen `eggup-dist`; its M004 retirement remains blocked on this closure.
 
 Independent architecture evidence: the `dist` 0.33 spike is closed with disposition C (design prior art only). No external backend is production-authorized, and that result does not change this milestone's pure contract/conformance scope.
 
 ## 3. Current evidence
 
-`eggpack-contract` provides strict schema-v1 parsing, globally unambiguous target/alias resolution, direct/bundle/archive expansion, bounded values, strict templates, portable filename collision checks, and traversal-free member-source validation. It has three representative fixtures. It does not currently model observed release files, observed archive listings, mapping observations, or structured conformance findings.
+`eggpack-contract` provides strict schema-v1 parsing, globally unambiguous target/alias resolution, direct/bundle/archive expansion, bounded values, strict templates, portable filename collision checks, and traversal-free member-source validation. It has three representative fixtures. It does not yet contain the closed predecessor M003 additions: `MAX_OBSERVED_ENTRIES`, `ExpectedReleaseFile`, `ReleaseInventory`, `ArchiveMemberInventory`, `ObservedTargetMapping` and related asset mapping types, `FindingKind`, `ConformanceFinding`, `ConformanceReport`, `expected_release_files`, `validate_release_inventory`, `validate_archive_member_inventory`, and `validate_observed_mapping`.
 
 ## 4. Invariants
 
@@ -109,14 +110,15 @@ Add positive/negative integration tests using the imported direct, bundle, and a
 
 ## 7. Ordered work packages
 
-1. Define bounded expected-file, inventory, extras policy, finding, and report types.
-2. Implement release inventory construction and validation.
-3. Implement archive-member inventory and validation.
-4. Implement observed target mapping and exact contract comparison.
-5. Add direct/bundle/archive positive and negative test matrices and deterministic report goldens.
-6. Review whether a thin local-only CLI is justified; defer it unless consumer evidence shows library fixtures are insufficient.
-7. Run stable/MSRV/package/docs/dependency/hosted CI qualification.
-8. Write closure record and update roadmap/registry; re-evaluate Release Manifest M001 readiness and author/register its implementation plan only if this milestone closes the expected-file interface without new blockers.
+1. Inventory the closed Eggup M003 public API, constants, fixtures, bounds, and test matrix and record a predecessor-to-Eggpack mapping.
+2. Port the expected-file, inventory, extras-policy, finding, and report types without semantic redesign.
+3. Port release inventory construction and validation.
+4. Port archive-member inventory and validation.
+5. Port observed target mapping and exact contract comparison.
+6. Port/adapt direct/bundle/archive positive and negative tests and deterministic report goldens, adding differential/golden checks where practical.
+7. Review whether a thin local-only CLI is justified; defer it unless consumer evidence shows library fixtures are insufficient.
+8. Run stable/MSRV/package/docs/dependency/hosted CI qualification.
+9. Write closure record and update roadmap/registry; explicitly unblock Eggup distribution M004 retirement if equivalence is proven; re-evaluate Release Manifest M001 readiness and author/register it only if the expected-file interface closes without new blockers.
 
 ## 8. Failure, restart, and contention semantics
 
@@ -124,7 +126,7 @@ Validators return structured findings/errors and do not mutate observations or c
 
 ## 9. Compatibility and migration
 
-This is additive to the imported, unpublished schema-v1 API. Valid v1 documents retain identical interpretation. No Eggup repository changes are included. Any discovered need to change v1 meaning stops this plan and requires a corrective plan/ADR review.
+This is additive to the imported schema-v1 API and is a migration of the unpublished Eggup M003 behavior. Valid v1 documents retain identical interpretation. This plan does not mutate Eggup; its successful closure supplies the external evidence needed by Eggup M004 to delete the duplicate. Any discovered need to change v1 or closed M003 meaning stops this plan and requires a corrective plan/ADR review.
 
 ## 10. Required tests
 
@@ -137,6 +139,8 @@ This is additive to the imported, unpublished schema-v1 API. Valid v1 documents 
 - Stable deterministic finding ordering.
 - Entry-count and field-length bounds.
 - Existing M001 tests and fixtures continue passing.
+- Predecessor M003 public API/behavior matrix is complete, including bounds and deterministic ordering.
+- Direct/bundle/archive predecessor fixtures and negative cases are ported or explicitly mapped with equivalent coverage.
 - Static/dependency guard for no process/network/archive execution or Eggup dependency.
 
 ## 11. Required verification commands
@@ -169,7 +173,7 @@ No canonical architecture document changes are expected.
 
 ## 13. Acceptance criteria
 
-M002 closes only when release-file completeness, archive required-member presence, and runtime/bootstrap mapping can be compared deterministically for all three layout forms; reports and inputs are typed, bounded, and stable; extras policy is small and explicit; predecessor schema semantics remain unchanged; no source parser, network client, extractor, generator, or runtime deployment authority is introduced; and package/MSRV/docs/hosted CI pass.
+M002 closes only when release-file completeness, archive required-member presence, and runtime/bootstrap mapping can be compared deterministically for all three layout forms; reports and inputs are typed, bounded, and stable; extras policy is small and explicit; every closed Eggup M003 public behavior/fixture is ported or explicitly mapped to equivalent behavior; predecessor schema/conformance semantics remain unchanged; no source parser, network client, extractor, generator, or runtime deployment authority is introduced; and package/MSRV/docs/hosted CI pass.
 
 ## 14. Stop conditions
 
@@ -177,8 +181,8 @@ Stop and prepare corrective/ADR review if real mappings require arbitrary source
 
 ## 15. Closure evidence required
 
-Record implementation SHA, public API inventory, release/archive/mapping matrices, fixtures and report goldens, extras-policy and CLI decisions, dependency/package/MSRV/doc results, hosted CI, no-runtime-I/O evidence, unresolved findings, and dependency transitions.
+Record implementation SHA, predecessor-to-Eggpack API/behavior matrix, release/archive/mapping matrices, fixtures and report goldens, bounds/deterministic-order evidence, extras-policy and CLI decisions, dependency/package/MSRV/doc results, hosted CI, no-runtime-I/O evidence, unresolved findings, and an explicit statement whether Eggup M004 retirement is unblocked.
 
 ## 16. Handoff notes
 
-This milestone supplies the expected-file/conformance interface needed by Release Manifest M001 and installer planning. It does not authorize an Eggup migration or any consumer deletion. After closure, re-evaluate Release Manifest M001 and Bootstrap Installers M001 dependencies from their roadmaps.
+This milestone supplies the expected-file/conformance interface needed by Release Manifest M001 and installer planning and is the final producer-contract migration gate. After successful closure, Eggup distribution M004 is authorized to retire `eggup-dist`; no further producer distribution work should occur in Eggup. Then re-evaluate Release Manifest M001 and Bootstrap Installers M001 dependencies from their roadmaps.
