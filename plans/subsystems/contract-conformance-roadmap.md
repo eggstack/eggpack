@@ -74,18 +74,21 @@ It must not own build runners, network release discovery, archive extraction exe
 
 ## 4. Current state
 
-Predecessor implementation exists in `eggstack/eggup` at current reviewed baseline `cf5b3d3819c168eb2dbf841daa8332f3eb28c915`.
+Predecessor implementation exists in `eggstack/eggup`. The terminal producer-side predecessor is distribution M003: implementation `9941c58d7039410c728860f9e4e382881d4ccf54`, closure `4169c8021b447fe73c8ee3ea71a80a535c940f54`. Current Eggup planning assigns all future producer distribution work to Eggpack.
 
 Relevant predecessor closure evidence:
 
 - distribution M001 implementation `889a234cbe7f461d92def3df45c83c06a7d257e5`;
 - distribution M002 corrective `0a68f29fce44adf5f12d79f1b440a2c08aca9cb7`;
-- `eggup-dist` remains unpublished;
-- runtime Eggup crates do not depend on it.
+- distribution M003 implementation `9941c58d7039410c728860f9e4e382881d4ccf54`;
+- distribution M003 closure `4169c8021b447fe73c8ee3ea71a80a535c940f54`;
+- `eggup-dist` remains unpublished and frozen;
+- runtime Eggup crates do not depend on it;
+- Eggup distribution M004 is a blocked retirement plan waiting on this subsystem's M002 closure.
 
-The corrected predecessor schema already covers simple direct, CodeGG-like bundle, and Egress-like archive fixtures.
+The corrected predecessor schema covers simple direct, CodeGG-like bundle, and Egress-like archive fixtures. Closed M003 additionally provides the expected-release-file model, release/archive inventories, observed mappings, deterministic findings/report surface, bounds, and positive/negative conformance fixtures.
 
-Eggup also contains an implementation-ready M003 validator plan. Eggpack should adopt that intent after the migration closes instead of implementing it in Eggup first.
+M002 must port that closed behavior rather than independently redesign it. Refactoring is allowed only after behavior equivalence is demonstrated.
 
 ## 5. Target architecture
 
@@ -121,7 +124,7 @@ M003 consumer fixture/CLI polish
 
 M001 has only interface/evidence dependencies on Eggup and is ready.
 
-M002 is hard-blocked on M001 closure.
+M002 is ready because M001 is closed and the terminal Eggup M003 predecessor is closed.
 
 ## 7. Milestones
 
@@ -145,15 +148,15 @@ Deferred: removing `eggup-dist` from Eggup.
 
 Class: capability / infrastructure
 
-Objective: move the already-designed validator milestone to Eggpack.
+Objective: port the closed Eggup M003 validator implementation and independently qualify it as Eggpack-owned behavior.
 
-Dependencies: M001 closed.
+Dependencies: M001 closed; Eggup M003 implementation/closure available as immutable predecessor evidence.
 
 Deliverable boundary: pure expected/observed comparisons, reports, fixtures.
 
 Value: CI/installers/runtime mappings can detect drift against one authority.
 
-Exit conditions: all direct/bundle/archive positive/negative matrices pass; no network/process dependency.
+Exit conditions: all direct/bundle/archive positive/negative matrices pass; predecessor public behaviors/fixtures are accounted for; no network/process dependency; Eggup M004 retirement is unblocked.
 
 ### M003 — Conformance consumer polish
 
@@ -192,13 +195,13 @@ Public schema examples and migration provenance are required.
 
 ## 10. Risks and decision points
 
-The main risk is "improving" the schema during migration and losing proof continuity. M001 is intentionally fidelity-first.
+The main risk is "improving" the schema or conformance semantics during migration and losing proof continuity. M001 and M002 are intentionally fidelity-first. Any deliberate semantic change belongs after migration closure and requires versioning/ADR treatment.
 
 A future combined Eggpack producer configuration must reference this contract rather than create another artifact-name authority.
 
 ## 11. Completion definition
 
-The subsystem is complete when contract v1 is Eggpack-owned, conformance is deterministic, at least two consumers depend on the same contract, and Eggup no longer owns a competing release-layout implementation.
+The subsystem is complete when contract v1 and conformance are Eggpack-owned, deterministic, and proven by real consumers, and Eggup has executed its M004 retirement so no competing active release-layout implementation remains.
 
 ## 12. Milestone status
 
