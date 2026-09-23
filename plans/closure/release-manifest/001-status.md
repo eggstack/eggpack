@@ -87,3 +87,12 @@ No implementation finding blocks closure. JSON Schema export remains out of scop
 - No corrective plan or ADR is required. ADR-0002 remains satisfied.
 
 The registry and affected roadmaps record these transitions. The manifest builder remains a separate milestone; this closure does not claim generated artifacts or consumer adoption.
+
+
+## Post-closure corrective registration
+
+Subsequent review after this closure identified a validation-scope defect: install-name collision tracking in `ReleaseManifest::validate()` is manifest-global, while DistributionContract semantics and checked-in multi-target fixtures require install-name uniqueness to be target-local. The historical implementation/CI evidence above remains accurate for the code that closed M001; it is not rewritten to conceal the later finding.
+
+Corrective plan: `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md`.
+
+Until M001a closes, Release Manifest M002, Build/Qualification M001, Bootstrap Installers M001, and Eggup interoperability M001 are re-blocked on the corrected manifest invariant. A separate `plans/closure/release-manifest/001a-status.md` will provide the corrective closure evidence.
