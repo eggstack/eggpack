@@ -19,6 +19,8 @@ Eggpack uses:
 
 A lower layer may refine implementation detail but MUST NOT silently contradict a higher layer.
 
+Every release/distribution plan MUST first classify ownership. Producer release contracts, conformance, build/qualification, packaging, final release evidence, bootstrap generation, generated release CI, staging/publication, and producer provenance belong to Eggpack. Consumer-machine acquisition, verification, local install/update/rollback, service lifecycle, and install receipts belong to Eggup. Application release/version/origin/fallback policy remains product-owned.
+
 ## 2. Baseline rule
 
 Every implementation plan MUST name a concrete Eggpack repository baseline.
@@ -71,30 +73,31 @@ A spike does not authorize production dependency adoption. An ADR or follow-on i
 
 ## 6. Migration rule for eggup-dist
 
-The existing unpublished `eggup-dist` crate is qualified predecessor evidence.
+The unpublished `eggup-dist` crate is frozen qualified predecessor evidence. Eggup distribution M003 is the terminal producer-side predecessor and is already closed.
 
 Migration proceeds as:
 
 ```text
-capture source baseline
+Eggup M003 closed implementation/closure
       |
       v
-copy/import into eggpack-contract
+Eggpack Contract M001 schema import [closed]
       |
       v
-reproduce all predecessor tests/invariants
+Eggpack Contract M002 conformance fidelity port
       |
       v
-close Eggpack migration milestone
+close M002 with predecessor behavior matrix
       |
-      v
-write Eggup cleanup/migration plan
+      +--> unblock Eggpack ReleaseManifest planning
       |
-      v
-remove/deprecate Eggup copy
+      `--> authorize already-registered Eggup M004 retirement
+                  |
+                  v
+           remove eggup-dist
 ```
 
-Do not create a period where neither repository contains the qualified contract. Do not remove the Eggup copy merely because files were copied.
+Do not create a period where neither repository contains the qualified contract. Do not remove the Eggup copy merely because files were copied. Contract M002 closure MUST explicitly state whether Eggup M004 retirement is unblocked. After cutover, producer contract evolution occurs only in Eggpack.
 
 ## 7. Implementation plan requirements
 
