@@ -34,7 +34,8 @@ This file is the compact control surface for active interim planning. Detailed r
 ### Eggpack
 
 - repository began empty on 2026-09-22; Contract M001 and the dist 0.33 evaluation are closed;
-- current reviewed planning/implementation baseline before the producer/consumer reorientation: `e3452263225fa1ea262e03b557f40b395e6a52d8`;
+- last reviewed code/implementation baseline before the planning-only producer/consumer reorientation: `e3452263225fa1ea262e03b557f40b395e6a52d8`;
+- producer/consumer reorientation baseline: `5793ccecf5139d9b7b250534703ec5ee84fe44b8`; subsequent planning-only corrections preserve that ownership/cutover model;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
