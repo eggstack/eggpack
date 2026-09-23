@@ -2,7 +2,7 @@
 
 Status: ready for handoff
 
-Repository baseline: `82a4ac8` (Contract M001 implementation and hosted CI complete)
+Repository baseline: `028668d7abf9f9cb2a040a9732ecd7a4c2f6d626` (Contract M001 closed; dist 0.33 evaluation closed with disposition C; latest hosted CI green)
 
 External predecessor evidence:
 
@@ -35,6 +35,8 @@ Extend `eggpack-contract` with deterministic, pure conformance validators for ca
 Hard dependency: Contract M001 is closed with schema-v1 direct/bundle/archive expansion and predecessor safety guarantees.
 
 Interface evidence: Eggup's registered M003 validator plan was reviewed at the external baseline above. It is adapted here to the Eggpack crate/API boundary; Eggpack is not claiming Eggup implementation or closure.
+
+Independent architecture evidence: the `dist` 0.33 spike is closed with disposition C (design prior art only). No external backend is production-authorized, and that result does not change this milestone's pure contract/conformance scope.
 
 ## 3. Current evidence
 
@@ -114,7 +116,7 @@ Add positive/negative integration tests using the imported direct, bundle, and a
 5. Add direct/bundle/archive positive and negative test matrices and deterministic report goldens.
 6. Review whether a thin local-only CLI is justified; defer it unless consumer evidence shows library fixtures are insufficient.
 7. Run stable/MSRV/package/docs/dependency/hosted CI qualification.
-8. Write closure record and update roadmap/registry; re-evaluate Manifest M001 readiness.
+8. Write closure record and update roadmap/registry; re-evaluate Release Manifest M001 readiness and author/register its implementation plan only if this milestone closes the expected-file interface without new blockers.
 
 ## 8. Failure, restart, and contention semantics
 
