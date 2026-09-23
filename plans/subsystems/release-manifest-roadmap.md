@@ -89,7 +89,10 @@ contract M001
 conformance M002
     |
     v
-manifest M001 schema/builder
+manifest M001 schema/domain
+    |
+    v
+manifest M002 final-artifact builder
     |
     +--> Eggup interoperability
     +--> bootstrap/CI aggregation
@@ -104,7 +107,7 @@ Class: invariant / infrastructure
 
 Hard dependency: Contract M002 closure, now satisfied; it stabilizes the expected-file/conformance interface on top of already-closed Contract M001.
 
-Define bounded types, JSON shape, ordering, validation, direct/bundle/archive fixtures.
+Define bounded ProductId/ReleaseId/SourceRevision and evidence-reference types, JSON shape, deterministic ordering, relationship-preserving direct/bundle/archive artifact/member identity, validation, and fixtures.
 
 ### M002 — Final artifact manifest builder
 
@@ -112,7 +115,7 @@ Class: capability
 
 Hard dependency: conformance M002 + M001.
 
-Build a manifest only from a complete, validated final inventory with computed size/digest and qualification references.
+Build a manifest only from a complete, validated final inventory with computed artifact/member size/digest and bounded qualification/provenance evidence references.
 
 ### M003 — Schema export and compatibility harness
 
