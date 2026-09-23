@@ -88,4 +88,4 @@ At least two consumers have removed duplicated mapping/checksum authority from b
 
 ## 12. Milestone status
 
-M001 generator model and direct installer fixtures is ready: Manifest M001 and contract conformance M002 are closed. Bundle/archive safety and adoption retain their later milestone dependencies.
+M001 generator model and direct installer fixtures is temporarily blocked on Release Manifest M001a. Contract conformance M002 is closed, but bootstrap generation must not consume Manifest v1 until the cross-target install-namespace corrective re-closes the schema. Bundle/archive safety and adoption retain their later milestone dependencies.
