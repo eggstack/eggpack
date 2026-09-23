@@ -268,6 +268,41 @@ fn bundle_and_archive_mapping_conformance_cover_every_member() {
 }
 
 #[test]
+fn bundle_mapping_keeps_asset_sidecar_install_relationships() {
+    let contract = load("codegg-bundle.toml");
+    let expanded = contract
+        .expand("x86_64-unknown-linux-gnu", "0.9.0")
+        .unwrap();
+    let eggpack_contract::ExpandedAssets::Bundle(bundle) = expanded.assets else {
+        panic!("fixture should be a bundle");
+    };
+    let mut entries = bundle
+        .entries
+        .into_iter()
+        .map(|entry| ObservedDirectMapping {
+            asset_file: entry.asset_file,
+            sidecar_file: entry.sidecar_file,
+            install_name: entry.install_name,
+        })
+        .collect::<Vec<_>>();
+    entries.swap(0, 1);
+    entries[0].install_name = "codegg".to_string();
+    entries[1].install_name = "codegg-helper".to_string();
+    let observation = ObservedTargetMapping {
+        target: expanded.triple.clone(),
+        canonical_target: expanded.triple,
+        assets: ObservedTargetAssets::Bundle { entries },
+    };
+
+    let report = validate_observed_mapping(&contract, "0.9.0", &observation);
+    assert_eq!(report.findings.len(), 2);
+    assert!(report
+        .findings
+        .iter()
+        .all(|finding| finding.kind == FindingKind::InstallNameMismatch));
+}
+
+#[test]
 fn observations_reject_oversized_or_unsafe_inputs_and_sort_findings() {
     let contract = load("simple-direct.toml");
     let oversized = ObservedTargetMapping {

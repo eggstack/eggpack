@@ -1340,7 +1340,7 @@ pub enum ObservedTargetAssets {
 ///
 /// This type deliberately contains no URLs, version policy, commands, privileges,
 /// scripts, or service behavior. It can be serialized as TOML by a consumer;
-/// Eggup compares the data and does not parse consumer source code.
+/// Eggpack compares the data and does not parse consumer source code.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObservedTargetMapping {
@@ -1576,48 +1576,51 @@ fn compare_observed_assets(
             );
         }
         (ExpandedAssets::Bundle(expected), ObservedTargetAssets::Bundle { entries }) => {
-            compare_names(
-                FindingKind::AssetMismatch,
-                "bundle assets",
-                &expected
-                    .entries
+            let mut expected = expected.entries.iter().collect::<Vec<_>>();
+            let mut observed = entries.iter().collect::<Vec<_>>();
+            expected.sort_by(|a, b| a.asset_file.cmp(&b.asset_file));
+            observed.sort_by(|a, b| a.asset_file.cmp(&b.asset_file));
+            for (index, (expected, observed)) in expected.iter().zip(observed.iter()).enumerate() {
+                let label = format!("bundle entries[{index}]");
+                compare_names(
+                    FindingKind::AssetMismatch,
+                    &format!("{label} asset"),
+                    &[expected.asset_file.as_str()],
+                    &[observed.asset_file.as_str()],
+                    findings,
+                );
+                compare_names(
+                    FindingKind::SidecarMismatch,
+                    &format!("{label} sidecar"),
+                    &[expected.sidecar_file.as_str()],
+                    &[observed.sidecar_file.as_str()],
+                    findings,
+                );
+                compare_names(
+                    FindingKind::InstallNameMismatch,
+                    &format!("{label} install"),
+                    &[expected.install_name.as_str()],
+                    &[observed.install_name.as_str()],
+                    findings,
+                );
+            }
+            if expected.len() != observed.len() {
+                let expected_assets = expected
                     .iter()
-                    .map(|e| e.asset_file.as_str())
-                    .collect::<Vec<_>>(),
-                &entries
+                    .map(|entry| entry.asset_file.as_str())
+                    .collect::<Vec<_>>();
+                let observed_assets = observed
                     .iter()
-                    .map(|e| e.asset_file.as_str())
-                    .collect::<Vec<_>>(),
-                findings,
-            );
-            compare_names(
-                FindingKind::SidecarMismatch,
-                "bundle sidecars",
-                &expected
-                    .entries
-                    .iter()
-                    .map(|e| e.sidecar_file.as_str())
-                    .collect::<Vec<_>>(),
-                &entries
-                    .iter()
-                    .map(|e| e.sidecar_file.as_str())
-                    .collect::<Vec<_>>(),
-                findings,
-            );
-            compare_names(
-                FindingKind::InstallNameMismatch,
-                "bundle installs",
-                &expected
-                    .entries
-                    .iter()
-                    .map(|e| e.install_name.as_str())
-                    .collect::<Vec<_>>(),
-                &entries
-                    .iter()
-                    .map(|e| e.install_name.as_str())
-                    .collect::<Vec<_>>(),
-                findings,
-            );
+                    .map(|entry| entry.asset_file.as_str())
+                    .collect::<Vec<_>>();
+                compare_names(
+                    FindingKind::AssetMismatch,
+                    "bundle entry count",
+                    &expected_assets,
+                    &observed_assets,
+                    findings,
+                );
+            }
         }
         (
             ExpandedAssets::Archive(expected),
