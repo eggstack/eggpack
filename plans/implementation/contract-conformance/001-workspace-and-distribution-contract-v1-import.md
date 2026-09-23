@@ -1,6 +1,6 @@
 # Contract and Conformance Milestone 001 — Workspace Bootstrap and DistributionContract v1 Import
 
-Status: closing — implementation committed locally; hosted CI evidence pending
+Status: closed
 
 Repository baseline: `23a7f312589327088482a0158be611b472c80dc9`
 

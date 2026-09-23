@@ -57,7 +57,7 @@ Distribution predecessor evidence:
 
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
-| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M001 closing | local checks complete; hosted CI pending |
+| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 ready | M001 closed with hosted CI |
 | External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 ready | none |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M001 + conformance interface |
 | Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | contract/manifest + backend disposition |
@@ -72,17 +72,15 @@ Two initial workstreams are dependency-ready and SHOULD proceed in parallel:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Contract and conformance | M001 workspace + DistributionContract v1 import | closing | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | hosted Linux/macOS/Windows CI |
+| Contract and conformance | M001 workspace + DistributionContract v1 import | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | — |
+| Contract and conformance | M002 release and installer conformance validators | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | M001 closure |
 | External backend evaluation | M001 dist 0.33 capability spike | ready | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | none |
-
-No other implementation plan should be marked ready before these evidence gates move.
 
 ## Planned / blocked work
 
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
-| Contract/conformance | M002 validators | blocked | contract M001 closure |
-| Release manifest | M001 schema/domain | blocked | contract M001 + conformance interface |
+| Release manifest | M001 schema/domain | blocked | conformance M002 expected-file interface |
 | Build/qualification | M001 PackConfig/ReleasePlan | blocked | manifest/contract + backend M001 disposition |
 | Bootstrap installers | M001 direct generator | blocked | conformance + manifest |
 | CI orchestration | M001 CIPlan/renderer | blocked | build-plan interface |
@@ -138,7 +136,7 @@ The contract M001 implementation is closing; the independent backend spike remai
 1. `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md`;
 2. `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md`.
 
-Contract M002 remains blocked until Contract M001 closure. Any production external-backend adoption remains blocked until the dist spike closes and a backend-selection ADR is reviewed.
+Contract M001 is closed; its M002 validator successor is ready. The external backend spike is independent and is the next execution handoff. Any production external-backend adoption remains blocked until the dist spike closes and a backend-selection ADR is reviewed.
 
 ## Registry update rule
 
