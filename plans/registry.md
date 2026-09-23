@@ -33,7 +33,8 @@ This file is the compact control surface for active interim planning. Detailed r
 
 ### Eggpack
 
-- repository began empty on 2026-09-22; Contract M001 is implemented and closed;
+- repository began empty on 2026-09-22; Contract M001 and the dist 0.33 evaluation are closed;
+- current reviewed planning/implementation baseline before this registry update: `6ace467d1c3ecd9f76e223799017039504989eac`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
@@ -58,7 +59,7 @@ Distribution predecessor evidence:
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 ready | M001 closed with hosted CI |
-| External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | new plan required to reconsider production adoption |
+| External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M002 expected-file interface |
 | Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | Contract M002 + manifest M001; dist disposition C is closed |
 | Bootstrap installers | proposed | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 blocked | conformance + manifest |
@@ -124,7 +125,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-`plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` is ready and is the next dependency-ready handoff. The two requested M001 plans are closed. Contract M002 is not blocked by an unforeseen issue. The dist spike closed with disposition C; no backend-selection ADR or production adoption is authorized.
+`plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` is the sole dependency-ready implementation handoff for the next round and is rebaselined to the current closed-M001/closed-dist state. Do not pre-author Release Manifest M001 until Contract M002 closes and proves the expected-file/conformance interface. The dist spike is closed with disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 
