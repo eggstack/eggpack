@@ -122,7 +122,7 @@ M002 conformance validators
 M003 consumer fixture/CLI polish
 ```
 
-M001 has only interface/evidence dependencies on Eggup and is ready.
+M001 is closed; its schema/expansion import is qualified and retained as the first migration stage.
 
 M002 is ready because M001 is closed and the terminal Eggup M003 predecessor is closed.
 
