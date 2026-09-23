@@ -84,11 +84,11 @@ Relevant predecessor closure evidence:
 - distribution M003 closure `4169c8021b447fe73c8ee3ea71a80a535c940f54`;
 - `eggup-dist` remains unpublished and frozen;
 - runtime Eggup crates do not depend on it;
-- Eggup distribution M004 is a blocked retirement plan waiting on this subsystem's M002 closure.
+- Eggup distribution M004 was blocked on this subsystem's M002 closure and is now authorized to retire the frozen crate.
 
 The corrected predecessor schema covers simple direct, CodeGG-like bundle, and Egress-like archive fixtures. Closed M003 additionally provides the expected-release-file model, release/archive inventories, observed mappings, deterministic findings/report surface, bounds, and positive/negative conformance fixtures.
 
-M002 must port that closed behavior rather than independently redesign it. Refactoring is allowed only after behavior equivalence is demonstrated.
+M002 has ported the closed API and intended conformance behavior without changing schema v1. Review also found and fixed a predecessor comparison blind spot for crossed bundle entry mappings; see `plans/closure/contract-conformance/002-status.md` for the matrix. The already-registered Eggup M004 retirement is authorized, but Eggpack does not claim that Eggup has executed it.
 
 ## 5. Target architecture
 
@@ -124,7 +124,7 @@ M003 consumer fixture/CLI polish
 
 M001 is closed; its schema/expansion import is qualified and retained as the first migration stage.
 
-M002 is ready because M001 is closed and the terminal Eggup M003 predecessor is closed.
+M002 is closed with the terminal Eggup M003 predecessor behavior qualified. M003 remains planned pending consumer evidence.
 
 ## 7. Milestones
 
@@ -208,5 +208,5 @@ The subsystem is complete when contract v1 and conformance are Eggpack-owned, de
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | `plans/closure/contract-conformance/001-status.md` | — |
-| M002 | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | — | M001 closed + closed Eggup M003 predecessor evidence |
+| M002 | closed | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | `plans/closure/contract-conformance/002-status.md` | — |
 | M003 | planned | — | — | M002 + consumer evidence |

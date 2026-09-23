@@ -88,4 +88,4 @@ At least two consumers have removed duplicated mapping/checksum authority from b
 
 ## 12. Milestone status
 
-Blocked on contract conformance + manifest.
+Blocked on Release Manifest M001; contract conformance M002 is closed.

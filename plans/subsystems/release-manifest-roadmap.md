@@ -61,7 +61,7 @@ It does not own build strategy, release selection, hosting authority, live insta
 
 ## 4. Current state
 
-`eggpack-contract` now exists and Contract M001 is closed. Contract M002 is the sole dependency-ready implementation handoff and will establish the expected-file/conformance interface this subsystem consumes. No Eggpack release-manifest crate exists yet. The `dist` 0.33 evaluation closed with disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
+`eggpack-contract` exists and Contract M001/M002 are closed. M002 established the expected-file/conformance interface this subsystem consumes. No Eggpack release-manifest crate exists yet. The `dist` 0.33 evaluation closed with disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
 
 ## 5. Target architecture
 
@@ -102,7 +102,7 @@ manifest M001 schema/builder
 
 Class: invariant / infrastructure
 
-Hard dependency: Contract M002 closure, which stabilizes the expected-file/conformance interface on top of already-closed Contract M001.
+Hard dependency: Contract M002 closure, now satisfied; it stabilizes the expected-file/conformance interface on top of already-closed Contract M001.
 
 Define bounded types, JSON shape, ordering, validation, direct/bundle/archive fixtures.
 
@@ -142,6 +142,6 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | blocked | — | — | Contract M002 expected-file/conformance interface |
+| M001 | ready | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | — | Contract M001/M002 closed |
 | M002 | blocked | — | — | manifest M001 + conformance M002 |
 | M003 | planned | — | — | real consumer |

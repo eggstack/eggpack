@@ -139,4 +139,4 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-All milestones remain blocked pending Contract M002 and Release Manifest M001. Backend-evaluation evidence is closed; disposition C does not itself authorize a backend or unblock build implementation ahead of the contract/manifest interfaces.
+All milestones remain blocked pending Release Manifest M001. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not itself authorize a backend or unblock build implementation ahead of the manifest interface.
