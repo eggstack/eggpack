@@ -73,7 +73,7 @@ Eggpack MAY use external build/release backends. Eggup MAY consume Eggpack manif
 
 ## Compatibility and migration
 
-`eggup-dist` remains in Eggup until Eggpack faithfully imports and qualifies schema v1. A later Eggup plan will remove/deprecate the duplicate and, if useful, add a manifest consumer adapter.
+`eggup-dist` is frozen after Eggup distribution M003, which closed the schema-v1 conformance surface in addition to the earlier schema work. Eggpack Contract M002 must port and independently qualify that closed M003 behavior. Eggup has a separate blocked M004 retirement plan that removes the duplicate only after Eggpack M002 closes. A future manifest consumer adapter is separate and waits for Eggpack ReleaseManifest v1.
 
 ## Security and reliability implications
 
@@ -81,6 +81,8 @@ Security-sensitive runtime mutation remains in Eggup. Build hooks, CI permission
 
 ## Verification
 
+- Eggpack Contract M002 closure demonstrates equivalence to the closed Eggup M003 conformance surface;
+- the subsequent Eggup M004 retirement removes the duplicate producer crate;
 - dependency trees show Eggup core has no Eggpack build dependency;
 - Eggpack can produce a manifest consumed by an optional Eggup adapter;
 - Eggpack can be used without Eggup;
