@@ -139,4 +139,4 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-M001 PackConfig and ReleasePlan is ready now that Release Manifest M001 is closed. Later milestones retain their dependencies on implementation evidence and qualification architecture. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not authorize a backend.
+M001 PackConfig and ReleasePlan is temporarily blocked on Release Manifest M001a. Manifest M001 implemented the required schema boundary, but the post-closure cross-target install-namespace defect must be corrected and re-closed before build planning consumes that schema. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not authorize a backend.
