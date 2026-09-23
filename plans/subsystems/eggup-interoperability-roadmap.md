@@ -50,7 +50,7 @@ Eggpack owns manifest semantics. Eggup owns adapter-to-deployment behavior.
 
 ## 4. Current state
 
-Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 is implemented, but post-closure review found a cross-target install-namespace validation defect; M001a must close before this interface is treated as stable for cross-repository consumption.
+Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. The Eggpack-side M001 interface contract and fixtures are ready; any Eggup repository implementation still requires a registered Eggup-side plan.
 
 ## 5. Target architecture
 
@@ -104,4 +104,4 @@ A real Eggup consumer updates from Eggpack manifest evidence with less duplicate
 
 ## 12. Milestone status
 
-M001 cross-repository interface contract and fixtures is temporarily blocked on Release Manifest M001a. After that corrective re-closes the schema, Eggpack-side interoperability planning may resume; any Eggup repository changes still require a registered Eggup-side plan.
+M001 cross-repository interface contract and fixtures is ready now that Release Manifest M001a closed. Eggpack-side interface/fixture work may proceed; any Eggup repository changes still require a registered Eggup-side plan.

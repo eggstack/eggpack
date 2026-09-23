@@ -1,6 +1,8 @@
 # Release Manifest Milestone 001a — Cross-Target Install Namespace Corrective and Closure Cleanup
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/release-manifest/001a-status.md`
 
 Repository baseline: `b71f8b8bc9edca9da58cb0432b4839edc9fa5bd4` (Release Manifest M001 implementation and hosted closure evidence landed)
 
@@ -207,6 +209,8 @@ Until M001a closes, keep these blocked in Eggpack:
 
 Eggup M004 retirement remains authorized by Contract M002 and is independent of this manifest corrective.
 
+Gate disposition: this condition was satisfied when M001a closed. The newly ready milestones and remaining blockers are recorded in `plans/closure/release-manifest/001a-status.md` and the updated registry.
+
 ## 14. Handoff
 
-This is the sole dependency-ready Eggpack implementation handoff. Keep the change narrow: correct namespace scope, add regression evidence, preserve schema v1, re-close the manifest domain, and reconcile planning state.
+At registration, this was the sole dependency-ready Eggpack implementation handoff. The corrective is now closed; follow-on milestone plans must be registered before their implementation begins.

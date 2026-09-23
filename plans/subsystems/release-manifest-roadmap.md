@@ -61,7 +61,7 @@ It does not own build strategy, release selection, hosting authority, live insta
 
 ## 4. Current state
 
-`eggpack-contract` exists and Contract M001/M002 are closed. `eggpack-manifest` schema v1 was implemented in Release Manifest M001, but post-closure review found that install-name collision tracking was incorrectly manifest-global instead of target-local. Corrective M001a is therefore the active gate. The `dist` 0.33 evaluation remains disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
+`eggpack-contract` exists and Contract M001/M002 are closed. `eggpack-manifest` schema v1 is implemented, and corrective M001a closed the cross-target install-namespace defect while preserving manifest-global artifact filename uniqueness. Manifest M002 is ready to implement. The `dist` 0.33 evaluation remains disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
 
 ## 5. Target architecture
 
@@ -157,6 +157,6 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 | closed (historical) | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | `plans/closure/release-manifest/001-status.md` | post-closure defect tracked by M001a |
-| M001a | ready | `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md` | — | M001 implementation/closure |
-| M002 | blocked | — | — | M001a corrective closure |
+| M001a | closed | `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md` | `plans/closure/release-manifest/001a-status.md` | M001 implementation/closure |
+| M002 | ready | — | — | M001 + M001a closed; conformance M002 closed |
 | M003 | planned | — | — | real consumer |

@@ -95,4 +95,4 @@ Subsequent review after this closure identified a validation-scope defect: insta
 
 Corrective plan: `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md`.
 
-Until M001a closes, Release Manifest M002, Build/Qualification M001, Bootstrap Installers M001, and Eggup interoperability M001 are re-blocked on the corrected manifest invariant. A separate `plans/closure/release-manifest/001a-status.md` will provide the corrective closure evidence.
+Corrective M001a has since closed. Its implementation, verification, and dependency transitions are recorded separately in `plans/closure/release-manifest/001a-status.md`; the historical M001 findings and conclusions above remain unchanged.
