@@ -54,11 +54,11 @@ The first candidate is `axodotdev/cargo-dist` / `dist`.
 
 Verified initial external baseline: `dist` 0.33.0, released 2026-09-10/11, with current upstream repository activity. Its own release demonstrates multiple Rust targets, checksums, installers, a `dist-manifest.json`, and GitHub Artifact Attestations.
 
-That makes it too capable to ignore, but Eggstack has requirements that need explicit testing: sibling bundles, archive-member semantics, ARMv7/SBC targets, glibc floors, deferred-native/QEMU qualification, readable generated CI, manifest normalization, and separation from updater ownership.
+The closed M001 spike found useful archive/build/install/CI prior art, but no production backend fit without substantial Eggpack-owned normalization and qualification. Disposition C is recorded in `plans/closure/external-backend-evaluation/001-status.md`. Eggpack has not adopted a backend.
 
 ## 5. Target architecture
 
-No target backend architecture is selected yet.
+No production backend architecture is selected. M001 recommends prior-art-only use of dist's target/archive/checksum/manifest patterns and an Eggpack-owned normalization boundary if a separately planned adapter is proposed.
 
 Possible accepted shapes:
 
@@ -70,9 +70,9 @@ Eggpack plan -> mixed backend by target/package kind
 
 ## 6. Dependency graph
 
-M001 spike is independent of Eggpack code foundation and may run in parallel with contract migration.
+M001 spike was independent of Eggpack code foundation and is closed.
 
-A production backend decision is hard-blocked on spike closure and requires an ADR.
+Production backend adoption remains unapproved. An ADR is required only if a future registered evaluation recommends adoption or partial adoption (M001 disposition A/B).
 
 ## 7. Milestones
 
@@ -96,11 +96,11 @@ Scenarios:
 
 Exit conditions: factual capability matrix, prototype evidence where needed, dependency/maintenance assessment, recommended disposition without production adoption.
 
-### M002 — Backend selection ADR
+### M002 — Backend selection ADR (conditional)
 
-Class: invariant
+Class: invariant; not triggered by disposition C
 
-Created only if M001 supports adopting or partially adopting an external backend.
+Create only if a new evidence plan recommends adopting or partially adopting an external backend.
 
 ## 8. Cross-cutting requirements
 
@@ -124,5 +124,4 @@ The subsystem closes when maintainers can make an evidence-backed backend decisi
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | active | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | — | controlled spike in progress |
-| M002 | blocked | — | — | M001 |
+| M001 | closed | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | `plans/closure/external-backend-evaluation/001-status.md` | — |

@@ -1,0 +1,39 @@
+[workspace]
+
+[package]
+name = "eggsact"
+version = "1.2.6"
+edition = "2021"
+publish = false
+repository = "https://github.com/eggstack/eggpack-dist-direct-fixture"
+
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.33.0"
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["aarch64-apple-darwin", "aarch64-pc-windows-msvc", "aarch64-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
+# The installers to generate for each app
+installers = ["shell", "powershell"]
+# CI backends to support
+ci = "github"
+# Whether to install an updater program
+install-updater = false
+github-attestations = true
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+
+[package.metadata.dist]
+dist = true
+
+[package.metadata.dist.min-glibc-version]
+"*" = "2.17"
+
+[[bin]]
+name = "eggsact"
+path = "src/main.rs"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

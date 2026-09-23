@@ -77,7 +77,7 @@ Current Eggstack repos provide evidence for:
 - archive pairs;
 - product-owned smoke scripts.
 
-The external-backend spike must inform whether Eggpack implements or delegates these mechanics.
+The external-backend spike closed with disposition C: dist is design prior art only. No backend is selected; a later build plan must keep the backend replaceable and retain Eggpack's own identity, qualification, and finalization authority.
 
 ## 5. Target architecture
 
@@ -101,7 +101,7 @@ Hard dependencies:
 
 - contract M001/M002;
 - release manifest M001 interface;
-- external backend M001 disposition.
+- external backend M001 disposition (closed C; satisfied, no production adoption).
 
 ## 7. Milestones
 
@@ -139,4 +139,4 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-All milestones blocked pending contract/manifest and backend evidence.
+All milestones remain blocked pending Contract M002 and Release Manifest M001. Backend-evaluation evidence is closed; disposition C does not itself authorize a backend or unblock build implementation ahead of the contract/manifest interfaces.

@@ -33,7 +33,7 @@ This file is the compact control surface for active interim planning. Detailed r
 
 ### Eggpack
 
-- repository began empty on 2026-09-22; first production workspace/crate implementation is underway;
+- repository began empty on 2026-09-22; Contract M001 is implemented and closed;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
@@ -58,9 +58,9 @@ Distribution predecessor evidence:
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 ready | M001 closed with hosted CI |
-| External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 active | local evaluation against pinned dist 0.33.0 |
-| Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M001 + conformance interface |
-| Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | contract/manifest + backend disposition |
+| External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | new plan required to reconsider production adoption |
+| Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M002 expected-file interface |
+| Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | Contract M002 + manifest M001; dist disposition C is closed |
 | Bootstrap installers | proposed | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 blocked | conformance + manifest |
 | CI/release orchestration | proposed | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 blocked | build/qualification architecture |
 | Eggup interoperability | proposed | `plans/subsystems/eggup-interoperability-roadmap.md` | M001 blocked | manifest v1 |
@@ -68,20 +68,18 @@ Distribution predecessor evidence:
 
 ## Dependency-ready implementation work
 
-Two initial workstreams are dependency-ready and SHOULD proceed in parallel:
+Current dependency-ready implementation work:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Contract and conformance | M001 workspace + DistributionContract v1 import | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | — |
 | Contract and conformance | M002 release and installer conformance validators | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | M001 closure |
-| External backend evaluation | M001 dist 0.33 capability spike | active | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | none |
 
 ## Planned / blocked work
 
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 | Release manifest | M001 schema/domain | blocked | conformance M002 expected-file interface |
-| Build/qualification | M001 PackConfig/ReleasePlan | blocked | manifest/contract + backend M001 disposition |
+| Build/qualification | M001 PackConfig/ReleasePlan | blocked | Contract M002 + Release Manifest M001 |
 | Bootstrap installers | M001 direct generator | blocked | conformance + manifest |
 | CI orchestration | M001 CIPlan/renderer | blocked | build-plan interface |
 | Eggup interoperability | M001 cross-repo interface fixtures | blocked | manifest v1 |
@@ -95,13 +93,13 @@ Two initial workstreams are dependency-ready and SHOULD proceed in parallel:
 Eggup eggup-dist M001/M002 evidence
                |
                v
-Eggpack contract M001 [READY]
+Eggpack contract M001 [CLOSED]
                |
                v
-contract conformance M002
+contract conformance M002 [READY]
                |
                v
-ReleaseManifest v1
+ReleaseManifest M001 [BLOCKED]
        |               |
        v               v
  Eggup seam       bootstrap/CI
@@ -109,12 +107,7 @@ ReleaseManifest v1
         \             /
          build/adoption
 
-External dist 0.33 spike [READY, parallel]
-               |
-               v
-backend-selection disposition/ADR
-               |
-               +----> build/qualification architecture
+External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 ```
 
 ## Initial architecture constraints
@@ -131,12 +124,7 @@ backend-selection disposition/ADR
 
 ## Next handoff
 
-The contract migration is closed. The independent backend spike is the active execution handoff:
-
-1. `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md`;
-2. `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md`.
-
-Contract M001 is closed; its M002 validator successor is ready. The external backend spike is independent and is the next execution handoff. Any production external-backend adoption remains blocked until the dist spike closes and a backend-selection ADR is reviewed.
+`plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` is ready and is the next dependency-ready handoff. The two requested M001 plans are closed. Contract M002 is not blocked by an unforeseen issue. The dist spike closed with disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 

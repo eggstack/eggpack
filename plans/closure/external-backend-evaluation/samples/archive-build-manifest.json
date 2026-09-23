@@ -1,0 +1,64 @@
+{
+  "announcement_tag": "2.1.0",
+  "artifacts": [
+    {
+      "checksum_reference": "egress-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "checksums": {
+        "sha256": "6e5493acab0e89706f7d67602f7c73f9c791b0ed3022f409433cc2ef515c4342"
+      },
+      "kind": "executable-zip",
+      "members": [
+        {
+          "kind": "executable",
+          "name": "eggress",
+          "path": "eggress"
+        },
+        {
+          "kind": "executable",
+          "name": "pproxy",
+          "path": "pproxy"
+        }
+      ],
+      "name": "egress-x86_64-unknown-linux-gnu.tar.gz",
+      "target_triples": [
+        "x86_64-unknown-linux-gnu"
+      ]
+    },
+    {
+      "checksum_reference": null,
+      "checksums": null,
+      "kind": "checksum",
+      "members": [],
+      "name": "egress-x86_64-unknown-linux-gnu.tar.gz.sha256",
+      "target_triples": [
+        "x86_64-unknown-linux-gnu"
+      ]
+    }
+  ],
+  "dist_version": "0.33.0",
+  "github_attestations": null,
+  "releases": [
+    {
+      "app_name": "egress",
+      "app_version": "2.1.0",
+      "artifacts": [
+        "egress-x86_64-unknown-linux-gnu.tar.gz",
+        "egress-x86_64-unknown-linux-gnu.tar.gz.sha256"
+      ]
+    }
+  ],
+  "systems": {
+    "build:local:x86_64-unknown-linux-gnu": {
+      "build_environment": {
+        "linux": {
+          "glibc_version": {
+            "major": 2,
+            "series": 39
+          }
+        }
+      },
+      "cargo_version_line": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+      "id": "build:local:x86_64-unknown-linux-gnu"
+    }
+  }
+}

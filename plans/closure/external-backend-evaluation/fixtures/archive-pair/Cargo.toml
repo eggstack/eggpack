@@ -1,0 +1,44 @@
+[workspace]
+
+[package]
+name = "egress"
+version = "2.1.0"
+edition = "2021"
+publish = false
+repository = "https://github.com/eggstack/eggpack-dist-archive-fixture"
+
+[[bin]]
+name = "eggress"
+path = "src/eggress.rs"
+
+[[bin]]
+name = "pproxy"
+path = "src/pproxy.rs"
+
+# Config for 'dist'
+[workspace.metadata.dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.33.0"
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = ["x86_64-unknown-linux-gnu"]
+# The installers to generate for each app
+installers = ["shell"]
+# CI backends to support
+ci = "github"
+# Whether to install an updater program
+install-updater = false
+# The archive format to use for non-windows builds (defaults .tar.xz)
+unix-archive = ".tar.gz"
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+[package.metadata.dist]
+dist = true
+
+[package.metadata.dist.binaries]
+x86_64-unknown-linux-gnu = ["eggress", "pproxy"]

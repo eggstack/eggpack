@@ -1,0 +1,13 @@
+[package]
+name = "greggd"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[package.metadata.dist]
+dist = true
+
+[[bin]]
+name = "greggd"
+path = "src/main.rs"
