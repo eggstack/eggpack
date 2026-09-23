@@ -61,7 +61,7 @@ It does not own build strategy, release selection, hosting authority, live insta
 
 ## 4. Current state
 
-No Eggpack code exists yet. Existing repositories instead encode filenames/checksums in workflows/installers. `dist` also emits its own manifest; that is backend-specific evidence and may later be normalized, but it is not automatically Eggpack's canonical format.
+`eggpack-contract` now exists and Contract M001 is closed. Contract M002 is the sole dependency-ready implementation handoff and will establish the expected-file/conformance interface this subsystem consumes. No Eggpack release-manifest crate exists yet. The `dist` 0.33 evaluation closed with disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
 
 ## 5. Target architecture
 
