@@ -76,7 +76,7 @@ Current dependency-ready implementation work:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Contract and conformance | M002 release and installer conformance validators | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | M001 closure |
+| Contract and conformance | M002 release and installer conformance validators | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | M001 closure + closed Eggup M003 predecessor evidence |
 
 ## Planned / blocked work
 
