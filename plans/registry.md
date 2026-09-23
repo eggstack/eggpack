@@ -34,19 +34,22 @@ This file is the compact control surface for active interim planning. Detailed r
 ### Eggpack
 
 - repository began empty on 2026-09-22; Contract M001 and the dist 0.33 evaluation are closed;
-- current reviewed planning/implementation baseline before this registry update: `6ace467d1c3ecd9f76e223799017039504989eac`;
+- current reviewed planning/implementation baseline before the producer/consumer reorientation: `e3452263225fa1ea262e03b557f40b395e6a52d8`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
 
-Current reviewed Eggup main: `cf5b3d3819c168eb2dbf841daa8332f3eb28c915`.
+Eggup's current planning assigns producer distribution authority to Eggpack. The relevant immutable predecessor is distribution M003, not current-main incidental state.
 
 Distribution predecessor evidence:
 
 - M001 implementation: `889a234cbe7f461d92def3df45c83c06a7d257e5`;
 - M002 strict template/collision corrective: `0a68f29fce44adf5f12d79f1b440a2c08aca9cb7`;
-- `eggup-dist` is unpublished;
-- Eggup M003 conformance validator plan is ready but should migrate to Eggpack after Eggpack M001 rather than expand producer ownership in Eggup.
+- M003 conformance implementation: `9941c58d7039410c728860f9e4e382881d4ccf54`;
+- M003 closure: `4169c8021b447fe73c8ee3ea71a80a535c940f54`;
+- `eggup-dist` is unpublished and frozen;
+- Eggup distribution M004 is a blocked retirement plan and may execute only after Eggpack Contract M002 closes;
+- therefore Contract M002 must port the closed M003 behavior rather than independently redesigning it.
 
 ### External backend evidence
 
@@ -58,7 +61,7 @@ Distribution predecessor evidence:
 
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
-| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 ready | M001 closed with hosted CI |
+| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 ready | M001 closed; closed Eggup M003 predecessor available |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M002 expected-file interface |
 | Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | Contract M002 + manifest M001; dist disposition C is closed |
@@ -91,22 +94,20 @@ Current dependency-ready implementation work:
 ## Immediate execution graph
 
 ```text
-Eggup eggup-dist M001/M002 evidence
+Eggup distribution M003 [CLOSED / FROZEN PREDECESSOR]
                |
                v
 Eggpack contract M001 [CLOSED]
                |
                v
-contract conformance M002 [READY]
-               |
-               v
+contract conformance M002 [READY: PORT M003]
+        |                      |
+        |                      +--> Eggup M004 retire eggup-dist
+        v
 ReleaseManifest M001 [BLOCKED]
-       |               |
-       v               v
- Eggup seam       bootstrap/CI
-       \               /
-        \             /
-         build/adoption
+        |
+        +--> future Eggup manifest-consumer seam
+        +--> bootstrap/CI/build/adoption
 
 External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 ```
@@ -115,7 +116,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 - Rust baseline: 1.89 unless changed by ADR.
 - `eggpack-contract` migration is fidelity-first; no opportunistic schema redesign.
-- `eggup-dist` is not removed until Eggpack migration closure and a separate Eggup cleanup plan.
+- `eggup-dist` is frozen after closed Eggup M003 and is removed only after Eggpack Contract M002 migration closure through the already-registered Eggup M004 retirement plan.
 - concrete release manifests describe final bytes only.
 - generated CI is checked in and drift-checked.
 - staging/qualification does not automatically publish.
@@ -125,7 +126,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-`plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` is the sole dependency-ready implementation handoff for the next round and is rebaselined to the current closed-M001/closed-dist state. Do not pre-author Release Manifest M001 until Contract M002 closes and proves the expected-file/conformance interface. The dist spike is closed with disposition C; no backend-selection ADR or production adoption is authorized.
+`plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` is the sole dependency-ready implementation handoff for the next round. It is explicitly a fidelity port of the closed Eggup M003 conformance implementation, including its public surface, bounds, deterministic reports, and direct/bundle/archive fixture behavior. Successful closure both unblocks Release Manifest M001 planning and authorizes Eggup M004 to retire `eggup-dist`. Do not pre-author Release Manifest M001 until M002 closes. The dist spike remains closed with disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 
