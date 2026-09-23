@@ -208,5 +208,5 @@ The subsystem is complete when contract v1 and conformance are Eggpack-owned, de
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | `plans/closure/contract-conformance/001-status.md` | — |
-| M002 | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | — | M001 closed |
+| M002 | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | — | M001 closed + closed Eggup M003 predecessor evidence |
 | M003 | planned | — | — | M002 + consumer evidence |
