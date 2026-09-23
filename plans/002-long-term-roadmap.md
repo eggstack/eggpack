@@ -52,7 +52,7 @@ Exit criteria:
 
 ## Phase 1 — Repository bootstrap and DistributionContract v1 migration
 
-Objective: create the Rust workspace and move the unpublished `eggup-dist` functionality into Eggpack without semantic drift.
+Objective: create the Rust workspace and move the unpublished `eggup-dist` schema/expansion functionality into Eggpack without semantic drift. Eggup's later closed M003 conformance implementation is migrated in Phase 2.
 
 Deliverables:
 
@@ -64,13 +64,13 @@ Deliverables:
 - package/MSRV/CI evidence;
 - provenance note pointing to Eggup source/closure SHAs.
 
-Important constraint: Eggup's copy MUST NOT be removed until Eggpack's imported behavior is independently qualified and an Eggup-side cleanup plan is written.
+Important constraint: Eggup's copy MUST NOT be removed until both Eggpack Contract M001 and Contract M002 independently qualify the predecessor schema/conformance behavior. The Eggup-side cleanup plan already exists as distribution M004 and remains blocked until Contract M002 closure.
 
-Exit criteria: all M001/M002 `eggup-dist` closure properties are reproduced in Eggpack.
+Exit criteria: all predecessor schema/expansion properties through Eggup distribution M002 are reproduced in Eggpack Contract M001.
 
 ## Phase 2 — Contract conformance engine
 
-Objective: implement the already-designed release/mapping validators on the Eggpack side.
+Objective: port and independently qualify the already-closed Eggup distribution M003 release/archive/mapping validators so Eggpack becomes the sole active conformance authority.
 
 Deliverables:
 
@@ -82,7 +82,7 @@ Deliverables:
 - AllowExtras/Exact policy;
 - golden direct/bundle/archive fixtures.
 
-Exit criteria: drift among contract, release inventories, and consumer mappings is machine-detectable without network/source parsing.
+Exit criteria: drift among contract, release inventories, and consumer mappings is machine-detectable without network/source parsing; the closed Eggup M003 API/fixture behavior is accounted for; Eggup distribution M004 retirement becomes unblocked.
 
 ## Phase E1 — External `dist` capability/interoperability spike
 
@@ -226,7 +226,7 @@ Exit criteria: both ship/qualify through Eggpack contracts without weakening cur
 
 ## Phase 10 — Eggup interoperability
 
-Objective: prove the producer/consumer seam.
+Objective: prove the producer/consumer seam after producer authority has already moved to Eggpack. This phase is manifest consumption, not migration of `eggup-dist`.
 
 Deliverables:
 
