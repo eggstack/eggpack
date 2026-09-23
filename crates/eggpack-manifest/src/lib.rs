@@ -179,12 +179,12 @@ impl ReleaseManifest {
         }
         let mut target_seen = HashSet::new();
         let mut release_names = HashSet::new();
-        let mut installs = HashSet::new();
         for t in &self.targets {
             bounded(&t.target, MAX_ID, "target")?;
             if !target_seen.insert(t.target.as_str()) {
                 return Err(invalid("duplicate canonical target"));
             }
+            let mut installs = HashSet::new();
             match &t.form {
                 ArtifactForm::Direct { artifact, install } => {
                     artifact.validate(&mut release_names)?;
@@ -336,6 +336,17 @@ mod tests {
             evidence_references: vec![],
         }
     }
+    fn multi_target(forms: Vec<(&str, ArtifactForm)>) -> ReleaseManifest {
+        let mut m = manifest(forms[0].1.clone());
+        m.targets = forms
+            .into_iter()
+            .map(|(target, form)| TargetRecord {
+                target: target.into(),
+                form,
+            })
+            .collect();
+        m
+    }
     #[test]
     fn direct_round_trip_stable() {
         let m = manifest(ArtifactForm::Direct {
@@ -437,6 +448,145 @@ mod tests {
             ],
         });
         assert!(m.validate().is_err());
+    }
+    #[test]
+    fn direct_install_names_are_target_local_like_eggsact_contract() {
+        let m = multi_target(vec![
+            (
+                "x86_64-unknown-linux-gnu",
+                ArtifactForm::Direct {
+                    artifact: artifact("eggsact-linux"),
+                    install: "eggsact".into(),
+                },
+            ),
+            (
+                "aarch64-apple-darwin",
+                ArtifactForm::Direct {
+                    artifact: artifact("eggsact-macos"),
+                    install: "eggsact".into(),
+                },
+            ),
+        ]);
+        // Mirrors crates/eggpack-contract/tests/fixtures/simple-direct.toml.
+        assert!(m.validate().is_ok());
+    }
+    #[test]
+    fn archive_install_names_are_target_local_like_egress_contract() {
+        let archive = |filename: &str| ArtifactForm::Archive {
+            artifact: artifact(filename),
+            members: vec![
+                ArchiveMemberRecord {
+                    source: "egress".into(),
+                    install: "egress".into(),
+                    bytes: ByteEvidence {
+                        size: 3,
+                        sha256: "ab".repeat(32),
+                    },
+                },
+                ArchiveMemberRecord {
+                    source: "bin/egress-helper".into(),
+                    install: "egress-helper".into(),
+                    bytes: ByteEvidence {
+                        size: 4,
+                        sha256: "cd".repeat(32),
+                    },
+                },
+            ],
+        };
+        let m = multi_target(vec![
+            ("x86_64-unknown-linux-gnu", archive("egress-linux.tar")),
+            ("aarch64-apple-darwin", archive("egress-macos.tar")),
+        ]);
+        // Mirrors crates/eggpack-contract/tests/fixtures/egress-archive.toml.
+        assert!(m.validate().is_ok());
+    }
+    #[test]
+    fn bundle_install_names_are_target_local() {
+        let bundle = |main: &str, helper: &str| ArtifactForm::Bundle {
+            entries: vec![
+                BundleRecord {
+                    artifact: artifact(main),
+                    install: "app".into(),
+                },
+                BundleRecord {
+                    artifact: artifact(helper),
+                    install: "app-helper".into(),
+                },
+            ],
+        };
+        let m = multi_target(vec![
+            (
+                "x86_64-unknown-linux-gnu",
+                bundle("app-linux", "helper-linux"),
+            ),
+            ("aarch64-apple-darwin", bundle("app-macos", "helper-macos")),
+        ]);
+        assert!(m.validate().is_ok());
+    }
+    #[test]
+    fn install_collisions_remain_rejected_within_target() {
+        for installs in [["same", "same"], ["App", "app"]] {
+            let m = manifest(ArtifactForm::Bundle {
+                entries: vec![
+                    BundleRecord {
+                        artifact: artifact("one"),
+                        install: installs[0].into(),
+                    },
+                    BundleRecord {
+                        artifact: artifact("two"),
+                        install: installs[1].into(),
+                    },
+                ],
+            });
+            assert!(m.validate().is_err());
+        }
+
+        for installs in [["same", "same"], ["App", "app"]] {
+            let m = manifest(ArtifactForm::Archive {
+                artifact: artifact("release.tar"),
+                members: vec![
+                    ArchiveMemberRecord {
+                        source: "bin/one".into(),
+                        install: installs[0].into(),
+                        bytes: ByteEvidence {
+                            size: 3,
+                            sha256: "ab".repeat(32),
+                        },
+                    },
+                    ArchiveMemberRecord {
+                        source: "bin/two".into(),
+                        install: installs[1].into(),
+                        bytes: ByteEvidence {
+                            size: 3,
+                            sha256: "cd".repeat(32),
+                        },
+                    },
+                ],
+            });
+            assert!(m.validate().is_err());
+        }
+    }
+    #[test]
+    fn release_artifact_collisions_remain_manifest_global() {
+        for filenames in [["same", "same"], ["App.tar", "app.tar"]] {
+            let m = multi_target(vec![
+                (
+                    "x86_64-unknown-linux-gnu",
+                    ArtifactForm::Direct {
+                        artifact: artifact(filenames[0]),
+                        install: "app".into(),
+                    },
+                ),
+                (
+                    "aarch64-apple-darwin",
+                    ArtifactForm::Direct {
+                        artifact: artifact(filenames[1]),
+                        install: "app".into(),
+                    },
+                ),
+            ]);
+            assert!(m.validate().is_err());
+        }
     }
     #[test]
     fn canonical_order_is_independent_of_input_order() {
