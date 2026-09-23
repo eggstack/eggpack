@@ -57,7 +57,7 @@ Hard dependencies are satisfied:
 
 Interface dependency:
 
-- Eggup retains its copy until this milestone closes; therefore migration can be staged without leaving either repository without the qualified contract.
+- Eggup retains its copy through the full producer-contract migration cutover; M001 closure alone does not authorize removal. Contract M002 must first port and independently qualify the closed Eggup M003 conformance behavior, after which the already-registered Eggup distribution M004 may retire the duplicate crate.
 
 ## 3. Current implementation evidence
 
@@ -341,13 +341,7 @@ This milestone creates a new unpublished Eggpack crate from an unpublished prede
 
 Valid schema-v1 compatibility is required; package name compatibility is not.
 
-Eggup retains its predecessor copy during this milestone. After Eggpack M001 closes, a separate Eggup plan may:
-
-1. freeze/remove the local `eggup-dist` workspace member;
-2. depend on `eggpack-contract` only where tooling needs it; or
-3. eliminate the dependency entirely in favor of manifest consumption later.
-
-That choice is explicitly outside this plan.
+Eggup retains its predecessor copy during and after this milestone. M001 closes only the schema/expansion import. The remaining producer-contract migration gate is Eggpack Contract M002, which ports the closed Eggup M003 conformance behavior. Only after M002 closes may the already-registered Eggup distribution M004 remove `eggup-dist`. A future optional Eggup manifest-consumer adapter is a separate interoperability milestone and must not restore producer authority or create an `eggup-core` dependency on Eggpack.
 
 ## 10. Required tests
 
@@ -426,7 +420,7 @@ M001 closes only when:
 - no build/network/extraction/runtime updater responsibilities entered the crate;
 - package and docs qualification pass;
 - no medium-or-higher migration ambiguity remains;
-- Eggup's predecessor remains intact pending a separate cleanup plan.
+- Eggup's predecessor remains intact pending Contract M002 closure and the registered Eggup distribution M004 retirement.
 
 ## 14. Stop conditions
 
@@ -465,4 +459,4 @@ Fidelity beats cleanup in this milestone.
 
 The predecessor source is concentrated in one large `lib.rs`; an implementation agent may split modules only after first establishing a mechanically equivalent baseline or while preserving a clear diff/evidence path.
 
-Do not implement the currently-ready Eggup distribution M003 validator plan inside Eggup. After this milestone closes, author its Eggpack successor as Contract/Conformance M002.
+Post-closure authority note: Eggup distribution M003 was subsequently implemented and closed as the terminal producer-side predecessor. The current Eggpack Contract/Conformance M002 handoff is a fidelity port of that closed behavior. Do not add new producer distribution behavior in Eggup; its registered M004 is retirement-only and remains blocked until M002 closes.
