@@ -2,7 +2,7 @@
 
 Status: canonical normative terminology
 
-This document defines the terms used by Eggpack plans, APIs, configuration, manifests, tests, and downstream integrations. Where older Eggup distribution documents use overlapping terminology, this document governs Eggpack once migration occurs.
+This document defines the terms used by Eggpack plans, APIs, configuration, manifests, tests, and downstream integrations. Eggpack is now the active producer-side authority. Older Eggup distribution documents are predecessor evidence only; `eggup-dist` is frozen pending its retirement after Eggpack Contract M002 closure.
 
 ## 1. Product roles
 
@@ -62,7 +62,7 @@ It does not answer:
 - which GitHub repository is trusted;
 - whether Cargo fallback is allowed.
 
-The initial DistributionContract schema is inherited from `eggup-dist` schema v1 and MUST retain its strict template/path/collision semantics during migration.
+The initial DistributionContract schema is inherited from `eggup-dist` schema v1 and MUST retain its strict template/path/collision semantics. The conformance vocabulary and behavior closed in Eggup distribution M003 are likewise predecessor contracts for Eggpack Contract M002; migration must preserve them before Eggup removes its duplicate crate.
 
 ## 5. Producer configuration
 
