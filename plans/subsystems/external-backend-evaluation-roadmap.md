@@ -124,5 +124,5 @@ The subsystem closes when maintainers can make an evidence-backed backend decisi
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | ready | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | — | — |
+| M001 | active | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | — | controlled spike in progress |
 | M002 | blocked | — | — | M001 |

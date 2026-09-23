@@ -58,7 +58,7 @@ Distribution predecessor evidence:
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 ready | M001 closed with hosted CI |
-| External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 ready | none |
+| External backend evaluation | active | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 active | local evaluation against pinned dist 0.33.0 |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001 blocked | contract M001 + conformance interface |
 | Build and qualification | proposed | `plans/subsystems/build-qualification-roadmap.md` | M001 blocked | contract/manifest + backend disposition |
 | Bootstrap installers | proposed | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 blocked | conformance + manifest |
@@ -74,7 +74,7 @@ Two initial workstreams are dependency-ready and SHOULD proceed in parallel:
 |---|---|---|---|---|
 | Contract and conformance | M001 workspace + DistributionContract v1 import | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | — |
 | Contract and conformance | M002 release and installer conformance validators | ready | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | M001 closure |
-| External backend evaluation | M001 dist 0.33 capability spike | ready | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | none |
+| External backend evaluation | M001 dist 0.33 capability spike | active | `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md` | none |
 
 ## Planned / blocked work
 
@@ -131,7 +131,7 @@ backend-selection disposition/ADR
 
 ## Next handoff
 
-The contract M001 implementation is closing; the independent backend spike remains next in the requested execution order:
+The contract migration is closed. The independent backend spike is the active execution handoff:
 
 1. `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md`;
 2. `plans/implementation/external-backend-evaluation/001-dist-0.33-capability-and-interoperability-spike.md`.
