@@ -1,0 +1,20 @@
+target = "linux-x64"
+canonical_target = "x86_64-unknown-linux-gnu"
+
+[assets]
+kind = "bundle"
+
+[[assets.entries]]
+asset_file = "codegg-0.9.0-x86_64-unknown-linux-gnu"
+sidecar_file = "codegg-0.9.0-x86_64-unknown-linux-gnu.sha256"
+install_name = "codegg"
+
+[[assets.entries]]
+asset_file = "codegg-helper-0.9.0-x86_64-unknown-linux-gnu"
+sidecar_file = "codegg-helper-0.9.0-x86_64-unknown-linux-gnu.sha256"
+install_name = "codegg-helper"
+
+[[assets.entries]]
+asset_file = "codegg-manifest-0.9.0.json"
+sidecar_file = "codegg-manifest-0.9.0.json.sha256"
+install_name = "codegg-manifest.json"

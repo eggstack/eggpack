@@ -19,6 +19,9 @@ const MAX_ID_LEN: usize = 64;
 const MAX_NAME_LEN: usize = 128;
 const MAX_TEMPLATE_LEN: usize = 256;
 const MAX_DETAIL_LEN: usize = 512;
+/// Maximum entries accepted in caller-supplied inventories and observations.
+pub const MAX_OBSERVED_ENTRIES: usize = 256;
+const MAX_CONFORMANCE_FINDINGS: usize = MAX_OBSERVED_ENTRIES * 2;
 
 /// Namespace in which an expanded filename collision occurred.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +73,10 @@ pub enum DistError {
         /// Bounded logical field label; no arbitrary filename is included.
         second: String,
     },
+    /// A caller-supplied flat release inventory is invalid.
+    InvalidReleaseInventory(String),
+    /// A caller-supplied archive-member inventory is invalid.
+    InvalidArchiveMemberInventory(String),
 }
 
 impl DistError {
@@ -101,6 +108,12 @@ impl fmt::Display for DistError {
                 f,
                 "expanded {namespace} filename collision between {first} and {second}"
             ),
+            Self::InvalidReleaseInventory(detail) => {
+                write!(f, "invalid release inventory: {detail}")
+            }
+            Self::InvalidArchiveMemberInventory(detail) => {
+                write!(f, "invalid archive member inventory: {detail}")
+            }
         }
     }
 }
@@ -992,6 +1005,719 @@ pub struct ExpandedTarget {
     pub triple: String,
     /// Expanded file names.
     pub assets: ExpandedAssets,
+}
+
+/// Caller policy for observed names that the contract does not require.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ExtrasPolicy {
+    /// Permit unrelated release files or archive members.
+    #[default]
+    AllowExtras,
+    /// Require the observed set to contain only names declared by the contract.
+    Exact,
+}
+
+/// One required flat release file and its stable diagnostic label.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+pub struct ExpectedReleaseFile {
+    /// Stable contract-field label such as `asset`, `sidecar`, or `entries[0].asset`.
+    pub label: String,
+    /// Exact release inventory filename.
+    pub file_name: String,
+}
+
+/// Derive the required release file names for a concrete target and version.
+///
+/// Target aliases are resolved using the contract's normal expansion rules.
+/// Results are ordered by contract declaration and stable within each asset
+/// form. This function does not inspect a release or touch the network.
+pub fn expected_release_files(
+    contract: &DistributionContract,
+    target_or_alias: &str,
+    version: &str,
+) -> Result<Vec<ExpectedReleaseFile>, DistError> {
+    let expanded = contract.expand(target_or_alias, version)?;
+    let mut files = Vec::new();
+    match expanded.assets {
+        ExpandedAssets::Direct(direct) => {
+            files.push(expected_file("asset", direct.asset_file));
+            files.push(expected_file("sidecar", direct.sidecar_file));
+        }
+        ExpandedAssets::Bundle(bundle) => {
+            for (index, entry) in bundle.entries.into_iter().enumerate() {
+                files.push(expected_file(
+                    &format!("entries[{index}].asset"),
+                    entry.asset_file,
+                ));
+                files.push(expected_file(
+                    &format!("entries[{index}].sidecar"),
+                    entry.sidecar_file,
+                ));
+            }
+        }
+        ExpandedAssets::Archive(archive) => {
+            files.push(expected_file("archive", archive.archive_file));
+            files.push(expected_file("sidecar", archive.sidecar_file));
+        }
+    }
+    Ok(files)
+}
+
+fn expected_file(label: &str, file_name: String) -> ExpectedReleaseFile {
+    ExpectedReleaseFile {
+        label: label.to_string(),
+        file_name,
+    }
+}
+
+/// Bounded, validated list of flat names supplied by a release client or fixture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReleaseInventory {
+    files: Vec<String>,
+}
+
+impl ReleaseInventory {
+    /// Construct an inventory from flat release filenames.
+    ///
+    /// Empty, overlong, control/separator-containing, exact-duplicate, and
+    /// ASCII-case-colliding names are rejected. Names are sorted so reports
+    /// do not depend on provider response order.
+    pub fn new<I, S>(files: I) -> Result<Self, DistError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut names = Vec::new();
+        let mut seen = HashSet::new();
+        for value in files {
+            if names.len() == MAX_OBSERVED_ENTRIES {
+                return Err(DistError::InvalidReleaseInventory(bound(format!(
+                    "more than {MAX_OBSERVED_ENTRIES} entries"
+                ))));
+            }
+            let name = value.into();
+            validate_observed_flat_name(&name)
+                .map_err(|detail| DistError::InvalidReleaseInventory(bound(detail)))?;
+            let key = name.to_ascii_lowercase();
+            if !seen.insert(key) {
+                return Err(DistError::InvalidReleaseInventory(bound(format!(
+                    "duplicate or ASCII-case-colliding filename: {name}"
+                ))));
+            }
+            names.push(name);
+        }
+        names.sort();
+        Ok(Self { files: names })
+    }
+
+    /// The validated filenames in deterministic order.
+    pub fn files(&self) -> &[String] {
+        &self.files
+    }
+}
+
+fn validate_observed_flat_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > MAX_TEMPLATE_LEN {
+        return Err("filename is empty or overlong".to_string());
+    }
+    if name.chars().any(|c| c.is_control()) {
+        return Err("filename contains control characters".to_string());
+    }
+    if name.contains(['/', '\\']) {
+        return Err("filename must be flat and contain no path separators".to_string());
+    }
+    Ok(())
+}
+
+/// Validate release completeness for an expanded target.
+///
+/// Required files are always errors when missing. Unrelated files are ignored
+/// by [`ExtrasPolicy::AllowExtras`] and reported by [`ExtrasPolicy::Exact`].
+pub fn validate_release_inventory(
+    expected: &[ExpectedReleaseFile],
+    observed: &ReleaseInventory,
+    extras: ExtrasPolicy,
+) -> ConformanceReport {
+    if expected.len() > MAX_OBSERVED_ENTRIES
+        || expected.iter().any(|file| {
+            file.label.is_empty()
+                || file.label.len() > MAX_DETAIL_LEN
+                || validate_observed_flat_name(&file.file_name).is_err()
+        })
+    {
+        return ConformanceReport::new(vec![ConformanceFinding::new(
+            FindingKind::InvalidObservation,
+            "expected release files",
+            None,
+            Some("invalid or over limit"),
+        )]);
+    }
+    let mut expected_names = HashSet::new();
+    if expected
+        .iter()
+        .any(|file| !expected_names.insert(file.file_name.to_ascii_lowercase()))
+    {
+        return ConformanceReport::new(vec![ConformanceFinding::new(
+            FindingKind::InvalidObservation,
+            "expected release files",
+            None,
+            Some("duplicate or ASCII-case-colliding expected filename"),
+        )]);
+    }
+    let required: HashSet<&str> = expected.iter().map(|f| f.file_name.as_str()).collect();
+    let observed_set: HashSet<&str> = observed.files.iter().map(String::as_str).collect();
+    let mut findings = Vec::new();
+    for file in expected {
+        if !observed_set.contains(file.file_name.as_str()) {
+            findings.push(ConformanceFinding::new(
+                FindingKind::MissingReleaseFile,
+                &file.label,
+                Some(&file.file_name),
+                None,
+            ));
+        }
+    }
+    if extras == ExtrasPolicy::Exact {
+        for name in &observed.files {
+            if !required.contains(name.as_str()) {
+                findings.push(ConformanceFinding::new(
+                    FindingKind::UnexpectedReleaseFile,
+                    "release inventory",
+                    None,
+                    Some(name),
+                ));
+            }
+        }
+    }
+    ConformanceReport::new(findings)
+}
+
+/// Bounded, validated archive member paths supplied by a listing tool or fixture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveMemberInventory {
+    members: Vec<String>,
+}
+
+impl ArchiveMemberInventory {
+    /// Construct an inventory from caller-supplied archive member paths.
+    ///
+    /// Paths use the same traversal-free, forward-slash rules as schema v1;
+    /// exact and ASCII-case duplicates fail. Members are sorted deterministically.
+    pub fn new<I, S>(members: I) -> Result<Self, DistError>
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        let mut paths = Vec::new();
+        let mut seen = HashSet::new();
+        for value in members {
+            if paths.len() == MAX_OBSERVED_ENTRIES {
+                return Err(DistError::InvalidArchiveMemberInventory(bound(format!(
+                    "more than {MAX_OBSERVED_ENTRIES} entries"
+                ))));
+            }
+            let path = value.into();
+            validate_member_source(&path).map_err(|error| {
+                DistError::InvalidArchiveMemberInventory(bound(error.to_string()))
+            })?;
+            let key = path.to_ascii_lowercase();
+            if !seen.insert(key) {
+                return Err(DistError::InvalidArchiveMemberInventory(bound(format!(
+                    "duplicate or ASCII-case-colliding member path: {path}"
+                ))));
+            }
+            paths.push(path);
+        }
+        paths.sort();
+        Ok(Self { members: paths })
+    }
+
+    /// The validated member paths in deterministic order.
+    pub fn members(&self) -> &[String] {
+        &self.members
+    }
+}
+
+/// Validate required archive members for an expanded archive target.
+///
+/// This function compares supplied names only. It never opens or extracts an archive.
+pub fn validate_archive_member_inventory(
+    expected: &ExpandedTarget,
+    observed: &ArchiveMemberInventory,
+    extras: ExtrasPolicy,
+) -> Result<ConformanceReport, DistError> {
+    let ExpandedAssets::Archive(archive) = &expected.assets else {
+        return Err(DistError::invalid(
+            "archive member validation requires an archive target",
+        ));
+    };
+    if archive.members.len() > MAX_OBSERVED_ENTRIES
+        || archive
+            .members
+            .iter()
+            .any(|member| validate_member_source(&member.source).is_err())
+    {
+        return Ok(ConformanceReport::new(vec![ConformanceFinding::new(
+            FindingKind::InvalidObservation,
+            "expected archive members",
+            None,
+            Some("invalid or over limit"),
+        )]));
+    }
+    let required: HashSet<&str> = archive.members.iter().map(|m| m.source.as_str()).collect();
+    let observed_set: HashSet<&str> = observed.members.iter().map(String::as_str).collect();
+    let mut findings = Vec::new();
+    for member in &archive.members {
+        if !observed_set.contains(member.source.as_str()) {
+            findings.push(ConformanceFinding::new(
+                FindingKind::MissingArchiveMember,
+                &member.source,
+                Some(&member.source),
+                None,
+            ));
+        }
+    }
+    if extras == ExtrasPolicy::Exact {
+        for path in &observed.members {
+            if !required.contains(path.as_str()) {
+                findings.push(ConformanceFinding::new(
+                    FindingKind::UnexpectedArchiveMember,
+                    "archive inventory",
+                    None,
+                    Some(path),
+                ));
+            }
+        }
+    }
+    Ok(ConformanceReport::new(findings))
+}
+
+/// One observed direct asset mapping reported by consumer-owned runtime/bootstrap tests.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedDirectMapping {
+    /// Release asset filename selected by the consumer.
+    pub asset_file: String,
+    /// Checksum sidecar filename selected by the consumer.
+    pub sidecar_file: String,
+    /// Installed filename selected by the consumer.
+    pub install_name: String,
+}
+
+/// One observed archive-member-to-install-name mapping.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedArchiveMapping {
+    /// Member path selected by the consumer.
+    pub source: String,
+    /// Installed filename selected by the consumer.
+    pub install_name: String,
+}
+
+/// Consumer-observed release layout for one target.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ObservedTargetAssets {
+    /// One direct asset.
+    Direct(ObservedDirectMapping),
+    /// Several direct assets forming one logical release.
+    Bundle {
+        /// Observed entries.
+        entries: Vec<ObservedDirectMapping>,
+    },
+    /// One archive and its required member mappings.
+    Archive {
+        /// Archive filename selected by the consumer.
+        archive_file: String,
+        /// Checksum sidecar filename selected by the consumer.
+        sidecar_file: String,
+        /// Observed member mappings.
+        members: Vec<ObservedArchiveMapping>,
+    },
+}
+
+/// Machine-readable mapping facts extracted by consumer-owned tests or tooling.
+///
+/// This type deliberately contains no URLs, version policy, commands, privileges,
+/// scripts, or service behavior. It can be serialized as TOML by a consumer;
+/// Eggup compares the data and does not parse consumer source code.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObservedTargetMapping {
+    /// Target triple or alias the consumer claims to use.
+    pub target: String,
+    /// Canonical triple the consumer claims that target resolved to.
+    pub canonical_target: String,
+    /// Observed file/install mapping.
+    pub assets: ObservedTargetAssets,
+}
+
+/// Stable kind for one conformance finding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingKind {
+    /// A required release filename was absent.
+    MissingReleaseFile,
+    /// Exact release-set validation found an unrelated filename.
+    UnexpectedReleaseFile,
+    /// Target resolution or canonical target differed.
+    TargetMismatch,
+    /// Release asset filenames differed.
+    AssetMismatch,
+    /// Checksum sidecar filenames differed.
+    SidecarMismatch,
+    /// Install filenames differed.
+    InstallNameMismatch,
+    /// A required archive member path was absent.
+    MissingArchiveMember,
+    /// Exact archive-set validation found an undeclared member path.
+    UnexpectedArchiveMember,
+    /// An archive member/install-name pair differed.
+    ArchiveMappingMismatch,
+    /// Observed mapping data violated an input bound or path/name rule.
+    InvalidObservation,
+}
+
+/// One deterministic conformance finding with bounded expected/observed values.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+pub struct ConformanceFinding {
+    /// Finding category.
+    pub kind: FindingKind,
+    /// Stable logical label or inventory category.
+    pub label: String,
+    /// Expected value, when applicable.
+    pub expected: Option<String>,
+    /// Observed value, when applicable.
+    pub observed: Option<String>,
+}
+
+impl ConformanceFinding {
+    fn new(kind: FindingKind, label: &str, expected: Option<&str>, observed: Option<&str>) -> Self {
+        Self {
+            kind,
+            label: bound(label.to_string()),
+            expected: expected.map(|value| bound(value.to_string())),
+            observed: observed.map(|value| bound(value.to_string())),
+        }
+    }
+}
+
+/// Deterministic, bounded result of a conformance check.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ConformanceReport {
+    /// Findings sorted by kind, label, expected value, then observed value.
+    pub findings: Vec<ConformanceFinding>,
+    /// True if findings were omitted at the report bound.
+    pub truncated: bool,
+}
+
+impl ConformanceReport {
+    fn new(mut findings: Vec<ConformanceFinding>) -> Self {
+        findings.sort();
+        let truncated = findings.len() > MAX_CONFORMANCE_FINDINGS;
+        findings.truncate(MAX_CONFORMANCE_FINDINGS);
+        Self {
+            findings,
+            truncated,
+        }
+    }
+
+    /// Whether no conformance mismatch was found.
+    pub fn is_conformant(&self) -> bool {
+        self.findings.is_empty()
+    }
+
+    /// Return success for a conformant report, otherwise return the report itself.
+    pub fn into_result(self) -> Result<(), Self> {
+        if self.is_conformant() {
+            Ok(())
+        } else {
+            Err(self)
+        }
+    }
+}
+
+/// Compare consumer-observed target facts against one contract expansion.
+///
+/// `target` may be a canonical triple or declared alias. Aliases are resolved
+/// by the contract with no nearest-target fallback. Observation collections
+/// and every reported value are bounded; malformed observations produce a
+/// structured `InvalidObservation` finding.
+pub fn validate_observed_mapping(
+    contract: &DistributionContract,
+    version: &str,
+    observed: &ObservedTargetMapping,
+) -> ConformanceReport {
+    if !valid_observation(observed) {
+        return ConformanceReport::new(vec![ConformanceFinding::new(
+            FindingKind::InvalidObservation,
+            "observation",
+            None,
+            Some("invalid or over limit"),
+        )]);
+    }
+    let expected = match contract.expand(&observed.target, version) {
+        Ok(expanded) => expanded,
+        Err(_) => {
+            return ConformanceReport::new(vec![ConformanceFinding::new(
+                FindingKind::TargetMismatch,
+                "target",
+                Some("declared target or alias"),
+                Some(&observed.target),
+            )]);
+        }
+    };
+    let mut findings = Vec::new();
+    if expected.triple != observed.canonical_target {
+        findings.push(ConformanceFinding::new(
+            FindingKind::TargetMismatch,
+            "canonical target",
+            Some(&expected.triple),
+            Some(&observed.canonical_target),
+        ));
+    }
+    compare_observed_assets(&expected.assets, &observed.assets, &mut findings);
+    ConformanceReport::new(findings)
+}
+
+fn valid_observation(observed: &ObservedTargetMapping) -> bool {
+    if observed.target.is_empty()
+        || observed.target.len() > MAX_NAME_LEN
+        || observed.canonical_target.is_empty()
+        || observed.canonical_target.len() > MAX_NAME_LEN
+        || observed.target.chars().any(char::is_control)
+        || observed.canonical_target.chars().any(char::is_control)
+    {
+        return false;
+    }
+    let mut count = 0usize;
+    let valid_names = |count: &mut usize, names: &[&str]| {
+        *count = (*count).saturating_add(names.len());
+        *count <= MAX_OBSERVED_ENTRIES
+            && names
+                .iter()
+                .all(|name| validate_observed_flat_name(name).is_ok())
+    };
+    match &observed.assets {
+        ObservedTargetAssets::Direct(entry) => {
+            valid_names(
+                &mut count,
+                &[&entry.asset_file, &entry.sidecar_file, &entry.install_name],
+            ) && unique_ascii_names(&[&entry.asset_file, &entry.sidecar_file])
+        }
+        ObservedTargetAssets::Bundle { entries } => {
+            let fields_valid = entries.iter().all(|entry| {
+                valid_names(
+                    &mut count,
+                    &[&entry.asset_file, &entry.sidecar_file, &entry.install_name],
+                )
+            });
+            let release_files: Vec<&str> = entries
+                .iter()
+                .flat_map(|entry| [&entry.asset_file[..], &entry.sidecar_file[..]])
+                .collect();
+            fields_valid && unique_ascii_names(&release_files)
+        }
+        ObservedTargetAssets::Archive {
+            archive_file,
+            sidecar_file,
+            members,
+        } => {
+            if !valid_names(&mut count, &[archive_file, sidecar_file]) {
+                return false;
+            }
+            let mut seen = HashSet::new();
+            let fields_valid = members.iter().all(|member| {
+                count = count.saturating_add(2);
+                count <= MAX_OBSERVED_ENTRIES
+                    && validate_member_source(&member.source).is_ok()
+                    && validate_observed_flat_name(&member.install_name).is_ok()
+                    && seen.insert(member.source.to_ascii_lowercase())
+            });
+            fields_valid && unique_ascii_names(&[archive_file, sidecar_file])
+        }
+    }
+}
+
+fn unique_ascii_names(names: &[&str]) -> bool {
+    let mut seen = HashSet::new();
+    names
+        .iter()
+        .all(|name| seen.insert(name.to_ascii_lowercase()))
+}
+
+fn compare_observed_assets(
+    expected: &ExpandedAssets,
+    observed: &ObservedTargetAssets,
+    findings: &mut Vec<ConformanceFinding>,
+) {
+    match (expected, observed) {
+        (ExpandedAssets::Direct(expected), ObservedTargetAssets::Direct(observed)) => {
+            compare_names(
+                FindingKind::AssetMismatch,
+                "asset",
+                &[expected.asset_file.as_str()],
+                &[observed.asset_file.as_str()],
+                findings,
+            );
+            compare_names(
+                FindingKind::SidecarMismatch,
+                "sidecar",
+                &[expected.sidecar_file.as_str()],
+                &[observed.sidecar_file.as_str()],
+                findings,
+            );
+            compare_names(
+                FindingKind::InstallNameMismatch,
+                "install",
+                &[expected.install_name.as_str()],
+                &[observed.install_name.as_str()],
+                findings,
+            );
+        }
+        (ExpandedAssets::Bundle(expected), ObservedTargetAssets::Bundle { entries }) => {
+            compare_names(
+                FindingKind::AssetMismatch,
+                "bundle assets",
+                &expected
+                    .entries
+                    .iter()
+                    .map(|e| e.asset_file.as_str())
+                    .collect::<Vec<_>>(),
+                &entries
+                    .iter()
+                    .map(|e| e.asset_file.as_str())
+                    .collect::<Vec<_>>(),
+                findings,
+            );
+            compare_names(
+                FindingKind::SidecarMismatch,
+                "bundle sidecars",
+                &expected
+                    .entries
+                    .iter()
+                    .map(|e| e.sidecar_file.as_str())
+                    .collect::<Vec<_>>(),
+                &entries
+                    .iter()
+                    .map(|e| e.sidecar_file.as_str())
+                    .collect::<Vec<_>>(),
+                findings,
+            );
+            compare_names(
+                FindingKind::InstallNameMismatch,
+                "bundle installs",
+                &expected
+                    .entries
+                    .iter()
+                    .map(|e| e.install_name.as_str())
+                    .collect::<Vec<_>>(),
+                &entries
+                    .iter()
+                    .map(|e| e.install_name.as_str())
+                    .collect::<Vec<_>>(),
+                findings,
+            );
+        }
+        (
+            ExpandedAssets::Archive(expected),
+            ObservedTargetAssets::Archive {
+                archive_file,
+                sidecar_file,
+                members,
+            },
+        ) => {
+            compare_names(
+                FindingKind::AssetMismatch,
+                "archive asset",
+                &[expected.archive_file.as_str()],
+                &[archive_file.as_str()],
+                findings,
+            );
+            compare_names(
+                FindingKind::SidecarMismatch,
+                "archive sidecar",
+                &[expected.sidecar_file.as_str()],
+                &[sidecar_file.as_str()],
+                findings,
+            );
+            let expected_members: HashMap<&str, &str> = expected
+                .members
+                .iter()
+                .map(|member| (member.source.as_str(), member.install_name.as_str()))
+                .collect();
+            let observed_members: HashMap<&str, &str> = members
+                .iter()
+                .map(|member| (member.source.as_str(), member.install_name.as_str()))
+                .collect();
+            let mut sources: Vec<&str> = expected_members
+                .keys()
+                .chain(observed_members.keys())
+                .copied()
+                .collect();
+            sources.sort_unstable();
+            sources.dedup();
+            for source in sources {
+                let expected_install = expected_members.get(source).copied();
+                let observed_install = observed_members.get(source).copied();
+                if expected_install != observed_install {
+                    findings.push(ConformanceFinding::new(
+                        FindingKind::ArchiveMappingMismatch,
+                        source,
+                        expected_install,
+                        observed_install,
+                    ));
+                }
+            }
+        }
+        (expected, observed) => findings.push(ConformanceFinding::new(
+            FindingKind::AssetMismatch,
+            "asset form",
+            Some(asset_form_name(expected)),
+            Some(observed_form_name(observed)),
+        )),
+    }
+}
+
+fn compare_names(
+    kind: FindingKind,
+    label: &str,
+    expected: &[&str],
+    observed: &[&str],
+    findings: &mut Vec<ConformanceFinding>,
+) {
+    let mut expected = expected.to_vec();
+    let mut observed = observed.to_vec();
+    expected.sort();
+    observed.sort();
+    for index in 0..expected.len().max(observed.len()) {
+        let expected_value = expected.get(index).copied();
+        let observed_value = observed.get(index).copied();
+        if expected_value != observed_value {
+            findings.push(ConformanceFinding::new(
+                kind,
+                label,
+                expected_value,
+                observed_value,
+            ));
+        }
+    }
+}
+
+fn asset_form_name(assets: &ExpandedAssets) -> &'static str {
+    match assets {
+        ExpandedAssets::Direct(_) => "direct",
+        ExpandedAssets::Bundle(_) => "bundle",
+        ExpandedAssets::Archive(_) => "archive",
+    }
+}
+
+fn observed_form_name(assets: &ObservedTargetAssets) -> &'static str {
+    match assets {
+        ObservedTargetAssets::Direct(_) => "direct",
+        ObservedTargetAssets::Bundle { .. } => "bundle",
+        ObservedTargetAssets::Archive { .. } => "archive",
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 # Contract and Conformance Milestone 002 — Release and Mapping Validators
 
-Status: ready for handoff
+Status: closing
 
 Repository implementation baseline: `e3452263225fa1ea262e03b557f40b395e6a52d8` (Contract M001 closed; dist 0.33 evaluation closed with disposition C). Producer/consumer reorientation planning baseline: `5793ccecf5139d9b7b250534703ec5ee84fe44b8` (Eggpack producer authority and the Eggup M003/M004 migration cutover dependencies registered).
 

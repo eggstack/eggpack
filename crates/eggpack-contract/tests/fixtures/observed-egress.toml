@@ -1,0 +1,15 @@
+target = "macos-arm64"
+canonical_target = "aarch64-apple-darwin"
+
+[assets]
+kind = "archive"
+archive_file = "egress-2.1.0-aarch64-apple-darwin.tar.gz"
+sidecar_file = "egress-2.1.0-aarch64-apple-darwin.tar.gz.sha256"
+
+[[assets.members]]
+source = "egress"
+install_name = "egress"
+
+[[assets.members]]
+source = "bin/egress-helper"
+install_name = "egress-helper"
