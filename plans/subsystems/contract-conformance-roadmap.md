@@ -142,7 +142,7 @@ Value: Eggpack obtains a proven portable contract without redesign risk.
 
 Exit conditions: stable + MSRV tests, package qualification, deterministic fixtures, exact semantic comparison to predecessor.
 
-Deferred: removing `eggup-dist` from Eggup.
+Deferred from M001 only: removing `eggup-dist` is handled by the already-registered Eggup distribution M004 after this subsystem's M002 closes.
 
 ### M002 — Release/archive/mapping conformance validators
 
