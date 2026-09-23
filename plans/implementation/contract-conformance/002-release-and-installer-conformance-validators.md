@@ -2,7 +2,7 @@
 
 Status: ready for handoff
 
-Repository baseline: `e3452263225fa1ea262e03b557f40b395e6a52d8` (Contract M001 closed; dist 0.33 evaluation closed with disposition C; producer/consumer boundary registered)
+Repository implementation baseline: `e3452263225fa1ea262e03b557f40b395e6a52d8` (Contract M001 closed; dist 0.33 evaluation closed with disposition C). Producer/consumer reorientation planning baseline: `5793ccecf5139d9b7b250534703ec5ee84fe44b8` (Eggpack producer authority and the Eggup M003/M004 migration cutover dependencies registered).
 
 External predecessor evidence:
 
@@ -33,7 +33,7 @@ Port the closed Eggup distribution M003 conformance surface into `eggpack-contra
 
 ## 2. Readiness and dependencies
 
-Hard dependency: Contract M001 is closed with schema-v1 direct/bundle/archive expansion and predecessor safety guarantees.
+Hard dependencies are satisfied: Contract M001 is closed with schema-v1 direct/bundle/archive expansion and predecessor safety guarantees, and the terminal Eggup M003 implementation/closure is available as immutable predecessor evidence.
 
 Predecessor evidence: Eggup M003 is implemented and closed at the immutable SHAs above. Its public types, bounds, deterministic ordering, fixtures, and negative cases are the migration source. Eggpack must reproduce or explicitly map every closed behavior before refactoring. The Eggup repository has frozen `eggup-dist`; its M004 retirement remains blocked on this closure.
 
