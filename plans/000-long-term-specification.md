@@ -124,7 +124,7 @@ A small deterministic library owning the portable distribution contract:
 - archive-member path validation;
 - deterministic expansion.
 
-The initial implementation MUST preserve the currently qualified `eggup-dist` schema-v1 semantics before adding Eggpack-specific features.
+The initial implementation MUST preserve the qualified `eggup-dist` schema-v1 semantics. Eggup distribution M003 is the terminal predecessor producer implementation: its expected-file, release-inventory, archive-member-inventory, observed-mapping, and deterministic conformance behavior MUST be ported and independently qualified in Eggpack before Eggup retires the duplicate crate.
 
 It MUST NOT perform network I/O, run subprocesses, extract archives, or publish releases.
 
@@ -199,7 +199,7 @@ Adapters MUST consume stable Eggpack domain contracts. Their external types MUST
 
 ## 6. Portable distribution contract
 
-Eggpack begins with the proven DistributionContract v1 behavior from `eggup-dist`.
+Eggpack begins with the proven DistributionContract v1 behavior from `eggup-dist`. The predecessor is frozen after Eggup M003; Eggpack is the only repository authorized to evolve producer-side contract/conformance behavior after migration.
 
 The portable contract owns:
 
