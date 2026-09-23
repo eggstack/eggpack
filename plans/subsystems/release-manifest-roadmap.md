@@ -61,7 +61,7 @@ It does not own build strategy, release selection, hosting authority, live insta
 
 ## 4. Current state
 
-`eggpack-contract` exists and Contract M001/M002 are closed. M002 established the expected-file/conformance interface this subsystem consumes. No Eggpack release-manifest crate exists yet. The `dist` 0.33 evaluation closed with disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
+`eggpack-contract` exists and Contract M001/M002 are closed. `eggpack-manifest` schema v1 was implemented in Release Manifest M001, but post-closure review found that install-name collision tracking was incorrectly manifest-global instead of target-local. Corrective M001a is therefore the active gate. The `dist` 0.33 evaluation remains disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
 
 ## 5. Target architecture
 
@@ -89,7 +89,10 @@ contract M001
 conformance M002
     |
     v
-manifest M001 schema/domain
+manifest M001 schema/domain [CLOSED HISTORICALLY]
+    |
+    v
+manifest M001a namespace corrective
     |
     v
 manifest M002 final-artifact builder
@@ -109,11 +112,19 @@ Hard dependency: Contract M002 closure, now satisfied; it stabilizes the expecte
 
 Define bounded ProductId/ReleaseId/SourceRevision and evidence-reference types, JSON shape, deterministic ordering, relationship-preserving direct/bundle/archive artifact/member identity, validation, and fixtures.
 
+### M001a — Cross-target install namespace corrective
+
+Class: corrective / invariant
+
+Hard dependency: M001 implementation/closure.
+
+Correct install-name uniqueness to be target-local while preserving manifest-global release-artifact uniqueness. Add multi-target direct/bundle/archive regressions and re-close planning state before downstream work resumes.
+
 ### M002 — Final artifact manifest builder
 
 Class: capability
 
-Hard dependency: conformance M002 + M001.
+Hard dependency: conformance M002 + M001 + M001a closure.
 
 Build a manifest only from a complete, validated final inventory with computed artifact/member size/digest and bounded qualification/provenance evidence references.
 
@@ -145,6 +156,7 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 | closed | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | `plans/closure/release-manifest/001-status.md` | — |
-| M002 | ready | — | — | Manifest M001 + conformance M002 closed |
+| M001 | closed (historical) | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | `plans/closure/release-manifest/001-status.md` | post-closure defect tracked by M001a |
+| M001a | ready | `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md` | — | M001 implementation/closure |
+| M002 | blocked | — | — | M001a corrective closure |
 | M003 | planned | — | — | real consumer |
