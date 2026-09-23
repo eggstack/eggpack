@@ -68,11 +68,11 @@ No unresolved medium-or-higher findings. The generated Cargo lockfile currently 
 ## Roadmap disposition and dependency transitions
 
 - Contract/conformance M001: **closed**.
-- Contract/conformance M002: **ready**. The Eggup M003 validator handoff was reviewed at Eggup main `cf5b3d3819c168eb2dbf841daa8332f3eb28c915` (plan blob `29c1f95d3f3bc3280241d9e4ae49de32efc50dca`) and adapted as an Eggpack plan. The validators are additive over the now-closed schema authority.
+- Contract/conformance M002: **ready**. At M001 closure, the Eggup M003 validator handoff had been reviewed from Eggup main `cf5b3d3819c168eb2dbf841daa8332f3eb28c915` (plan blob `29c1f95d3f3bc3280241d9e4ae49de32efc50dca`). Eggup M003 was subsequently implemented and closed at implementation `9941c58d7039410c728860f9e4e382881d4ccf54` / closure `4169c8021b447fe73c8ee3ea71a80a535c940f54`; the current Eggpack M002 plan is rebaselined as a fidelity port of that terminal predecessor behavior.
 - Release Manifest M001 remains blocked on Contract M002's expected-file/conformance interface; M001 alone does not satisfy that interface.
 - Bootstrap Installers, Build/Qualification, Eggup Interoperability, and Adoption remain blocked by their roadmap dependencies.
-- External Backend Evaluation M001 is independent and can proceed next, as requested.
+- External Backend Evaluation M001 was independent of this closure and has since closed with disposition C; it does not authorize a production backend.
 
 ## Registry updates
 
-The registry now records Contract M001 closed, Contract M002 ready, the independent external-backend spike as the next execution handoff, and all downstream blockers above. Eggup's retained predecessor and source baselines remain recorded.
+The current registry records Contract M001 closed and Contract M002 as the sole dependency-ready producer-contract handoff. M002 now depends on the closed Eggup M003 predecessor evidence and, when closed, authorizes the already-registered Eggup M004 retirement. The external-backend spike is closed with disposition C. Eggup's retained predecessor and source baselines remain recorded until retirement executes.
