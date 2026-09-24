@@ -39,7 +39,7 @@ This file is the compact control surface for active interim planning. Detailed r
 - Contract M002 implementation: `a36803a7c34cc5b273559520bf99cb2400cc183a`; closure record: `plans/closure/contract-conformance/002-status.md`;
 - Release Manifest M001 implementation: `b5df057a0ab8d30664aeccc26aa7944678626930`; historical closure: `plans/closure/release-manifest/001-status.md`;
 - Release Manifest M001a implementation: `20a3084bbfbc7fac03b70e0c397f9059186169c8`; closure: `plans/closure/release-manifest/001a-status.md`. Install-name collisions are target-local; release-artifact filename collisions remain manifest-global;
-- Eggup interface and fixture baseline: `99c9040a5d106cfa46a4ba02f9fa0cee8653166c`; hosted CI: `35956171209`; pinned Eggup API source: `eggstack/eggup@2cab1f97ef30fa347c2030da321462459672c521`; post-closure bundle projection drift is tracked by M001a at `plans/implementation/eggup-interoperability/001a-projection-fixture-consistency-corrective.md`;
+- Eggup interface historical baseline: `99c9040a5d106cfa46a4ba02f9fa0cee8653166c`; corrective M001a implementation: `8d9264b3c224f3f05a061f4038b0f328b1c5c95e`; closure: `plans/closure/eggup-interoperability/001a-status.md`; hosted CI: `35998756491`; pinned Eggup API source: `eggstack/eggup@2cab1f97ef30fa347c2030da321462459672c521`;
 - next-batch implementation handoffs registered: Manifest M002 `14b88e7c7de1caac9958d821ba0ebe7cb4350117`, Build/Qualification M001 `a6e33a71efc7bdbb2cce10b905c8a6e3f7dfeb68`, Bootstrap M001 `7101cd241f5c9dec5931817850b22361feed32e5`, Eggup Interop M001 `916c93a1ad2aed7e033bea6d961b35e7008d805e`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
