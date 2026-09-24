@@ -33,3 +33,11 @@ Each ADR records:
 - supersession.
 
 Use an ADR when a decision establishes ownership, a public compatibility contract, a durable external backend, publication authority, or a trust/signing model.
+
+
+## Accepted records
+
+- ADR-0001 — producer/consumer release boundary;
+- ADR-0002 — contract/plan/manifest separation;
+- ADR-0003 — checked-in generated CI and explicit publication gate;
+- ADR-0004 — first-party native Cargo/cargo-zigbuild adapter boundary.
