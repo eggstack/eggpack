@@ -1071,7 +1071,7 @@ mod tests {
         .unwrap();
         fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
         let mut t = target();
-        t.policy.toolchain.rust = "1.89.0".into();
+        t.policy.toolchain.rust = "stable".into();
         let binding = BuildBinding {
             selector: LogicalOutputSelector::Direct,
             package: "smoke-fixture".into(),
