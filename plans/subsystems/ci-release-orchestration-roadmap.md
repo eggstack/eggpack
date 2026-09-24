@@ -9,9 +9,10 @@ Long-term references:
 - `plans/002-long-term-roadmap.md#phase-7--checked-in-ci-generation`
 - `plans/002-long-term-roadmap.md#phase-8--release-staging-and-human-publication-gate`
 
-Related ADR:
+Related ADRs:
 
-- `plans/adrs/ADR-0003-checked-in-generated-ci-and-publication-gate.md`
+- `plans/adrs/ADR-0003-checked-in-generated-ci-and-publication-gate.md`;
+- `plans/adrs/ADR-0004-first-party-native-cargo-build-adapter.md`
 
 ## 1. Purpose and ownership boundary
 
