@@ -444,8 +444,19 @@ mod tests {
             );
             assert_eq!(fs::read(ps_dest.join("eggsact")).unwrap(), b"abc");
         }
+        let host_target = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("macos", "aarch64") => "aarch64-apple-darwin",
+            ("macos", _) => "x86_64-apple-darwin",
+            (_, "aarch64") => "aarch64-unknown-linux-gnu",
+            _ => "x86_64-unknown-linux-gnu",
+        };
+        let selected = m
+            .targets
+            .iter()
+            .position(|target| target.target == host_target)
+            .unwrap();
         let mut bad_size = m.clone();
-        if let ArtifactForm::Direct { artifact, .. } = &mut bad_size.targets[0].form {
+        if let ArtifactForm::Direct { artifact, .. } = &mut bad_size.targets[selected].form {
             artifact.size = 4;
         }
         let origin = serve_once(b"abc", "200 OK");
@@ -470,7 +481,7 @@ mod tests {
             .success());
         assert_eq!(fs::read_dir(&bad_dest).unwrap().count(), 0);
         let mut bad_digest = m.clone();
-        if let ArtifactForm::Direct { artifact, .. } = &mut bad_digest.targets[0].form {
+        if let ArtifactForm::Direct { artifact, .. } = &mut bad_digest.targets[selected].form {
             artifact.sha256 = "00".repeat(32);
         }
         let origin = serve_once(b"abc", "200 OK");
