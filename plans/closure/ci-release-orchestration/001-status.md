@@ -73,3 +73,12 @@ CI M001 is closed. Build/Qualification M003 remains `ready to plan` because M002
 | Build/Qualification M004 finalization/aggregation | blocked | Build M003 closure and Manifest M002. |
 | CI M002 qualification/aggregation gates + drift CLI | blocked | Build M003/M004 interfaces and CI M001 closure. |
 | CI M003 draft release staging | blocked | CI M002 and an explicit staging adapter plan. |
+
+
+## Post-closure dependency update
+
+After this CI milestone closed, post-closure review of Build/Qualification M002 found intermittent Windows qualification instability: a Windows workspace-test failure on run 36040609714 attempt 1 passed on rerun attempt 2 without a production-code change, with an earlier similar failure on run 36035978249.
+
+Build corrective M002a is registered at `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md`.
+
+This does not reopen CI M001: its deterministic CIPlan/renderer evidence remains valid. It does withdraw the historical statement that Build M003 is currently ready to plan. Build M003 is blocked until M002a closes; consequently CI M002 remains blocked as before.
