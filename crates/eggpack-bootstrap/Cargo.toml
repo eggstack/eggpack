@@ -1,0 +1,16 @@
+[package]
+name = "eggpack-bootstrap"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Deterministic first-install shell and PowerShell generator"
+readme = "README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+eggpack-contract = { path = "../eggpack-contract", version = "0.1.0" }
+eggpack-manifest = { path = "../eggpack-manifest", version = "0.1.0" }

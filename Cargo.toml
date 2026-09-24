@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/eggpack-contract", "crates/eggpack-manifest"]
+members = ["crates/eggpack-contract", "crates/eggpack-manifest", "crates/eggpack-core", "crates/eggpack-bootstrap"]
 
 [workspace.package]
 version = "0.1.0"

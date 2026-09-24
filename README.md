@@ -25,3 +25,10 @@ Planning and architecture references:
 The contract implementation preserves the qualified unpublished `eggup-dist`
 schema-v1 predecessor. Contract conformance validators are closed, and the
 ReleaseManifest v1 domain is implemented.
+
+`eggpack-core` owns pure PackConfig/ReleasePlan resolution and producer-side
+manifest construction from explicitly named finalized files.
+`eggpack-bootstrap` renders release-specific direct first-install shell and
+PowerShell scripts from the contract and manifest; it does not select releases
+or update existing installations. SHA-256 checks establish integrity, not
+authenticity.

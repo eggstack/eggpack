@@ -153,6 +153,14 @@ pub struct ByteEvidence {
 }
 
 impl ReleaseManifest {
+    /// Find exactly one canonical target record. This never resolves aliases or guesses.
+    pub fn target(&self, canonical_triple: &str) -> Result<&TargetRecord, ManifestError> {
+        self.validate()?;
+        self.targets
+            .iter()
+            .find(|t| t.target == canonical_triple)
+            .ok_or_else(|| invalid("canonical target not found"))
+    }
     /// Parse strict schema-v1 JSON and validate all bounds and relationships.
     pub fn from_json(input: &str) -> Result<Self, ManifestError> {
         if input.len() > MAX_DOCUMENT_BYTES {
@@ -248,6 +256,10 @@ impl ReleaseManifest {
 }
 
 impl ArtifactRecord {
+    /// Decode validated lowercase SHA-256 hexadecimal evidence into bytes.
+    pub fn sha256_bytes(&self) -> Result<[u8; 32], ManifestError> {
+        decode_sha256(&self.sha256)
+    }
     fn validate(&self, names: &mut HashSet<String>) -> Result<(), ManifestError> {
         valid_name(&self.name, "artifact filename", names)?;
         if self.size == 0 {
@@ -267,6 +279,10 @@ impl ArtifactRecord {
     }
 }
 impl ByteEvidence {
+    /// Decode validated lowercase SHA-256 hexadecimal evidence into bytes.
+    pub fn sha256_bytes(&self) -> Result<[u8; 32], ManifestError> {
+        decode_sha256(&self.sha256)
+    }
     fn validate(&self) -> Result<(), ManifestError> {
         if self.size == 0 {
             return Err(invalid("size must be non-zero"));
@@ -283,6 +299,23 @@ impl ByteEvidence {
         }
         Ok(())
     }
+}
+fn decode_sha256(hex: &str) -> Result<[u8; 32], ManifestError> {
+    if hex.len() != 64 {
+        return Err(invalid("sha256 must contain 64 lowercase hex characters"));
+    }
+    let mut out = [0u8; 32];
+    for (i, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        let digit = |b: u8| match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            _ => None,
+        };
+        out[i] = digit(pair[0])
+            .and_then(|h| digit(pair[1]).map(|l| (h << 4) | l))
+            .ok_or_else(|| invalid("invalid lowercase sha256"))?;
+    }
+    Ok(out)
 }
 fn valid_name(name: &str, label: &str, names: &mut HashSet<String>) -> Result<(), ManifestError> {
     bounded(name, MAX_NAME, label)?;
@@ -587,6 +620,53 @@ mod tests {
             ]);
             assert!(m.validate().is_err());
         }
+    }
+    #[test]
+    fn exact_target_and_sha_helpers_are_non_wire_additions() {
+        let m = manifest(ArtifactForm::Direct {
+            artifact: artifact("a"),
+            install: "a".into(),
+        });
+        let before = m.to_json().unwrap();
+        let target = m.target("x86_64-unknown-linux-gnu").unwrap();
+        if let ArtifactForm::Direct { artifact, .. } = &target.form {
+            assert_eq!(artifact.sha256_bytes().unwrap(), [0xab; 32]);
+        }
+        assert!(m.target("linux-x64").is_err());
+        assert_eq!(m.to_json().unwrap(), before);
+    }
+    #[test]
+    fn eggup_interoperability_manifest_fixtures_are_valid_v1() {
+        for fixture in [
+            include_str!(
+                "../../../plans/closure/eggup-interoperability/fixtures/direct-manifest.json"
+            ),
+            include_str!(
+                "../../../plans/closure/eggup-interoperability/fixtures/bundle-manifest.json"
+            ),
+            include_str!(
+                "../../../plans/closure/eggup-interoperability/fixtures/archive-manifest.json"
+            ),
+        ] {
+            let parsed = ReleaseManifest::from_json(fixture).unwrap();
+            assert_eq!(parsed.to_json().unwrap(), fixture.trim());
+        }
+        assert!(ReleaseManifest::from_json(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/unknown-schema.json"
+        ))
+        .is_err());
+        let direct = ReleaseManifest::from_json(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/direct-manifest.json"
+        ))
+        .unwrap();
+        assert!(direct.target("x86_64-pc-windows-gnu").is_err());
+        let projection: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/projection-archive.json"
+        ))
+        .unwrap();
+        assert_eq!(projection["extraction_required"], true);
+        assert_eq!(projection["acquisition_units"].as_array().unwrap().len(), 1);
+        assert_eq!(projection["members"].as_array().unwrap().len(), 2);
     }
     #[test]
     fn canonical_order_is_independent_of_input_order() {
