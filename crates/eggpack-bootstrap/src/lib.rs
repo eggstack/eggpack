@@ -256,6 +256,7 @@ mod tests {
     }
     #[test]
     fn exact_direct_maps_render_stable_scripts_and_reject_bad_origin() {
+        use std::process::Command;
         let c = DistributionContract::parse_toml_str(include_str!(
             "../../eggpack-contract/tests/fixtures/simple-direct.toml"
         ))
@@ -313,6 +314,23 @@ mod tests {
             .success());
         let ps = render_powershell(&c, &m, &spec).unwrap();
         assert!(ps.contains("Get-FileHash"));
+        let ps_path =
+            std::env::temp_dir().join(format!("eggpack-ps-parse-{}.ps1", std::process::id()));
+        std::fs::write(&ps_path, &ps).unwrap();
+        let shell = if cfg!(windows) {
+            "powershell.exe"
+        } else {
+            "pwsh"
+        };
+        if Command::new(shell).arg("-Version").output().is_ok() {
+            let parser = format!("$tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile({},[ref]$tokens,[ref]$errors)|Out-Null;if($errors.Count -gt 0){{exit 1}}", psq(&ps_path.to_string_lossy()));
+            assert!(Command::new(shell)
+                .args(["-NoProfile", "-NonInteractive", "-Command", &parser])
+                .status()
+                .unwrap()
+                .success());
+        }
+        let _ = std::fs::remove_file(ps_path);
         let bad = BootstrapSpec {
             origin: "http://example.invalid".into(),
             fixture_http: true,
