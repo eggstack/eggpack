@@ -88,6 +88,7 @@ Current dependency-ready implementation work:
 | Build and qualification | M001 PackConfig/ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | Closure `plans/closure/build-qualification/001-status.md` |
 | Build and qualification | M002 native/cross builder seam | closed (historical) | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | Closure `plans/closure/build-qualification/002-status.md`; post-closure Windows stability finding tracked by M002a |
 | Build and qualification | M002a Windows qualification stability | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | Closure `plans/closure/build-qualification/002a-status.md`; three first-attempt hosted Windows runs passed |
+| Build and qualification | M003 qualification execution | ready | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | M002/M002a closed; stable candidate evidence interface |
 | Bootstrap installers | M001 generator/direct fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Closure `plans/closure/bootstrap-installers/001-status.md` |
 | CI orchestration | M001 CIPlan/GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Closure `plans/closure/ci-release-orchestration/001-status.md`; hosted run 36040032768 passes all lanes |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |
@@ -97,7 +98,6 @@ Current dependency-ready implementation work:
 
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
-| Build and qualification | M003 qualification execution | ready to plan | M002 and M002a closed; stable candidate evidence interface |
 | Build and qualification | M004 finalization/aggregation | blocked | M003 closure + Manifest M002 |
 | CI orchestration | M002 qualification/aggregation gates + drift CLI | blocked | CI M001 + Build M003/M004 interfaces |
 | CI orchestration | M003 draft release staging | blocked | CI M002 + explicit staging adapter plan |
