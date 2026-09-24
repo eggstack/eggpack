@@ -64,7 +64,7 @@ Hard dependencies: contract conformance M002 + manifest M001. Build engine is no
 
 ## 7. Milestones
 
-M001 generator model + direct installer fixtures.
+M001 direct generator and installer fixtures — closed. Deterministic shell/PowerShell scripts derive their mapping and integrity values from validated contract+manifest inputs.
 
 M002 bundle/archive bootstrap safety.
 
@@ -92,6 +92,6 @@ M001 generator model and direct installer fixtures is ready. Contract conformanc
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 direct generator + fixtures | ready | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | — | Contract M002 + Manifest M001/M001a closed |
+| M001 direct generator + fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | `plans/closure/bootstrap-installers/001-status.md` | direct first-install semantics qualified; archive-content/finalization evidence remains later work |
 | M002 bundle/archive bootstrap safety | blocked | — | — | M001 closure + finalization evidence as required |
 | M003 two-consumer adoption/receipt decision | blocked | — | — | M002 + adoption evidence |
