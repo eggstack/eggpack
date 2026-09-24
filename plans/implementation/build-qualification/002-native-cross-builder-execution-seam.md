@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 002 — Native/Cross Builder Execution Seam
 
-Status: closing — implementation landed; hosted qualification evidence pending
+Status: blocked at closure — implementation landed; Windows native execution qualification is blocked by the hosted runner toolchain
 
 Repository baseline: `e8bc338ab193fa8ed5fc7debb0cd68b54ebf586b`
 
@@ -383,10 +383,12 @@ M002 closes when:
 - tool mismatch/missing tools fail closed;
 - candidate discovery is exact and safe;
 - no qualification/finalization/publication authority leaks into the builder;
-- stable/MSRV/macOS/Windows CI passes;
+- stable/MSRV/macOS/Windows CI passes, including Windows native execution and process-tree timeout/cancellation evidence;
 - no unresolved medium-or-higher builder safety/correctness issue remains.
 
 Closure must state whether M003 qualification execution is now ready to plan.
+
+Closure disposition (2026-09-24): implementation and Linux stable, Linux Rust 1.89, and macOS qualification evidence are recorded in `plans/closure/build-qualification/002-status.md`. Windows hosted CI is blocked because `windows-latest` does not expose an MSVC `link.exe` in PATH (the only discovered `link.exe` is Git's utility); both the real Cargo smoke and Cargo-backed timeout/cancellation fixture consequently fail before exercising the intended code. The implementation has not weakened the invariant or skipped those tests. M002 therefore remains blocked rather than closed, and M003 and CI M001 remain blocked pending an approved/provisioned Windows builder environment and successful Windows rerun.
 
 ## 14. Stop conditions
 

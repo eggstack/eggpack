@@ -146,6 +146,6 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
-| M002 native/cross builder seam | closing | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` | local checks pass; Linux/MSRV/macOS/Windows hosted CI pending |
-| M003 qualification execution | blocked | — | — | M001/M002 interfaces |
+| M002 native/cross builder seam | blocked at closure | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` (blocked review) | Windows hosted runner lacks usable MSVC linker; required native Cargo and timeout/cancellation evidence cannot pass |
+| M003 qualification execution | blocked | — | — | M002 closure and qualified candidate evidence interface |
 | M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |

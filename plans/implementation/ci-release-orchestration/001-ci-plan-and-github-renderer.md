@@ -1,6 +1,6 @@
 # CI and Release Orchestration Milestone 001 — Provider-Neutral CIPlan and Deterministic GitHub Renderer
 
-Status: ready for handoff; implementation ordered after Build/Qualification M002 establishes build-binding and command-spec types
+Status: blocked — Build/Qualification M002 Windows native execution qualification is unresolved
 
 Repository baseline: 1666df9ac68062f7a1be4ed757a4f1ccc21aad5b
 
