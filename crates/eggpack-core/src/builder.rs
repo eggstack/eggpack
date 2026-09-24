@@ -384,6 +384,19 @@ fn run_bounded_inner(
             command.env(key, value);
         }
     }
+    #[cfg(windows)]
+    if let Some(vc_tools) = std::env::var_os("VCToolsInstallDir") {
+        let preferred_linker = PathBuf::from(vc_tools)
+            .join("bin")
+            .join("Hostx64")
+            .join("x64");
+        if let Some(path) = std::env::var_os("PATH") {
+            let path = std::iter::once(preferred_linker).chain(std::env::split_paths(&path));
+            if let Ok(path) = std::env::join_paths(path) {
+                command.env("PATH", path);
+            }
+        }
+    }
     command.envs(&spec.env);
     let mut child = command
         .group_spawn()
