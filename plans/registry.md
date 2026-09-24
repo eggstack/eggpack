@@ -73,7 +73,7 @@ Distribution predecessor evidence:
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001 closed; M002 blocked | backend/adapter decision at implementation boundary |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 blocked | archive content/finalization and consumer-owned extraction boundary |
 | CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 ready to plan | Build/Qualification M001 ReleasePlan interface closed |
-| Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | M001a closed; Eggup adapter plan registered | Eggup handoff: `eggstack/eggup@2ad8ce3968128cbc8d1065d8334a106f82b3a9bd`, `plans/implementation/eggpack-manifest-interoperability/001-release-manifest-v1-adapter.md` |
+| Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a closed; Eggup adapter M001 historical closure; Eggup adapter M001a corrective ready | Eggup corrective plan commit `4a5448f953bbe082e84791ff262627633a4b6568`; M003 adoption blocked until corrective closure |
 | Ecosystem adoption | proposed | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 blocked | required core pieces |
 
 ## Dependency-ready implementation work
@@ -93,7 +93,7 @@ Current dependency-ready implementation work:
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 | CI orchestration | M001 CIPlan/renderer | ready to plan | Build/Qualification M001 ReleasePlan interface closed; register an implementation handoff before execution |
-| Eggup interoperability | M002 optional adapter | ready for Eggup implementation | Eggup-owned plan registered at `eggstack/eggup@2ad8ce3968128cbc8d1065d8334a106f82b3a9bd` |
+| Eggup interoperability | M002 optional adapter | closed historically / corrective active | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; closure `plans/closure/eggpack-manifest-interoperability/001-status.md`; Eggup M001a corrective ready |
 | Adoption | eggsact/stegoeggo | blocked | contract + required generator/CI pieces |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
@@ -129,7 +129,12 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
                        v
              Eggup interoperability M001a [CLOSED]
                        |
-                       `--> Eggup adapter M001 [READY FOR IMPLEMENTATION; Eggup plan registered]
+                       `--> Eggup adapter M001 [CLOSED HISTORICALLY]
+                                  |
+                                  v
+                           Eggup adapter M001a [READY CORRECTIVE]
+                                  |
+                                  `--> consumer adoption [BLOCKED until corrective closure]
 
 External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 ```
@@ -148,7 +153,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-Manifest M002, Build/Qualification M001, Bootstrap Installers M001, and Eggup Interoperability M001a are closed. Eggup Interoperability M001 remains historical closure evidence, with the M001a corrective closure now documenting the corrected pairwise direct/bundle/archive projection/manifest baseline. The Eggup-owned adapter implementation plan is now registered at `eggstack/eggup@2ad8ce3968128cbc8d1065d8334a106f82b3a9bd` and is ready for implementation against the M001a closure baseline. CI Orchestration M001 is independently ready for plan authoring and is unaffected by this corrective. Bootstrap M002 remains blocked on qualified archive finalization/extraction boundaries. Ecosystem adoption remains blocked on the required producer/installer/CI capabilities. The dist spike remains closed disposition C; no backend-selection ADR or production adoption is authorized.
+Manifest M002, Build/Qualification M001, Bootstrap Installers M001, and Eggup Interoperability M001a are closed. Eggup Interoperability M001 remains historical closure evidence, with the M001a corrective closure now documenting the corrected pairwise direct/bundle/archive projection/manifest baseline. The Eggup-owned adapter implementation landed and closed historically, but Eggup has now registered corrective M001a at `eggstack/eggup@4a5448f953bbe082e84791ff262627633a4b6568` to complete the missing regression matrix and reconcile closure scope. Treat downstream real-consumer adoption as blocked until that corrective closes. CI Orchestration M001 is independently ready for plan authoring and is unaffected by this corrective. Bootstrap M002 remains blocked on qualified archive finalization/extraction boundaries. Ecosystem adoption remains blocked on the required producer/installer/CI capabilities. The dist spike remains closed disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 
