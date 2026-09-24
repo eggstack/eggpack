@@ -158,5 +158,5 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 |---|---|---|---|---|
 | M001 | closed (historical) | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | `plans/closure/release-manifest/001-status.md` | post-closure defect tracked by M001a |
 | M001a | closed | `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md` | `plans/closure/release-manifest/001a-status.md` | M001 implementation/closure |
-| M002 | ready | — | — | M001 + M001a closed; conformance M002 closed |
+| M002 | ready | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | — | M001 + M001a closed; conformance M002 closed |
 | M003 | planned | — | — | real consumer |
