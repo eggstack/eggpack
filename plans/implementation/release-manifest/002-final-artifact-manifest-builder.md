@@ -1,6 +1,8 @@
 # Release Manifest Milestone 002 — Final Artifact Manifest Builder
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/release-manifest/002-status.md`
 
 Repository baseline: `0b1c3b9795280dea610c2fbe9d1533591d610b3f` (Contract M001/M002 closed; Release Manifest M001/M001a closed; hosted CI green)
 

@@ -39,6 +39,7 @@ This file is the compact control surface for active interim planning. Detailed r
 - Contract M002 implementation: `a36803a7c34cc5b273559520bf99cb2400cc183a`; closure record: `plans/closure/contract-conformance/002-status.md`;
 - Release Manifest M001 implementation: `b5df057a0ab8d30664aeccc26aa7944678626930`; historical closure: `plans/closure/release-manifest/001-status.md`;
 - Release Manifest M001a implementation: `20a3084bbfbc7fac03b70e0c397f9059186169c8`; closure: `plans/closure/release-manifest/001a-status.md`. Install-name collisions are target-local; release-artifact filename collisions remain manifest-global;
+- producer foundation implementation: `4eba6ec9422ab01a675ef34cdfc2b9d6f9c0944d`; installer test portability and PowerShell syntax verification: `fae149ebab0023e1b9fd765d6429718b612ab383`, `f1f06387157966a0288e00c04aa455daa50699e9`; hosted CI: `35955038613`;
 - next-batch implementation handoffs registered: Manifest M002 `14b88e7c7de1caac9958d821ba0ebe7cb4350117`, Build/Qualification M001 `a6e33a71efc7bdbb2cce10b905c8a6e3f7dfeb68`, Bootstrap M001 `7101cd241f5c9dec5931817850b22361feed32e5`, Eggup Interop M001 `916c93a1ad2aed7e033bea6d961b35e7008d805e`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
@@ -68,7 +69,7 @@ Distribution predecessor evidence:
 |---|---|---|---|---|
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement closed; consumer evidence gates M003 |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
-| Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001a closed; M002 ready | M001/M001a and conformance M002 closed |
+| Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001 ready | Contract M001/M002, manifest M001/M001a, backend evaluation closed |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 ready | Contract conformance M002 and manifest M001/M001a closed |
 | CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 blocked | Build/qualification M001 interface |
@@ -81,7 +82,7 @@ Current dependency-ready implementation work:
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
-| Release manifest | M002 final-artifact builder | ready | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | Contract conformance M002; Manifest M001/M001a closed |
+| Release manifest | M002 final-artifact builder | closed | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | Closure `plans/closure/release-manifest/002-status.md` |
 | Build and qualification | M001 PackConfig/ReleasePlan | ready / ordered after core bootstrap | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | semantic dependencies closed; extend `eggpack-core` after/with Manifest M002 bootstrap |
 | Bootstrap installers | M001 generator/direct fixtures | ready | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Contract conformance M002; Manifest M001/M001a closed |
 | Eggup interoperability | M001 Eggpack interface/fixtures | ready | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Manifest M001/M001a + conformance M002 closed; Eggup changes require later Eggup plan |
@@ -115,9 +116,9 @@ ReleaseManifest M001 [CLOSED HISTORICALLY]
         v
 Manifest M001a corrective [CLOSED: target-local installs, global artifact filenames]
         |
-        +--> Manifest M002 [READY; establishes eggpack-core]
+        +--> Manifest M002 [CLOSED; establishes eggpack-core and final-byte manifest builder]
         |        |
-        |        `--> build/qualification M001 [READY; extend core after bootstrap]
+        |        `--> build/qualification M001 [READY; extend core]
         +--> bootstrap installers M001 [READY; independent renderer crate]
         `--> Eggup interoperability M001, Eggpack side [READY; fixtures/interface only]
 
@@ -138,7 +139,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-The next implementation batch is fully registered. Execute Manifest M002 first (or first within a coordinated branch) because it establishes the canonical `eggpack-core` package; then apply Build/Qualification M001 to extend that core planning surface. Bootstrap Installers M001 and Eggpack-side Eggup Interoperability M001 are independently ready and may proceed in parallel because they consume the already-closed Contract/Manifest interfaces. Do not author CI Orchestration M001 until Build/Qualification M001 closes and fixes the ReleasePlan interface. Do not author the Eggup adapter implementation in Eggup until Eggpack Interoperability M001 closes and its fixture/mapping contract is reviewed. Ecosystem adoption remains blocked on the required producer/installer/CI capabilities. The dist spike remains closed disposition C; no backend-selection ADR or production adoption is authorized.
+Manifest M002 is closed and Build/Qualification M001 is next in sequence. Bootstrap Installers M001 and Eggpack-side Eggup Interoperability M001 remain registered and ready. CI Orchestration M001 stays blocked until Build/Qualification M001 closes and fixes the ReleasePlan interface. Eggup adapter work requires Eggpack Interoperability M001 closure and a separately registered Eggup plan. Ecosystem adoption remains blocked on the required producer/installer/CI capabilities. The dist spike remains closed disposition C; no backend-selection ADR or production adoption is authorized.
 
 ## Registry update rule
 
