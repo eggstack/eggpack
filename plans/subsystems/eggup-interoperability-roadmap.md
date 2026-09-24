@@ -50,7 +50,7 @@ Eggpack owns manifest semantics. Eggup owns adapter-to-deployment behavior.
 
 ## 4. Current state
 
-Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. The Eggpack-side M001a corrective replaces the drifted `projection-bundle.json` with an exact projection of all three CodeGG bundle entries and adds a strict pairwise projection/manifest test harness (direct, bundle, and archive) plus the full detection-gap negative matrix. The optional Eggup adapter M002 is unblocked for authoring against the corrected fixture baseline; this roadmap does not authorize Eggup implementation.
+Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. The Eggpack-side M001a corrective replaces the drifted `projection-bundle.json` with an exact projection of all three CodeGG bundle entries and adds a strict pairwise projection/manifest test harness (direct, bundle, and archive) plus the full detection-gap negative matrix. The optional Eggup adapter has an Eggup-owned implementation plan registered at `eggstack/eggup@2ad8ce3968128cbc8d1065d8334a106f82b3a9bd`, `plans/implementation/eggpack-manifest-interoperability/001-release-manifest-v1-adapter.md`; implementation and closure now belong to Eggup.
 
 ## 5. Target architecture
 
@@ -82,7 +82,7 @@ M001 cross-repo interface contract/fixtures — closed historically at `plans/cl
 
 M001a projection fixture consistency corrective — closed at `plans/closure/eggup-interoperability/001a-status.md`; corrected bundle projection matches all three CodeGG entries, and pairwise direct/bundle/archive projection tests plus the detection-gap negative matrix now gate CI.
 
-M002 Eggup adapter implementation (in Eggup repo) — unblocked for authoring against the corrected fixture baseline recorded in M001a closure; still requires a separately registered Eggup-side plan before implementation.
+M002 Eggup adapter implementation (in Eggup repo) — Eggup-owned implementation plan registered at `eggstack/eggup@2ad8ce3968128cbc8d1065d8334a106f82b3a9bd`, `plans/implementation/eggpack-manifest-interoperability/001-release-manifest-v1-adapter.md`; ready for Eggup implementation.
 
 M003 one simple end-to-end consumer.
 
@@ -106,12 +106,12 @@ A real Eggup consumer updates from Eggpack manifest evidence with less duplicate
 
 ## 12. Milestone status
 
-M001 is historical closure evidence. M001a is closed and is the corrected fixture baseline an Eggup adapter implementation plan must reference. Eggup repository adapter work is unblocked for authoring against the M001a closure baseline but still requires a separately registered Eggup-side plan before any Eggup code change.
+M001 is historical closure evidence. M001a is closed and is the corrected fixture baseline. The Eggup-owned adapter plan is registered and ready for implementation; Eggpack retains only the producer/interface side of this cross-repository seam.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | `plans/closure/eggup-interoperability/001-status.md` | post-closure projection defect resolved by M001a |
 | M001a projection fixture consistency corrective | closed | `plans/implementation/eggup-interoperability/001a-projection-fixture-consistency-corrective.md` | `plans/closure/eggup-interoperability/001a-status.md` | — |
-| M002 Eggup adapter | ready to author / Eggup-owned | — | — | separately registered Eggup plan against M001a baseline |
+| M002 Eggup adapter | ready for implementation / Eggup-owned | `eggstack/eggup: plans/implementation/eggpack-manifest-interoperability/001-release-manifest-v1-adapter.md` | — | Eggup plan registered at `2ad8ce3968128cbc8d1065d8334a106f82b3a9bd`; implementation/closure occurs in Eggup |
 | M003 simple end-to-end consumer | blocked | — | — | Eggup adapter + selected consumer |
 | M004 bootstrap receipt compatibility | planned only if justified | — | — | real adoption evidence |
