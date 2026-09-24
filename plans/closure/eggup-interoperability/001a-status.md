@@ -10,6 +10,10 @@ Historical closure: `plans/closure/eggup-interoperability/001-status.md`
 
 Reviewed Eggpack baseline: `7b6b834c1e85a4c43f4eab6b9f3f9f7c9f9f7c9f` (Eggup interop M001a corrective registered; the closure lands on the post-registration commit produced by this work).
 
+Implementation commit: `8d9264b3c224f3f05a061f4038b0f328b1c5c95e`.
+
+Hosted CI run: [CI run 35998756491](https://github.com/eggstack/eggpack/actions/runs/35998756491), triggered by the implementation commit, all Linux stable, Linux Rust 1.89, macOS, and Windows lanes passed.
+
 External Eggup API baseline: `eggstack/eggup@2cab1f97ef30fa347c2030da321462459672c521`. No Eggup repository change is part of this corrective.
 
 ## Executive finding
@@ -151,7 +155,7 @@ No new dependency or authority was introduced. The projection schema is internal
 
 ## Hosted CI
 
-Hosted CI for the corrective commit will be appended to this closure once the push runs the Linux stable, Linux Rust 1.89, macOS, and Windows lanes. The expected CI lanes and commands mirror the M001 closure: format check, workspace check/test, Clippy, docs on stable; workspace check/test on 1.89.0; workspace check/test on macOS and Windows. All lanes must pass before this closure is treated as fully hosted.
+Hosted CI run [35998756491](https://github.com/eggstack/eggpack/actions/runs/35998756491) passed all four required lanes: Linux stable (including fmt, workspace check/test, Clippy, and docs), Linux Rust 1.89.0 (workspace check/test), macOS stable (workspace check/test), and Windows stable (workspace check/test). GitHub emitted informational Node.js 20 / Ubuntu runner deprecation notices; no job failed.
 
 ## Roadmap disposition and dependency transitions
 
