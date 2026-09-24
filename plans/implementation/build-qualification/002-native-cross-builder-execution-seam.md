@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 002 — Native/Cross Builder Execution Seam
 
-Status: blocked at closure — implementation landed; Windows native execution qualification is blocked by the hosted runner toolchain
+Status: closed — implementation and hosted qualification complete
 
 Repository baseline: `e8bc338ab193fa8ed5fc7debb0cd68b54ebf586b`
 
@@ -388,7 +388,7 @@ M002 closes when:
 
 Closure must state whether M003 qualification execution is now ready to plan.
 
-Closure disposition (2026-09-24): implementation and Linux stable, Linux Rust 1.89, and macOS qualification evidence are recorded in `plans/closure/build-qualification/002-status.md`. Windows hosted CI is blocked because `windows-latest` does not expose an MSVC `link.exe` in PATH (the only discovered `link.exe` is Git's utility); both the real Cargo smoke and Cargo-backed timeout/cancellation fixture consequently fail before exercising the intended code. The implementation has not weakened the invariant or skipped those tests. M002 therefore remains blocked rather than closed, and M003 and CI M001 remain blocked pending an approved/provisioned Windows builder environment and successful Windows rerun.
+Closure disposition (2026-09-24): M002 is closed. The initially observed Windows linker issue is superseded by passing hosted run [36031996802](https://github.com/eggstack/eggpack/actions/runs/36031996802), which passes all four lanes and executes the Windows Cargo candidate smoke and process-tree timeout/cancellation fixture successfully. Detailed implementation, invariant, recovery, compatibility, dependency, and verification evidence is in `plans/closure/build-qualification/002-status.md`. Build M003 is ready to plan; CI M001 is unblocked and may begin, consuming the shared binding/command seam.
 
 ## 14. Stop conditions
 

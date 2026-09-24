@@ -1,6 +1,6 @@
 # CI and Release Orchestration Milestone 001 — Provider-Neutral CIPlan and Deterministic GitHub Renderer
 
-Status: blocked — Build/Qualification M002 Windows native execution qualification is unresolved
+Status: ready for implementation — Build/Qualification M002 is closed
 
 Repository baseline: 1666df9ac68062f7a1be4ed757a4f1ccc21aad5b
 
