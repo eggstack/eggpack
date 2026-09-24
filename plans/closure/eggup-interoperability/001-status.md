@@ -6,7 +6,7 @@ Source plan: `plans/implementation/eggup-interoperability/001-manifest-consumer-
 
 Roadmap: `plans/subsystems/eggup-interoperability-roadmap.md`
 
-Reviewed Eggpack baseline: `bc0c97138f24cda94434c2118929046fcd30cb2a` (Bootstrap M001 closed; Eggpack-side interface work then proceeding). Final implementation baseline: `99c9040a5d106cfa46a4ba02f9fa0cee8653166c`.
+Reviewed Eggpack baseline: `bc0c9714fd808be0906df00a049c5941ea4f6d24` (Bootstrap M001 closed; Eggpack-side interface work then proceeding). Final implementation baseline: `99c9040a5d106cfa46a4ba02f9fa0cee8653166c`.
 
 External Eggup baseline: `eggstack/eggup@2cab1f97ef30fa347c2030da321462459672c521`.
 
