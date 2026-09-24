@@ -74,7 +74,7 @@ Distribution predecessor evidence:
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001/M002 closed; M003 ready to plan | ADR-0004 accepted; builder seam qualified on all hosted lanes |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 blocked | archive content/finalization and consumer-owned extraction boundary |
-| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 implementation in progress; consumes closed Build M002 seam | hosted/package closure checks pending |
+| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 closed; M002 remains blocked on Build M003/M004 interfaces | Build qualification interfaces and explicit staging adapter plan |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
 | Ecosystem adoption | proposed | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 blocked | required core pieces |
 
@@ -89,7 +89,7 @@ Current dependency-ready implementation work:
 | Build and qualification | M002 native/cross builder seam | closed | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | Closure `plans/closure/build-qualification/002-status.md`; stable/MSRV/macOS/Windows passed, including Windows Cargo smoke and timeout/cancellation |
 | Bootstrap installers | M001 generator/direct fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Closure `plans/closure/bootstrap-installers/001-status.md` |
 | Build and qualification | M003 qualification execution | ready to plan | — | M002 builder and candidate evidence interface closed |
-| CI orchestration | M001 CIPlan/GitHub renderer | in progress | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Consume closed Build M002 binding/command interface |
+| CI orchestration | M001 CIPlan/GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Closure `plans/closure/ci-release-orchestration/001-status.md`; hosted run 36040032768 passes all lanes |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |
 | Eggup interoperability | M001a projection fixture consistency corrective | closed | `plans/implementation/eggup-interoperability/001a-projection-fixture-consistency-corrective.md` | Closure `plans/closure/eggup-interoperability/001a-status.md`; corrected pairwise fixture baseline |
 
@@ -106,7 +106,7 @@ Current dependency-ready implementation work:
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
-Build/Qualification M002 is closed after hosted run 36031996802 passed all lanes, including Windows native Cargo candidate and process-tree timeout/cancellation tests. CI Orchestration M001 is in progress and consumes the M002 types. Build M003 qualification execution is ready to plan. Build M004 and CI M002/M003 remain blocked on their stated follow-on interfaces.
+Build/Qualification M002 is closed after hosted run 36031996802 passed all lanes, including Windows native Cargo candidate and process-tree timeout/cancellation tests. CI Orchestration M001 is closed after run 36040032768 passed Linux stable, Linux 1.89, macOS, and Windows; it consumes the M002 types. Build M003 qualification execution is ready to plan. Build M004 and CI M002/M003 remain blocked on their stated follow-on interfaces.
 
 ## Immediate execution graph
 
@@ -137,7 +137,7 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
         |              build/qualification M002 [CLOSED; all hosted lanes pass]
         |                         |
         |                         +--> qualification M003 [BLOCKED]
-        |                         `--> CI Orchestration M001 [IN PROGRESS; consume M002 interface]
+        |                         `--> CI Orchestration M001 [CLOSED; consumes Build M002 interface]
         |                                      |
         |                                      `--> CI M002 [BLOCKED on qualification/finalization]
         +--> bootstrap installers M001 [CLOSED; direct first-install generator]
@@ -170,7 +170,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-Manifest M002, Build/Qualification M001/M002, Bootstrap Installers M001, and Eggup Interoperability M001a are closed. Build M002 passed stable/MSRV/macOS/Windows hosted checks, including real Windows Cargo and timeout/cancellation execution; its shared binding/command seam unblocks CI Orchestration M001, which is now in progress. Build M003 qualification execution is ready to plan. Build M004, CI M002/M003, staging/publication, and ecosystem adoption remain blocked on their interfaces and qualifications. Eggup M003 real-consumer adapter adoption is independently ready to plan but is not the producer critical path. The dist spike remains closed disposition C; no external backend adoption is authorized.
+Manifest M002, Build/Qualification M001/M002, CI Orchestration M001, Bootstrap Installers M001, and Eggup Interoperability M001a are closed. Build M002 passed stable/MSRV/macOS/Windows hosted checks, including real Windows Cargo and timeout/cancellation execution; its shared binding/command seam is consumed by the now-closed CI M001, which passed stable/MSRV/macOS/Windows hosted checks. Build M003 qualification execution is ready to plan. Build M004 and CI M002/M003, staging/publication, and ecosystem adoption remain blocked on their interfaces and qualifications. Eggup M003 real-consumer adapter adoption is independently ready to plan but is not the producer critical path. The dist spike remains closed disposition C; no external backend adoption is authorized.
 
 ## Registry update rule
 

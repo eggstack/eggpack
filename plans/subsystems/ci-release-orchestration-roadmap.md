@@ -103,6 +103,6 @@ Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Close
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 CIPlan + GitHub renderer | in progress | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | — | Consume closed Build M002 binding/command types; hosted/package closure checks pending |
+| M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
 | M002 qualification/aggregation gates + drift CLI | blocked | — | — | M001 closure + Build/Qualification M003/M004 interfaces |
 | M003 draft release staging | blocked | — | — | M002 + explicit staging adapter plan |
