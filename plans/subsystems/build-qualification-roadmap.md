@@ -111,9 +111,15 @@ Closed: `eggpack-core` now parses strict PackConfig v1 and resolves a determinis
 
 ### M002 — Native/cross builder seam
 
-Closing: ADR-0004 first-party Cargo/cargo-zigbuild execution now has explicit logical-output source bindings, bounded cancellable process-group execution, tool preflight, private build directories, and exact candidate evidence. See `plans/closure/build-qualification/002-status.md` for local evidence and hosted CI disposition.
+Closed historically: ADR-0004 first-party Cargo/cargo-zigbuild execution has explicit logical-output source bindings, bounded cancellable process-group execution, tool preflight, private build directories, and exact candidate evidence. See `plans/closure/build-qualification/002-status.md`. Post-closure Windows stability concerns are tracked by M002a.
 
 Implementation plan: `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md`.
+
+### M002a — Windows builder qualification stability corrective
+
+Stabilize and make observable the intermittent hosted-Windows builder qualification path before advancing into qualification execution. Preserve M002 architecture unless a reproduced failure demonstrates a production defect.
+
+Implementation plan: `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md`.
 
 ### M003 — Qualification execution model
 
@@ -146,6 +152,7 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
-| M002 native/cross builder seam | closed | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` | Stable/MSRV/macOS/Windows hosted checks pass; Windows Cargo smoke and timeout/cancellation tests pass |
-| M003 qualification execution | ready to plan | — | — | M002 candidate evidence interface closed |
+| M002 native/cross builder seam | closed (historical) | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` | post-closure Windows stability finding tracked by M002a |
+| M002a Windows qualification stability corrective | ready | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | — | intermittent Windows pass/fail/rerun-pass evidence on unchanged builder code |
+| M003 qualification execution | blocked | — | — | M002a corrective closure |
 | M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |
