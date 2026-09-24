@@ -6,7 +6,7 @@ Source plan: `plans/implementation/bootstrap-installers/001-direct-installer-gen
 
 Roadmap: `plans/subsystems/bootstrap-installers-roadmap.md`
 
-Reviewed baseline: `a161e43c06d52a88c772e30b1a9f15d4b87c29b7` (Build/Qualification M001 closure; direct renderer dependencies already closed).
+Reviewed baseline: `a161e4362499f1e07a4a8f0fe1e3d3a9cbf6e10b` (Build/Qualification M001 closure; direct renderer dependencies already closed).
 
 Implementation commits: `4eba6ec9422ab01a675ef34cdfc2b9d6f9c0944d`, `fae149ebab0023e1b9fd765d6429718b612ab383`, `f1f06387157966a0288e00c04aa455daa50699e9`, `4654c19b138ab2644674438dd1172749baca73d7`, `f57ec4bebd36d473d59ca9a06bbb2f4a73b95a09`.
 

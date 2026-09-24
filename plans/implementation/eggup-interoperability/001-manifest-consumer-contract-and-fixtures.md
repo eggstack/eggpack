@@ -1,6 +1,8 @@
 # Eggup Interoperability Milestone 001 — Manifest Consumer Contract and Cross-Repository Fixtures
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/eggup-interoperability/001-status.md`
 
 Eggpack implementation baseline: `0b1c3b9795280dea610c2fbe9d1533591d610b3f` (Manifest M001/M001a closed)
 

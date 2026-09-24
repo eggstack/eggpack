@@ -50,7 +50,7 @@ Eggpack owns manifest semantics. Eggup owns adapter-to-deployment behavior.
 
 ## 4. Current state
 
-Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. The Eggpack-side M001 interface contract and fixtures are ready; any Eggup repository implementation still requires a registered Eggup-side plan.
+Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. Eggpack-side M001 interface contract and fixtures are closed. The optional Eggup adapter M002 is now ready for an Eggup-side plan to be authored and registered; this roadmap does not authorize Eggup implementation.
 
 ## 5. Target architecture
 
@@ -78,9 +78,9 @@ Hard dependency: ReleaseManifest v1 + conformance maturity. Eggup-side work also
 
 ## 7. Milestones
 
-M001 cross-repo interface contract/fixtures.
+M001 cross-repo interface contract/fixtures — closed at `plans/closure/eggup-interoperability/001-status.md`.
 
-M002 Eggup adapter implementation (in Eggup repo).
+M002 Eggup adapter implementation (in Eggup repo) — ready to author/register a separate Eggup plan against this closed interface and fixture baseline.
 
 M003 one simple end-to-end consumer.
 
@@ -108,7 +108,7 @@ M001 cross-repository interface contract and fixtures is ready now that Release 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 Eggpack interface/fixtures | ready | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | — | Manifest M001/M001a + Contract M002 closed; pinned Eggup consumer API review |
-| M002 Eggup adapter | blocked / Eggup-owned | — | — | Eggpack M001 closure + separately registered Eggup plan |
+| M001 Eggpack interface/fixtures | closed | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | `plans/closure/eggup-interoperability/001-status.md` | interface/fixture baseline and pinned Eggup API review closed |
+| M002 Eggup adapter | ready to plan / Eggup-owned | — | — | author/register a separate Eggup plan against closed Eggpack M001; do not implement from this roadmap alone |
 | M003 simple end-to-end consumer | blocked | — | — | Eggup adapter + selected consumer |
 | M004 bootstrap receipt compatibility | planned only if justified | — | — | real adoption evidence |

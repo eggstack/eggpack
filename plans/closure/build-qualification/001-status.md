@@ -6,7 +6,7 @@ Source plan: `plans/implementation/build-qualification/001-pack-config-and-relea
 
 Roadmap: `plans/subsystems/build-qualification-roadmap.md`
 
-Reviewed baseline: `7e63ca0651532a682c4a8655f4a4f4eaf31b83e1` (Manifest M002 closure; core crate established).
+Reviewed baseline: `7e63ca0209943a03f338fc4e9b722325842bc4e6` (Manifest M002 closure; core crate established).
 
 Implementation commits: `4eba6ec9422ab01a675ef34cdfc2b9d6f9c0944d`, `fae149ebab0023e1b9fd765d6429718b612ab383`, `f1f06387157966a0288e00c04aa455daa50699e9`.
 
