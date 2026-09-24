@@ -117,7 +117,7 @@ Implementation plan: `plans/implementation/build-qualification/002-native-cross-
 
 ### M002a — Windows builder qualification stability corrective
 
-Stabilize and make observable the intermittent hosted-Windows builder qualification path before advancing into qualification execution. Preserve M002 architecture unless a reproduced failure demonstrates a production defect.
+Closed: the intermittent Windows builder test is attributable, required cases are visible and cannot skip, MSVC is explicitly initialized, and the timeout/cancellation fixtures run with isolated state. Three first-attempt hosted runs pass on the corrective SHA. See `plans/closure/build-qualification/002a-status.md`. M002 production code is unchanged.
 
 Implementation plan: `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md`.
 
@@ -153,6 +153,6 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 |---|---|---|---|---|
 | M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
 | M002 native/cross builder seam | closed (historical) | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` | post-closure Windows stability finding tracked by M002a |
-| M002a Windows qualification stability corrective | ready | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | — | intermittent Windows pass/fail/rerun-pass evidence on unchanged builder code |
-| M003 qualification execution | blocked | — | — | M002a corrective closure |
-| M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |
+| M002a Windows qualification stability corrective | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | `plans/closure/build-qualification/002a-status.md` | three repeated hosted Windows stability runs passed |
+| M003 qualification execution | ready to plan | — | — | M002 and M002a closed; candidate evidence interface is stable |
+| M004 finalization/aggregation | blocked | — | — | M003 closure + Manifest M002 |

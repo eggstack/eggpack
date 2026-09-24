@@ -1,6 +1,10 @@
 # Build and Qualification Milestone 002a — Windows Builder Qualification Stability Corrective
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/build-qualification/002a-status.md`
+
+Closure disposition (2026-09-24): M002a is closed on implementation SHA `051f69b5e69df837db9a137ff5f29ba077d21029`. Three independent first-attempt hosted workflow-dispatch runs on that exact SHA passed the required named Windows builder tests, ordinary Windows workspace tests, Linux stable, Linux Rust 1.89, and macOS. The historical failing test was `builder::tests::timeout_kills_and_waits_for_the_process_group` (`Failed(101)` where `TimedOut` was expected). The hosted Windows job had not initialized the MSVC developer environment; the corrective now initializes and verifies it, gives test invocations collision-resistant roots and private Cargo targets, and synchronizes timeout/cancellation checks on actual build-script startup. M002 production code and public semantics are unchanged. Build M003 is ready to plan; M004 and CI M002 remain blocked on their existing interfaces.
 
 Repository baseline: f5bb416481b1aad528c982ce3fe3e757af061ada
 

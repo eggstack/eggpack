@@ -4,6 +4,8 @@ Producer-side planning, bounded Cargo building, and finalized-manifest construct
 
 `cargo_command` exposes typed shell-free Cargo/CargoZigbuild intent for provider renderers. `execute_target` uses a caller-owned absolute repository root and a pre-existing private work root; each invocation/target gets a new Cargo target directory. The local process runner only launches Cargo, rustc, or Zig, clears inherited environment state except a small toolchain/path allowlist, and never returns captured output contents. Process-tree timeout cleanup uses `command-group` process groups/jobs.
 
+Windows Cargo builds require an initialized Visual Studio developer environment. The Windows CI lane runs `ilammy/msvc-dev-cmd` before builder qualification and verifies that `link.exe` resolves beneath `VCToolsInstallDir`; this supplies the MSVC linker, SDK, and library environment used by Cargo and build scripts.
+
 Example logical binding document:
 
 ```toml

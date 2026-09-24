@@ -79,3 +79,7 @@ No deterministic production regression is established by this pattern, but the p
 Corrective plan: `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md`.
 
 Historical M002 implementation and successful closure evidence above remain valid records of what passed at the time. M002a supplements them with stability/observability qualification. Build M003 readiness is withdrawn until M002a closes.
+
+## M002a corrective closure annotation
+
+M002a closed at implementation SHA `051f69b5e69df837db9a137ff5f29ba077d21029`; see `plans/closure/build-qualification/002a-status.md`. Historical failing Windows logs identify `builder::tests::timeout_kills_and_waits_for_the_process_group`, which returned `Failed(101)` rather than `TimedOut`. The old runner did not retain the child Cargo diagnostic text, so the exact underlying Cargo message cannot be reconstructed from those runs. The corrective addresses the observable runner/test gaps: CI initializes and verifies MSVC, the Windows smoke cannot silently skip, Cargo-backed timeout and cancellation use isolated target trees and wait until the build script starts, and all test temporary roots are unique across parallel and repeated invocations. Three first-attempt hosted runs on the corrective SHA pass. Build M003 is now ready to plan; M004 remains blocked on M003.
