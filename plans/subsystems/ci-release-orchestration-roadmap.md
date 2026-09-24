@@ -67,11 +67,13 @@ ReleasePlan -> CIPlan -> GitHub renderer -> checked-in release.yml
 
 ## 6. Dependency graph
 
-Hard dependencies: Build/qualification M001 interface + contract/manifest. External backend result may supply generation machinery.
+Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and the registered Build M002 plan define the shared build-binding/command seam; CI graph work may begin, but GitHub build-step rendering is ordered after those M002 types land so CI does not duplicate builder semantics.
 
 ## 7. Milestones
 
 M001 CIPlan + deterministic GitHub renderer.
+
+Implementation plan: `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md`.
 
 M002 qualification/aggregation gates and drift check.
 
@@ -95,4 +97,11 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001 now fixes the initial provider-neutral ReleasePlan interface. CI Orchestration M001 is ready for implementation-plan authoring; no Actions renderer/backend is implemented or selected by that readiness.
+Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Build M002 and ADR-0004 now define the shared native build-binding/command boundary. CI Orchestration M001 is registered and ready for handoff, with implementation ordered after the M002 binding/command types land. No publication/staging authority is authorized.
+
+
+| Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
+|---|---|---|---|---|
+| M001 CIPlan + GitHub renderer | ready / ordered after M002 interface landing | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | — | ReleasePlan closed; consume Build M002 binding/command types, do not duplicate |
+| M002 qualification/aggregation gates + drift CLI | blocked | — | — | M001 closure + Build/Qualification M003/M004 interfaces |
+| M003 draft release staging | blocked | — | — | M002 + explicit staging adapter plan |
