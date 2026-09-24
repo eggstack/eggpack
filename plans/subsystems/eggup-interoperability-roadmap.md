@@ -50,7 +50,7 @@ Eggpack owns manifest semantics. Eggup owns adapter-to-deployment behavior.
 
 ## 4. Current state
 
-Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. Eggpack-side M001 interface contract and fixtures are closed. The optional Eggup adapter M002 is now ready for an Eggup-side plan to be authored and registered; this roadmap does not authorize Eggup implementation.
+Eggup already has verified transaction, acquisition, ownership, rollback, and service layers. Simple consumers currently carry product-specific release mapping. Eggpack ReleaseManifest v1 and corrective M001a are closed; target-local installation namespaces and manifest-global release artifact names are validated as intended. Eggpack-side M001 interface contract and fixtures closed historically, but post-closure review found that `projection-bundle.json` does not match its paired CodeGG bundle manifest and was not mechanically compared in tests. Corrective M001a is the active gate. The optional Eggup adapter M002 is blocked until M001a closes; this roadmap does not authorize Eggup implementation.
 
 ## 5. Target architecture
 
@@ -78,9 +78,11 @@ Hard dependency: ReleaseManifest v1 + conformance maturity. Eggup-side work also
 
 ## 7. Milestones
 
-M001 cross-repo interface contract/fixtures — closed at `plans/closure/eggup-interoperability/001-status.md`.
+M001 cross-repo interface contract/fixtures — closed historically at `plans/closure/eggup-interoperability/001-status.md`.
 
-M002 Eggup adapter implementation (in Eggup repo) — ready to author/register a separate Eggup plan against this closed interface and fixture baseline.
+M001a projection fixture consistency corrective — ready at `plans/implementation/eggup-interoperability/001a-projection-fixture-consistency-corrective.md`; fixes bundle projection drift and adds manifest↔projection regression validation.
+
+M002 Eggup adapter implementation (in Eggup repo) — blocked until M001a closes and a corrected fixture baseline is recorded.
 
 M003 one simple end-to-end consumer.
 
@@ -104,11 +106,12 @@ A real Eggup consumer updates from Eggpack manifest evidence with less duplicate
 
 ## 12. Milestone status
 
-M001 cross-repository interface contract and fixtures is ready now that Release Manifest M001a closed. Eggpack-side interface/fixture work may proceed; any Eggup repository changes still require a registered Eggup-side plan.
+M001 is historical closure evidence. M001a is now the sole dependency-ready interoperability handoff. Any Eggup repository adapter work remains blocked until M001a closes and still requires a separately registered Eggup-side plan.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 Eggpack interface/fixtures | closed | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | `plans/closure/eggup-interoperability/001-status.md` | interface/fixture baseline and pinned Eggup API review closed |
-| M002 Eggup adapter | ready to plan / Eggup-owned | — | — | author/register a separate Eggup plan against closed Eggpack M001; do not implement from this roadmap alone |
+| M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | `plans/closure/eggup-interoperability/001-status.md` | post-closure projection defect tracked by M001a |
+| M001a projection fixture consistency corrective | ready | `plans/implementation/eggup-interoperability/001a-projection-fixture-consistency-corrective.md` | — | M001 implementation/closure |
+| M002 Eggup adapter | blocked / Eggup-owned | — | — | Eggpack M001a corrective closure + separately registered Eggup plan |
 | M003 simple end-to-end consumer | blocked | — | — | Eggup adapter + selected consumer |
 | M004 bootstrap receipt compatibility | planned only if justified | — | — | real adoption evidence |
