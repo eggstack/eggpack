@@ -140,3 +140,10 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 ## 12. Milestone status
 
 M001 PackConfig and ReleasePlan is ready. Release Manifest M001 and corrective M001a are closed, so build planning can rely on the corrected schema-v1 boundary. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not authorize a backend.
+
+| Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
+|---|---|---|---|---|
+| M001 PackConfig + ReleasePlan | ready | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | — | semantic dependencies closed; apply after/with Manifest M002's `eggpack-core` bootstrap to avoid duplicate crate creation |
+| M002 native/cross builder seam | blocked | — | — | M001 closure + backend/adapter decision at implementation boundary |
+| M003 qualification execution | blocked | — | — | M001/M002 interfaces |
+| M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |
