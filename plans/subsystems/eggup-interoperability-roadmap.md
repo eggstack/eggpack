@@ -105,3 +105,10 @@ A real Eggup consumer updates from Eggpack manifest evidence with less duplicate
 ## 12. Milestone status
 
 M001 cross-repository interface contract and fixtures is ready now that Release Manifest M001a closed. Eggpack-side interface/fixture work may proceed; any Eggup repository changes still require a registered Eggup-side plan.
+
+| Milestone | Status | Implementation plan | Closure record | Blockers |
+|---|---|---|---|---|
+| M001 Eggpack interface/fixtures | ready | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | — | Manifest M001/M001a + Contract M002 closed; pinned Eggup consumer API review |
+| M002 Eggup adapter | blocked / Eggup-owned | — | — | Eggpack M001 closure + separately registered Eggup plan |
+| M003 simple end-to-end consumer | blocked | — | — | Eggup adapter + selected consumer |
+| M004 bootstrap receipt compatibility | planned only if justified | — | — | real adoption evidence |
