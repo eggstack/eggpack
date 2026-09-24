@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,5 +40,31 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - if: matrix.os == 'windows-latest'
+        name: Verify initialized MSVC linker environment
+        shell: pwsh
+        run: |
+          if (-not $env:VCToolsInstallDir) { throw 'VCToolsInstallDir is missing after MSVC developer environment setup' }
+          $linker = (Get-Command link.exe -ErrorAction Stop).Source
+          if (-not $linker.StartsWith($env:VCToolsInstallDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "link.exe resolved outside MSVC VCToolsInstallDir: $linker"
+          }
+          Write-Host "MSVC linker: $linker"
+      - if: matrix.os == 'windows-latest'
+        name: Windows builder real Cargo candidate smoke
+        run: cargo test -p eggpack-core --all-targets --all-features --locked real_local_cargo_fixture_builds_a_direct_candidate -- --nocapture
+      - if: matrix.os == 'windows-latest'
+        name: Windows builder process-group timeout and cancellation
+        run: cargo test -p eggpack-core --all-targets --all-features --locked timeout_kills_and_waits_for_the_process_group -- --nocapture
+      - if: matrix.os == 'windows-latest'
+        name: Windows core tests serialized for diagnosis
+        run: cargo test -p eggpack-core --all-targets --all-features --locked -- --test-threads=1
+      - if: matrix.os == 'windows-latest'
+        name: Windows CI crate tests
+        run: cargo test -p eggpack-ci --all-targets --all-features --locked
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test --workspace --all-targets --all-features --locked

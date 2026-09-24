@@ -23,6 +23,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
+pub(crate) fn test_temp_dir(label: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    loop {
+        let id = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("eggpack-{label}-{}-{id}", std::process::id()));
+        match fs::create_dir(&path) {
+            Ok(()) => return path,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("create test temp directory: {error}"),
+        }
+    }
+}
+
 /// Explicit mapping of one target's expanded contract filenames to local finalized files.
 #[derive(Debug, Clone)]
 pub struct FinalizedTargetInput {
@@ -520,6 +536,23 @@ impl PackConfig {
 mod tests {
     use super::*;
     #[test]
+    fn test_temp_roots_are_unique_under_parallel_and_repeated_calls() {
+        let existing = test_temp_dir("stale");
+        let next = test_temp_dir("stale");
+        assert_ne!(existing, next);
+        let workers = (0..16)
+            .map(|_| std::thread::spawn(|| test_temp_dir("parallel")))
+            .collect::<Vec<_>>();
+        let roots = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(roots.len(), 16);
+        for path in roots.into_iter().chain([existing, next]) {
+            fs::remove_dir_all(path).unwrap();
+        }
+    }
+    #[test]
     fn pack_config_resolves_targets_in_canonical_order() {
         let contract = DistributionContract::parse_toml_str(include_str!(
             "../../eggpack-contract/tests/fixtures/simple-direct.toml"
@@ -592,8 +625,7 @@ support="required"
             "../../eggpack-contract/tests/fixtures/simple-direct.toml"
         ))
         .unwrap();
-        let dir = std::env::temp_dir().join(format!("eggpack-core-test-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = test_temp_dir("core-test");
         let names = [
             "eggsact-1.2.6-x86_64-unknown-linux-gnu",
             "eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256",
@@ -649,11 +681,7 @@ support="required"
         ] {
             let contract = DistributionContract::parse_toml_str(fixture).unwrap();
             let expected = expected_release_files(&contract, target, release).unwrap();
-            let dir = std::env::temp_dir().join(format!(
-                "eggpack-layout-test-{}-{product}",
-                std::process::id()
-            ));
-            fs::create_dir_all(&dir).unwrap();
+            let dir = test_temp_dir(&format!("layout-test-{product}"));
             let mut files = BTreeMap::new();
             for item in expected {
                 let path = dir.join(&item.file_name);
@@ -701,9 +729,7 @@ support="required"
             "../../eggpack-contract/tests/fixtures/simple-direct.toml"
         ))
         .unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("eggpack-core-negative-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let dir = test_temp_dir("core-negative");
         let mut files = BTreeMap::new();
         for name in [
             "eggsact-1.2.6-x86_64-unknown-linux-gnu",

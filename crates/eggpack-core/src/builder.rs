@@ -935,8 +935,7 @@ mod tests {
     }
     #[test]
     fn candidate_lookup_is_exact_regular_and_nonempty() {
-        let root =
-            std::env::temp_dir().join(format!("eggpack-builder-test-{}", std::process::id()));
+        let root = crate::test_temp_dir("builder-test");
         let out = root.join("x86_64-unknown-linux-gnu/release");
         fs::create_dir_all(&out).unwrap();
         fs::write(out.join("demo"), b"binary").unwrap();
@@ -953,9 +952,7 @@ mod tests {
     }
     #[test]
     fn private_workspace_rejects_relative_and_reused_invocations() {
-        let root =
-            std::env::temp_dir().join(format!("eggpack-private-test-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
+        let root = crate::test_temp_dir("private-test");
         assert!(private_target_dir(Path::new("relative"), "run", "target").is_err());
         assert!(private_target_dir(&root, "run", "target").is_ok());
         assert!(private_target_dir(&root, "run", "target").is_err());
@@ -996,9 +993,7 @@ mod tests {
     }
     #[test]
     fn stdout_overflow_is_bounded_and_not_success() {
-        let root =
-            std::env::temp_dir().join(format!("eggpack-output-bound-{}", std::process::id()));
-        fs::create_dir_all(&root).unwrap();
+        let root = crate::test_temp_dir("output-bound");
         let source = root.join("many-errors.rs");
         let body = (0..200)
             .map(|i| format!("fn f{i}() {{ absent_symbol_{i}(); }}\n"))
@@ -1026,70 +1021,93 @@ mod tests {
     }
     #[test]
     fn timeout_kills_and_waits_for_the_process_group() {
-        let root = std::env::temp_dir().join(format!("eggpack-timeout-{}", std::process::id()));
-        fs::create_dir_all(root.join("src")).unwrap();
-        fs::write(root.join("Cargo.toml"), "[package]\nname='timeout-fixture'\nversion='0.1.0'\nedition='2021'\nbuild='build.rs'\n").unwrap();
-        fs::write(
-            root.join("Cargo.lock"),
-            "version = 3\n\n[[package]]\nname = \"timeout-fixture\"\nversion = \"0.1.0\"\n",
-        )
-        .unwrap();
-        fs::write(
-            root.join("build.rs"),
-            "fn main() { std::thread::sleep(std::time::Duration::from_secs(10)); }\n",
-        )
-        .unwrap();
-        fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
-        let spec = CommandSpec {
-            executable: "cargo".into(),
-            args: vec![
-                "build".into(),
-                "--locked".into(),
-                "--offline".into(),
-                "--manifest-path".into(),
-                root.join("Cargo.toml").to_string_lossy().into_owned(),
-            ],
-            cwd: root.clone(),
-            env: BTreeMap::new(),
-            timeout: Duration::from_secs(1),
-            stdout_limit: 4096,
-            stderr_limit: 4096,
-            expected_stdout: None,
-        };
-        assert_eq!(
-            run_bounded_inner(&spec, None).unwrap().outcome,
-            CommandOutcome::TimedOut
-        );
-        let cancellation = BuildCancellation::new();
-        let request = cancellation.clone();
-        let canceller = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(100));
-            request.cancel();
-        });
-        assert_eq!(
-            run_bounded_cancellable(&spec, &cancellation)
-                .unwrap()
-                .outcome,
-            CommandOutcome::Cancelled
-        );
-        canceller.join().unwrap();
-        fs::remove_dir_all(root).unwrap();
+        for _ in 0..3 {
+            let root = crate::test_temp_dir("timeout");
+            fs::create_dir_all(root.join("src")).unwrap();
+            fs::write(root.join("Cargo.toml"), "[package]\nname='timeout-fixture'\nversion='0.1.0'\nedition='2021'\nbuild='build.rs'\n").unwrap();
+            fs::write(
+                root.join("Cargo.lock"),
+                "version = 3\n\n[[package]]\nname = \"timeout-fixture\"\nversion = \"0.1.0\"\n",
+            )
+            .unwrap();
+            fs::write(
+                root.join("build.rs"),
+                "fn main() { std::fs::write(std::env::var_os(\"EGGPACK_BUILD_STARTED\").unwrap(), b\"started\").unwrap(); std::thread::sleep(std::time::Duration::from_secs(30)); }\n",
+            )
+            .unwrap();
+            fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+            let spec = CommandSpec {
+                executable: "cargo".into(),
+                args: vec![
+                    "build".into(),
+                    "--locked".into(),
+                    "--offline".into(),
+                    "--manifest-path".into(),
+                    root.join("Cargo.toml").to_string_lossy().into_owned(),
+                ],
+                cwd: root.clone(),
+                env: BTreeMap::new(),
+                timeout: Duration::from_secs(5),
+                stdout_limit: 4096,
+                stderr_limit: 4096,
+                expected_stdout: None,
+            };
+            let mut spec = spec;
+            spec.env.insert(
+                "CARGO_TARGET_DIR".into(),
+                root.join("cargo-target-timeout")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            let timeout_started = root.join("timeout-started");
+            spec.env.insert(
+                "EGGPACK_BUILD_STARTED".into(),
+                timeout_started.to_string_lossy().into_owned(),
+            );
+            assert_eq!(
+                run_bounded_inner(&spec, None).unwrap().outcome,
+                CommandOutcome::TimedOut
+            );
+            assert!(timeout_started.is_file(), "build script never started");
+            let cancellation = BuildCancellation::new();
+            let request = cancellation.clone();
+            let cancellation_started = root.join("cancellation-started");
+            spec.env.insert(
+                "CARGO_TARGET_DIR".into(),
+                root.join("cargo-target-cancellation")
+                    .to_string_lossy()
+                    .into_owned(),
+            );
+            spec.env.insert(
+                "EGGPACK_BUILD_STARTED".into(),
+                cancellation_started.to_string_lossy().into_owned(),
+            );
+            let cancellation_started_by_thread = cancellation_started.clone();
+            let canceller = thread::spawn(move || {
+                let deadline = Instant::now() + Duration::from_secs(15);
+                while !cancellation_started_by_thread.is_file() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                assert!(
+                    cancellation_started_by_thread.is_file(),
+                    "build script did not start before cancellation deadline"
+                );
+                request.cancel();
+            });
+            assert_eq!(
+                run_bounded_cancellable(&spec, &cancellation)
+                    .unwrap()
+                    .outcome,
+                CommandOutcome::Cancelled
+            );
+            canceller.join().unwrap();
+            assert!(cancellation_started.is_file());
+            fs::remove_dir_all(root).unwrap();
+        }
     }
     #[test]
     fn real_local_cargo_fixture_builds_a_direct_candidate() {
-        #[cfg(windows)]
-        {
-            let usable_msvc_linker =
-                std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).any(|entry| {
-                    entry.join("link.exe").is_file()
-                        && !entry.to_string_lossy().contains("Git\\usr\\bin")
-                });
-            if !usable_msvc_linker {
-                eprintln!("skipped direct Windows Cargo smoke: hosted environment does not expose an MSVC linker");
-                return;
-            }
-        }
-        let base = std::env::temp_dir().join(format!("eggpack-cargo-smoke-{}", std::process::id()));
+        let base = crate::test_temp_dir("cargo-smoke");
         let repo = base.join("repo");
         let work = base.join("work");
         fs::create_dir_all(repo.join("src")).unwrap();
