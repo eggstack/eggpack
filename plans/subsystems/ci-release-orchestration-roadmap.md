@@ -1,6 +1,6 @@
 # CI and Release Orchestration Roadmap
 
-Status: proposed
+Status: active
 
 Long-term references:
 
@@ -95,4 +95,4 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Blocked on build/qualification architecture.
+Build/Qualification M001 now fixes the initial provider-neutral ReleasePlan interface. CI Orchestration M001 is ready for implementation-plan authoring; no Actions renderer/backend is implemented or selected by that readiness.

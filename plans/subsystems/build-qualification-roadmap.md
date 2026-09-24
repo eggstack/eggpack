@@ -107,7 +107,7 @@ Hard dependencies:
 
 ### M001 — PackConfig and ReleasePlan
 
-Represent build/runner/qualification policy without redefining artifact identity.
+Closed: `eggpack-core` now parses strict PackConfig v1 and resolves a deterministic, contract-derived ReleasePlan with provider-neutral host, toolchain, compatibility-floor, qualification, and support intent. Planning performs no build or external effects.
 
 ### M002 — Native/cross builder seam
 
@@ -139,11 +139,11 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-M001 PackConfig and ReleasePlan is ready. Release Manifest M001 and corrective M001a are closed, so build planning can rely on the corrected schema-v1 boundary. Contract M001/M002 and backend-evaluation evidence are closed; disposition C does not authorize a backend.
+M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contract M001/M002 are closed. Backend-evaluation evidence is closed with disposition C, which does not authorize a backend.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 PackConfig + ReleasePlan | ready | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | — | semantic dependencies closed; apply after/with Manifest M002's `eggpack-core` bootstrap to avoid duplicate crate creation |
+| M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
 | M002 native/cross builder seam | blocked | — | — | M001 closure + backend/adapter decision at implementation boundary |
 | M003 qualification execution | blocked | — | — | M001/M002 interfaces |
 | M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |

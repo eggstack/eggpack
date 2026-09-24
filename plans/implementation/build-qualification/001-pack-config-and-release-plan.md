@@ -1,6 +1,8 @@
 # Build and Qualification Milestone 001 — PackConfig v1 and Deterministic ReleasePlan
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/build-qualification/001-status.md`
 
 Repository implementation baseline: `0b1c3b9795280dea610c2fbe9d1533591d610b3f` (Contract M001/M002 and Manifest M001/M001a closed; no producer build-plan implementation exists)
 
