@@ -85,3 +85,14 @@ No wire fields or serialization semantics changed. Helpers are additive and non-
 ## Roadmap disposition and dependency transitions
 
 Eggpack Interoperability M001 is closed. It is now safe to author and register the optional Eggup-side M002 adapter plan against Eggup baseline `2cab1f97ef30fa347c2030da321462459672c521` and this fixture/interface baseline. The adapter must remain an Eggup repository plan; this closure does not claim Eggup migration or authorize code there. The next plan is unblocked for authoring only, and no Eggup repository change occurred under this milestone.
+
+
+## Post-closure corrective registration
+
+Subsequent review found that `projection-bundle.json` does not correspond to its paired `bundle-manifest.json`: the projection omitted required CodeGG bundle entries and substituted an unrelated `eggsact` unit. Existing M001 tests round-tripped the manifest fixture but did not mechanically compare the bundle projection against it.
+
+The historical implementation/CI evidence above remains accurate for the code and fixtures that closed M001; it is not rewritten to conceal the later finding.
+
+Corrective plan: `plans/implementation/eggup-interoperability/001a-projection-fixture-consistency-corrective.md`.
+
+The prior transition authorizing Eggup adapter M002 plan authoring is withdrawn until M001a closes with corrected pairwise direct/bundle/archive projection evidence. A separate `plans/closure/eggup-interoperability/001a-status.md` will record the corrective closure.
