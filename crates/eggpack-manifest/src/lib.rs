@@ -719,4 +719,636 @@ mod tests {
         assert_eq!(a.to_json().unwrap(), b.to_json().unwrap());
         a.targets.reverse();
     }
+
+    mod projection_fixture_consistency {
+        //! Pairwise direct, bundle, and archive projection/manifest validation.
+        //!
+        //! Projection fixtures are explicitly documentation/test evidence, not a
+        //! production wire format. This harness parses them into strict typed
+        //! structs and proves each projection is an exact pairwise projection
+        //! of its paired ReleaseManifest fixture. It also runs the detection-gap
+        //! negative matrix that would have failed against the original M001
+        //! checked-in `projection-bundle.json`.
+        use super::{
+            super::{ArtifactForm, ReleaseManifest},
+            *,
+        };
+
+        const DIRECT_MANIFEST: &str = include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/direct-manifest.json"
+        );
+        const BUNDLE_MANIFEST: &str = include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/bundle-manifest.json"
+        );
+        const ARCHIVE_MANIFEST: &str = include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/archive-manifest.json"
+        );
+        const DIRECT_PROJECTION: &str = include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/projection-direct.json"
+        );
+        const BUNDLE_PROJECTION: &str = include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/projection-bundle.json"
+        );
+        const ARCHIVE_PROJECTION: &str = include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/projection-archive.json"
+        );
+
+        const DIRECT_TARGET: &str = "x86_64-unknown-linux-gnu";
+        const BUNDLE_TARGET: &str = "x86_64-unknown-linux-gnu";
+        const ARCHIVE_TARGET: &str = "x86_64-unknown-linux-gnu";
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ReleaseIdentity {
+            product_id: String,
+            release_id: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct DirectAcquisitionUnit {
+            name: String,
+            exact_size: u64,
+            sha256: String,
+            member_id: String,
+            relative_destination: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct DirectProjection {
+            selected_target: String,
+            release_identity: ReleaseIdentity,
+            acquisition_units: Vec<DirectAcquisitionUnit>,
+            transaction_group: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct BundleAcquisitionUnit {
+            name: String,
+            exact_size: u64,
+            sha256: String,
+            member_id: String,
+            relative_destination: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct BundleProjection {
+            selected_target: String,
+            release_identity: ReleaseIdentity,
+            acquisition_units: Vec<BundleAcquisitionUnit>,
+            transaction_group: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ArchiveAcquisitionUnit {
+            name: String,
+            exact_size: u64,
+            sha256: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ArchiveProjectedMember {
+            source: String,
+            install: String,
+            size: u64,
+            sha256: String,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ArchiveProjection {
+            selected_target: String,
+            acquisition_units: Vec<ArchiveAcquisitionUnit>,
+            members: Vec<ArchiveProjectedMember>,
+            extraction_required: bool,
+            transaction_group: String,
+        }
+
+        fn err<S: Into<String>>(s: S) -> String {
+            s.into()
+        }
+
+        fn check_direct_projection(
+            projection: &DirectProjection,
+            manifest: &ReleaseManifest,
+            target: &str,
+        ) -> Result<(), String> {
+            if projection.selected_target != target {
+                return Err(err(format!(
+                    "selected_target mismatch: {} != {target}",
+                    projection.selected_target
+                )));
+            }
+            if projection.release_identity.product_id != manifest.product_id {
+                return Err(err(format!(
+                    "release_identity.product_id {} != manifest {}",
+                    projection.release_identity.product_id, manifest.product_id
+                )));
+            }
+            if projection.release_identity.release_id != manifest.release_id {
+                return Err(err(format!(
+                    "release_identity.release_id {} != manifest {}",
+                    projection.release_identity.release_id, manifest.release_id
+                )));
+            }
+            let m_target = manifest
+                .target(target)
+                .map_err(|e| err(format!("target in manifest: {e}")))?;
+            let (m_artifact, m_install) = match &m_target.form {
+                ArtifactForm::Direct { artifact, install } => (artifact, install),
+                _ => return Err(err("manifest form is not direct")),
+            };
+            if projection.acquisition_units.len() != 1 {
+                return Err(err(format!(
+                    "direct projection must have exactly one acquisition unit, got {}",
+                    projection.acquisition_units.len()
+                )));
+            }
+            let unit = &projection.acquisition_units[0];
+            if unit.name != m_artifact.name {
+                return Err(err(format!(
+                    "unit name {} != manifest {}",
+                    unit.name, m_artifact.name
+                )));
+            }
+            if unit.exact_size != m_artifact.size {
+                return Err(err(format!(
+                    "unit exact_size {} != manifest {}",
+                    unit.exact_size, m_artifact.size
+                )));
+            }
+            if unit.sha256 != m_artifact.sha256 {
+                return Err(err(format!(
+                    "unit sha256 {} != manifest {}",
+                    unit.sha256, m_artifact.sha256
+                )));
+            }
+            if unit.member_id != *m_install {
+                return Err(err(format!(
+                    "unit member_id {} != manifest install {m_install}",
+                    unit.member_id
+                )));
+            }
+            if unit.relative_destination != *m_install {
+                return Err(err(format!(
+                    "unit relative_destination {} != manifest install {m_install}",
+                    unit.relative_destination
+                )));
+            }
+            if projection.transaction_group != "one-artifact-set" {
+                return Err(err(format!(
+                    "transaction_group must be 'one-artifact-set', got {}",
+                    projection.transaction_group
+                )));
+            }
+            Ok(())
+        }
+
+        fn check_bundle_projection(
+            projection: &BundleProjection,
+            manifest: &ReleaseManifest,
+            target: &str,
+        ) -> Result<(), String> {
+            if projection.selected_target != target {
+                return Err(err(format!(
+                    "selected_target mismatch: {} != {target}",
+                    projection.selected_target
+                )));
+            }
+            if projection.release_identity.product_id != manifest.product_id {
+                return Err(err(format!(
+                    "release_identity.product_id {} != manifest {}",
+                    projection.release_identity.product_id, manifest.product_id
+                )));
+            }
+            if projection.release_identity.release_id != manifest.release_id {
+                return Err(err(format!(
+                    "release_identity.release_id {} != manifest {}",
+                    projection.release_identity.release_id, manifest.release_id
+                )));
+            }
+            let m_target = manifest
+                .target(target)
+                .map_err(|e| err(format!("target in manifest: {e}")))?;
+            let m_entries: &Vec<BundleRecord> = match &m_target.form {
+                ArtifactForm::Bundle { entries } => entries,
+                _ => return Err(err("manifest form is not bundle")),
+            };
+            if projection.acquisition_units.len() != m_entries.len() {
+                return Err(err(format!(
+                    "acquisition unit count {} != manifest bundle entry count {}",
+                    projection.acquisition_units.len(),
+                    m_entries.len()
+                )));
+            }
+            for m_entry in m_entries {
+                let matched = projection.acquisition_units.iter().any(|u| {
+                    u.name == m_entry.artifact.name
+                        && u.exact_size == m_entry.artifact.size
+                        && u.sha256 == m_entry.artifact.sha256
+                        && u.member_id == m_entry.install
+                        && u.relative_destination == m_entry.install
+                });
+                if !matched {
+                    return Err(err(format!(
+                        "no projection unit matches manifest entry {} (install {})",
+                        m_entry.artifact.name, m_entry.install
+                    )));
+                }
+            }
+            for unit in &projection.acquisition_units {
+                let matched = m_entries.iter().any(|e| {
+                    e.artifact.name == unit.name
+                        && e.artifact.size == unit.exact_size
+                        && e.artifact.sha256 == unit.sha256
+                        && e.install == unit.member_id
+                        && e.install == unit.relative_destination
+                });
+                if !matched {
+                    return Err(err(format!(
+                        "projection unit {} has no paired manifest entry",
+                        unit.name
+                    )));
+                }
+            }
+            if projection.transaction_group != "one-artifact-set" {
+                return Err(err(format!(
+                    "transaction_group must be 'one-artifact-set', got {}",
+                    projection.transaction_group
+                )));
+            }
+            Ok(())
+        }
+
+        fn check_archive_projection(
+            projection: &ArchiveProjection,
+            manifest: &ReleaseManifest,
+            target: &str,
+        ) -> Result<(), String> {
+            if projection.selected_target != target {
+                return Err(err(format!(
+                    "selected_target mismatch: {} != {target}",
+                    projection.selected_target
+                )));
+            }
+            let m_target = manifest
+                .target(target)
+                .map_err(|e| err(format!("target in manifest: {e}")))?;
+            let (m_artifact, m_members) = match &m_target.form {
+                ArtifactForm::Archive { artifact, members } => (artifact, members),
+                _ => return Err(err("manifest form is not archive")),
+            };
+            if projection.acquisition_units.len() != 1 {
+                return Err(err(format!(
+                    "archive projection must have exactly one acquisition unit, got {}",
+                    projection.acquisition_units.len()
+                )));
+            }
+            let unit = &projection.acquisition_units[0];
+            if unit.name != m_artifact.name {
+                return Err(err(format!(
+                    "acquisition unit name {} != manifest archive {}",
+                    unit.name, m_artifact.name
+                )));
+            }
+            if unit.exact_size != m_artifact.size {
+                return Err(err(format!(
+                    "acquisition unit exact_size {} != manifest {}",
+                    unit.exact_size, m_artifact.size
+                )));
+            }
+            if unit.sha256 != m_artifact.sha256 {
+                return Err(err(format!(
+                    "acquisition unit sha256 {} != manifest {}",
+                    unit.sha256, m_artifact.sha256
+                )));
+            }
+            if projection.members.len() != m_members.len() {
+                return Err(err(format!(
+                    "projected member count {} != manifest archive member count {}",
+                    projection.members.len(),
+                    m_members.len()
+                )));
+            }
+            for m_member in m_members {
+                let matched = projection.members.iter().any(|p| {
+                    p.source == m_member.source
+                        && p.install == m_member.install
+                        && p.size == m_member.bytes.size
+                        && p.sha256 == m_member.bytes.sha256
+                });
+                if !matched {
+                    return Err(err(format!(
+                        "no projected member matches manifest member source={} install={}",
+                        m_member.source, m_member.install
+                    )));
+                }
+            }
+            for p in &projection.members {
+                let matched = m_members.iter().any(|m| {
+                    m.source == p.source
+                        && m.install == p.install
+                        && m.bytes.size == p.size
+                        && m.bytes.sha256 == p.sha256
+                });
+                if !matched {
+                    return Err(err(format!(
+                        "projected member source={} install={} has no manifest member",
+                        p.source, p.install
+                    )));
+                }
+            }
+            if !projection.extraction_required {
+                return Err(err(
+                    "archive projection must declare extraction_required=true before any Eggup ArtifactSet construction",
+                ));
+            }
+            if !projection.transaction_group.contains("consumer-owned") {
+                return Err(err(format!(
+                    "archive transaction_group must reflect consumer-owned extraction, got {}",
+                    projection.transaction_group
+                )));
+            }
+            Ok(())
+        }
+
+        fn bundle_projection_value() -> serde_json::Value {
+            serde_json::from_str(BUNDLE_PROJECTION).expect("bundle projection is valid JSON")
+        }
+
+        fn direct_projection_value() -> serde_json::Value {
+            serde_json::from_str(DIRECT_PROJECTION).expect("direct projection is valid JSON")
+        }
+
+        fn archive_projection_value() -> serde_json::Value {
+            serde_json::from_str(ARCHIVE_PROJECTION).expect("archive projection is valid JSON")
+        }
+
+        fn manifest_for(text: &str) -> ReleaseManifest {
+            ReleaseManifest::from_json(text).expect("manifest fixture is valid v1")
+        }
+
+        #[test]
+        fn direct_projection_is_exact_pairwise_projection() {
+            let projection: DirectProjection =
+                serde_json::from_str(DIRECT_PROJECTION).expect("direct projection parses");
+            let manifest = manifest_for(DIRECT_MANIFEST);
+            check_direct_projection(&projection, &manifest, DIRECT_TARGET)
+                .expect("checked-in direct projection must exactly project its manifest");
+        }
+
+        #[test]
+        fn bundle_projection_is_exact_pairwise_projection() {
+            let projection: BundleProjection =
+                serde_json::from_str(BUNDLE_PROJECTION).expect("bundle projection parses");
+            let manifest = manifest_for(BUNDLE_MANIFEST);
+            check_bundle_projection(&projection, &manifest, BUNDLE_TARGET)
+                .expect("checked-in bundle projection must exactly project its manifest");
+        }
+
+        #[test]
+        fn archive_projection_is_exact_pairwise_projection() {
+            let projection: ArchiveProjection =
+                serde_json::from_str(ARCHIVE_PROJECTION).expect("archive projection parses");
+            let manifest = manifest_for(ARCHIVE_MANIFEST);
+            check_archive_projection(&projection, &manifest, ARCHIVE_TARGET)
+                .expect("checked-in archive projection must exactly project its manifest");
+        }
+
+        #[test]
+        fn bundle_projection_rejects_substituting_eggsact_for_helper() {
+            let mut value = bundle_projection_value();
+            let units = value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array");
+            let mut found = false;
+            for unit in units.iter_mut() {
+                if unit["name"] == "codegg-helper-2.4.0-x86_64-unknown-linux-gnu" {
+                    unit["name"] = serde_json::json!("eggsact-2.4.0-x86_64-unknown-linux-gnu");
+                    unit["member_id"] = serde_json::json!("eggsact");
+                    unit["relative_destination"] = serde_json::json!("eggsact");
+                    found = true;
+                }
+            }
+            assert!(found, "mutated codegg-helper entry");
+            let projection: BundleProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(BUNDLE_MANIFEST);
+            assert!(
+                check_bundle_projection(&projection, &manifest, BUNDLE_TARGET).is_err(),
+                "substituting eggsact for codegg-helper must be rejected"
+            );
+        }
+
+        #[test]
+        fn bundle_projection_rejects_dropping_codegg_manifest_entry() {
+            let mut value = bundle_projection_value();
+            let units = value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array");
+            let initial_len = units.len();
+            units.retain(|u| u["name"] != "codegg-manifest-2.4.0.json");
+            assert_eq!(
+                units.len(),
+                initial_len - 1,
+                "dropped codegg-manifest entry"
+            );
+            let projection: BundleProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(BUNDLE_MANIFEST);
+            assert!(
+                check_bundle_projection(&projection, &manifest, BUNDLE_TARGET).is_err(),
+                "dropping codegg-manifest entry must be rejected"
+            );
+        }
+
+        #[test]
+        fn bundle_projection_rejects_unrelated_fourth_unit() {
+            let mut value = bundle_projection_value();
+            value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array")
+                .push(serde_json::json!({
+                    "name": "unrelated-2.4.0-x86_64-unknown-linux-gnu",
+                    "exact_size": 6,
+                    "sha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+                    "member_id": "unrelated",
+                    "relative_destination": "unrelated",
+                }));
+            let projection: BundleProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(BUNDLE_MANIFEST);
+            assert!(
+                check_bundle_projection(&projection, &manifest, BUNDLE_TARGET).is_err(),
+                "extra unrelated bundle unit must be rejected"
+            );
+        }
+
+        #[test]
+        fn bundle_projection_rejects_crossed_destinations() {
+            let mut value = bundle_projection_value();
+            let units = value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array");
+            let mut codegg_idx = None;
+            let mut helper_idx = None;
+            for (idx, unit) in units.iter().enumerate() {
+                if unit["name"] == "codegg-2.4.0-x86_64-unknown-linux-gnu" {
+                    codegg_idx = Some(idx);
+                } else if unit["name"] == "codegg-helper-2.4.0-x86_64-unknown-linux-gnu" {
+                    helper_idx = Some(idx);
+                }
+            }
+            let codegg_idx = codegg_idx.expect("codegg unit");
+            let helper_idx = helper_idx.expect("helper unit");
+            let swapped_size = units[helper_idx]["exact_size"].clone();
+            let swapped_digest = units[helper_idx]["sha256"].clone();
+            units[codegg_idx]["exact_size"] = swapped_size.clone();
+            units[codegg_idx]["sha256"] = swapped_digest.clone();
+            units[helper_idx]["exact_size"] = units[helper_idx]["exact_size"].clone();
+            units[helper_idx]["sha256"] = units[helper_idx]["sha256"].clone();
+            // Now genuinely cross: codegg unit claims helper's facts, helper keeps its own,
+            // so no manifest entry can match either unit.
+            let helper_size = units[helper_idx]["exact_size"].clone();
+            let helper_digest = units[helper_idx]["sha256"].clone();
+            units[codegg_idx]["exact_size"] = helper_size;
+            units[codegg_idx]["sha256"] = helper_digest;
+            let _ = swapped_size;
+            let _ = swapped_digest;
+            let projection: BundleProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(BUNDLE_MANIFEST);
+            assert!(
+                check_bundle_projection(&projection, &manifest, BUNDLE_TARGET).is_err(),
+                "crossed bundle destination/digest must be rejected"
+            );
+        }
+
+        #[test]
+        fn bundle_projection_rejects_duplicate_unit() {
+            let mut value = bundle_projection_value();
+            let units = value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array");
+            let original = units[0].clone();
+            units.push(original);
+            let projection: BundleProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(BUNDLE_MANIFEST);
+            assert!(
+                check_bundle_projection(&projection, &manifest, BUNDLE_TARGET).is_err(),
+                "duplicate bundle unit must be rejected"
+            );
+        }
+
+        #[test]
+        fn projection_rejects_wrong_selected_target() {
+            let mut value = direct_projection_value();
+            value["selected_target"] = serde_json::json!("x86_64-pc-windows-gnu");
+            let projection: DirectProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(DIRECT_MANIFEST);
+            assert!(
+                check_direct_projection(&projection, &manifest, DIRECT_TARGET).is_err(),
+                "wrong selected target must be rejected"
+            );
+        }
+
+        #[test]
+        fn archive_projection_rejects_crossed_member_relationship() {
+            let mut value = archive_projection_value();
+            let members = value["members"].as_array_mut().expect("members array");
+            let mut egress_idx = None;
+            let mut helper_idx = None;
+            for (idx, member) in members.iter().enumerate() {
+                if member["source"] == "egress" {
+                    egress_idx = Some(idx);
+                } else if member["source"] == "bin/egress-helper" {
+                    helper_idx = Some(idx);
+                }
+            }
+            let egress_idx = egress_idx.expect("egress member");
+            let helper_idx = helper_idx.expect("helper member");
+            let helper_install = members[helper_idx]["install"].clone();
+            let helper_size = members[helper_idx]["size"].clone();
+            let helper_digest = members[helper_idx]["sha256"].clone();
+            members[egress_idx]["install"] = helper_install;
+            members[egress_idx]["size"] = helper_size;
+            members[egress_idx]["sha256"] = helper_digest;
+            let projection: ArchiveProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(ARCHIVE_MANIFEST);
+            assert!(
+                check_archive_projection(&projection, &manifest, ARCHIVE_TARGET).is_err(),
+                "crossed archive member relationship must be rejected"
+            );
+        }
+
+        #[test]
+        fn archive_projection_rejects_missing_extraction_required() {
+            let mut value = archive_projection_value();
+            value["extraction_required"] = serde_json::json!(false);
+            let projection: ArchiveProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(ARCHIVE_MANIFEST);
+            assert!(
+                check_archive_projection(&projection, &manifest, ARCHIVE_TARGET).is_err(),
+                "archive projection without extraction_required=true must be rejected"
+            );
+        }
+
+        #[test]
+        fn direct_projection_rejects_wrong_size_or_digest() {
+            let mut value = direct_projection_value();
+            let units = value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array");
+            units[0]["exact_size"] = serde_json::json!(4);
+            let projection: DirectProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(DIRECT_MANIFEST);
+            assert!(
+                check_direct_projection(&projection, &manifest, DIRECT_TARGET).is_err(),
+                "direct projection with mutated exact_size must be rejected"
+            );
+
+            let mut value = direct_projection_value();
+            let units = value["acquisition_units"]
+                .as_array_mut()
+                .expect("acquisition_units array");
+            units[0]["sha256"] = serde_json::json!(
+                "cb8379ac2098aa165029e3938a51da0bcecfc008fd6795f401178647f96c5b34"
+            );
+            let projection: DirectProjection =
+                serde_json::from_value(value).expect("mutated projection still parses");
+            let manifest = manifest_for(DIRECT_MANIFEST);
+            assert!(
+                check_direct_projection(&projection, &manifest, DIRECT_TARGET).is_err(),
+                "direct projection with mutated sha256 must be rejected"
+            );
+        }
+
+        #[test]
+        fn wrong_target_projection_fixture_is_negative_evidence() {
+            let text = include_str!(
+                "../../../plans/closure/eggup-interoperability/fixtures/wrong-target.json"
+            );
+            let value: serde_json::Value = serde_json::from_str(text).expect("wrong-target JSON");
+            assert_eq!(value["selected_target"], "x86_64-pc-windows-gnu");
+            assert_eq!(
+                value["expected"],
+                "no exact target match; no alias or nearest-target fallback"
+            );
+            let manifest = manifest_for(DIRECT_MANIFEST);
+            assert!(
+                manifest.target("x86_64-pc-windows-gnu").is_err(),
+                "wrong-target fixture must remain an unsupported selection"
+            );
+        }
+    }
 }

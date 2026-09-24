@@ -1,6 +1,8 @@
 # Eggup Interoperability Milestone 001a — Projection Fixture Consistency Corrective
 
-Status: ready for handoff
+Status: closed
+
+Closure: `plans/closure/eggup-interoperability/001a-status.md`
 
 Repository baseline: `dfd6eb3c6eebc97a371bc680ec21366eb04c924e` (Eggup Interop M001 closed; post-closure bundle projection defect confirmed)
 
