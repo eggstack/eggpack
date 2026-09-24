@@ -8,7 +8,7 @@ Roadmap: `plans/subsystems/eggup-interoperability-roadmap.md`
 
 Historical closure: `plans/closure/eggup-interoperability/001-status.md`
 
-Reviewed Eggpack baseline: `7b6b834c1e85a4c43f4eab6b9f3f9f7c9f9f7c9f` (Eggup interop M001a corrective registered; the closure lands on the post-registration commit produced by this work).
+Reviewed Eggpack baseline: `7b6b834dce68549b66031bab2b6c9ed939c682a7` (Eggup interop M001a corrective registered; the closure lands on the post-registration commit produced by this work).
 
 Implementation commit: `8d9264b3c224f3f05a061f4038b0f328b1c5c95e`.
 
