@@ -369,6 +369,16 @@ fn run_bounded_inner(
         "TMP",
         "CARGO_HOME",
         "RUSTUP_HOME",
+        "LIB",
+        "LIBPATH",
+        "INCLUDE",
+        "VCToolsInstallDir",
+        "VisualStudioVersion",
+        "VCINSTALLDIR",
+        "WindowsSdkDir",
+        "WindowsSDKVersion",
+        "UniversalCRTSdkDir",
+        "UCRTVersion",
     ] {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
