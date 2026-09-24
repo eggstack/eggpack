@@ -40,7 +40,7 @@ Earlier hosted Windows attempts failed while resolving `link.exe`; the successfu
 
 ## Invariant, failure/recovery, and security review
 
-The implemented path launches fixed executables without a shell, bounds output and runtime, uses process-group/job cleanup, returns no candidate after unsuccessful outcomes, and does not expose raw environment dumps. Attempts own private target subdirectories; no automatic cleanup of arbitrary caller paths or retries occurs. No qualification, final artifact naming, release publication, or secret-bearing output is added. The unresolved concern is verification coverage on Windows, not a known code defect. Recovery requires provisioning a Windows runner with a valid MSVC toolchain exposed to the workflow (or changing the runner/toolchain policy through an explicit decision), then rerunning the full matrix and confirming both native smoke and timeout/cancellation tests execute and pass.
+The implemented path launches fixed executables without a shell, bounds output and runtime, uses process-group/job cleanup, returns no candidate after unsuccessful outcomes, and does not expose raw environment dumps. Attempts own private target subdirectories; no automatic cleanup of arbitrary caller paths or retries occurs. No qualification, final artifact naming, release publication, or secret-bearing output is added. The original closure evidence included successful Windows execution; subsequent post-closure runs revealed intermittent Windows qualification instability, now tracked separately by M002a.
 
 ## Compatibility/migration review
 
@@ -62,3 +62,20 @@ M002 is closed. Build M003 qualification execution is unblocked and ready for pl
 | M002 native/cross builder seam | closed | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | this record | Stable/MSRV/macOS/Windows hosted checks pass; Windows Cargo smoke and timeout/cancellation tests executed successfully. |
 | M003 qualification execution | ready to plan | — | — | M002 candidate evidence interface closed |
 | CI M001 CIPlan + GitHub renderer | ready | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | — | Consume M002 bindings and command intent; no duplicate builder semantics. |
+
+
+## Post-closure corrective registration
+
+Subsequent hosted evidence revealed that Windows qualification is not yet stable enough to treat a single green run as sufficient proof.
+
+Observed after historical M002 closure:
+
+- run 36035978249 at `00a3399773045121baabbe86f062d41a4c2ce1fb`: Windows workspace tests failed while Linux stable, Linux Rust 1.89, and macOS passed;
+- run 36040032768 at `69baab129963892505f1034a605669b83bb59a5a`: all lanes passed;
+- run 36040609714 at `f5bb416481b1aad528c982ce3fe3e757af061ada`: attempt 1 failed the Windows workspace tests, while rerunning only the failed Windows job as attempt 2 passed.
+
+No deterministic production regression is established by this pattern, but the pass/fail/rerun-pass behavior is a qualification-stability finding.
+
+Corrective plan: `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md`.
+
+Historical M002 implementation and successful closure evidence above remain valid records of what passed at the time. M002a supplements them with stability/observability qualification. Build M003 readiness is withdrawn until M002a closes.
