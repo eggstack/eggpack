@@ -13,7 +13,7 @@ Long-term references:
 Related ADRs:
 
 - ADR-0001;
-- future backend-selection ADR.
+- `plans/adrs/ADR-0004-first-party-native-cargo-build-adapter.md`.
 
 ## 1. Purpose and ownership boundary
 
@@ -77,7 +77,7 @@ Current Eggstack repos provide evidence for:
 - archive pairs;
 - product-owned smoke scripts.
 
-The external-backend spike closed with disposition C: dist is design prior art only. No backend is selected; a later build plan must keep the backend replaceable and retain Eggpack's own identity, qualification, and finalization authority.
+The external-backend spike closed with disposition C: dist is design prior art only. ADR-0004 now selects a first-party Cargo/cargo-zigbuild adapter boundary for the initial native slice while keeping the adapter replaceable and retaining Eggpack's own identity, qualification, and finalization authority.
 
 ## 5. Target architecture
 
@@ -111,7 +111,9 @@ Closed: `eggpack-core` now parses strict PackConfig v1 and resolves a determinis
 
 ### M002 — Native/cross builder seam
 
-Implement selected backend/native strategy.
+Implement the ADR-0004 first-party Cargo/cargo-zigbuild execution seam with explicit logical-output source bindings, bounded subprocess execution, tool preflight, private build directories, and candidate-artifact evidence.
+
+Implementation plan: `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md`.
 
 ### M003 — Qualification execution model
 
@@ -144,6 +146,6 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
-| M002 native/cross builder seam | blocked | — | — | M001 closure + backend/adapter decision at implementation boundary |
+| M002 native/cross builder seam | ready | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | — | M001 closed + ADR-0004 accepted |
 | M003 qualification execution | blocked | — | — | M001/M002 interfaces |
 | M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |
