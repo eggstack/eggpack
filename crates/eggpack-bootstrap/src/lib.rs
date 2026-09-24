@@ -43,7 +43,7 @@ fn project(
         || s.origin.starts_with("http://[::1]");
     if !(s.origin.starts_with("https://") || (s.fixture_http && loopback))
         || s.origin
-            .contains(['\n', '\r', '\'', '"', '`', '$', '\\', '?', '#', ' '])
+            .contains(['\n', '\r', '\'', '"', '`', '$', '\\', '?', '#', ' ', '@'])
         || s.origin.ends_with('/')
         || s.origin.ends_with("https://")
     {
@@ -80,6 +80,11 @@ fn project(
             }
             _ => return Err(fail("M001 requires matching direct artifact targets")),
         };
+        if !safe_segment(&name) || !safe_segment(&install) {
+            return Err(fail(
+                "artifact and install basenames contain unsupported URL or platform characters",
+            ));
+        }
         let (os, arch) = runtime_pair(&t.target)
             .ok_or_else(|| fail("target has no unambiguous runtime OS/architecture mapping"))?;
         out.push(Item {
@@ -102,6 +107,11 @@ fn project(
         return Err(fail("runtime platform mapping is ambiguous"));
     }
     Ok(out)
+}
+fn safe_segment(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'+'))
 }
 fn runtime_pair(t: &str) -> Option<(&'static str, &'static str)> {
     let arch = if t.starts_with("x86_64-") {
