@@ -82,13 +82,13 @@ Relevant predecessor closure evidence:
 - distribution M002 corrective `0a68f29fce44adf5f12d79f1b440a2c08aca9cb7`;
 - distribution M003 implementation `9941c58d7039410c728860f9e4e382881d4ccf54`;
 - distribution M003 closure `4169c8021b447fe73c8ee3ea71a80a535c940f54`;
-- `eggup-dist` remains unpublished and frozen;
-- runtime Eggup crates do not depend on it;
-- Eggup distribution M004 was blocked on this subsystem's M002 closure and is now authorized to retire the frozen crate.
+- `eggup-dist` was unpublished/frozen predecessor evidence and has now been removed from Eggup;
+- runtime Eggup crates do not depend on Eggpack producer crates;
+- Eggup distribution M004 closed at implementation `bc25885bd41b86bfdf2f32d1e42856e00829cd7a` after this subsystem's M002 closure.
 
 The corrected predecessor schema covers simple direct, CodeGG-like bundle, and Egress-like archive fixtures. Closed M003 additionally provides the expected-release-file model, release/archive inventories, observed mappings, deterministic findings/report surface, bounds, and positive/negative conformance fixtures.
 
-M002 has ported the closed API and intended conformance behavior without changing schema v1. Review also found and fixed a predecessor comparison blind spot for crossed bundle entry mappings; see `plans/closure/contract-conformance/002-status.md` for the matrix. The already-registered Eggup M004 retirement is authorized, but Eggpack does not claim that Eggup has executed it.
+M002 has ported the closed API and intended conformance behavior without changing schema v1. Review also found and fixed a predecessor comparison blind spot for crossed bundle entry mappings; see `plans/closure/contract-conformance/002-status.md` for the matrix. Eggup subsequently executed and closed M004, removing `eggup-dist`; Eggpack is now the sole active producer-side contract/conformance authority.
 
 ## 5. Target architecture
 
@@ -201,7 +201,7 @@ A future combined Eggpack producer configuration must reference this contract ra
 
 ## 11. Completion definition
 
-The subsystem is complete when contract v1 and conformance are Eggpack-owned, deterministic, and proven by real consumers, and Eggup has executed its M004 retirement so no competing active release-layout implementation remains.
+The authority-transfer portion is complete: contract v1/conformance are Eggpack-owned and Eggup M004 removed the competing producer crate. The remaining subsystem completion condition is real-consumer evidence sufficient to justify or reject M003 polish.
 
 ## 12. Milestone status
 
