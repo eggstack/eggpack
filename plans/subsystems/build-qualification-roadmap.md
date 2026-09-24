@@ -111,7 +111,7 @@ Closed: `eggpack-core` now parses strict PackConfig v1 and resolves a determinis
 
 ### M002 — Native/cross builder seam
 
-Implement the ADR-0004 first-party Cargo/cargo-zigbuild execution seam with explicit logical-output source bindings, bounded subprocess execution, tool preflight, private build directories, and candidate-artifact evidence.
+Closing: ADR-0004 first-party Cargo/cargo-zigbuild execution now has explicit logical-output source bindings, bounded cancellable process-group execution, tool preflight, private build directories, and exact candidate evidence. See `plans/closure/build-qualification/002-status.md` for local evidence and hosted CI disposition.
 
 Implementation plan: `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md`.
 
@@ -146,6 +146,6 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
-| M002 native/cross builder seam | ready | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | — | M001 closed + ADR-0004 accepted |
+| M002 native/cross builder seam | closing | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` | local checks pass; Linux/MSRV/macOS/Windows hosted CI pending |
 | M003 qualification execution | blocked | — | — | M001/M002 interfaces |
 | M004 finalization/aggregation | blocked | — | — | M002/M003 + Manifest M002 |

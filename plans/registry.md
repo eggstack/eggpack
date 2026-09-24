@@ -72,7 +72,7 @@ Distribution predecessor evidence:
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement closed; consumer evidence gates M003 |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
-| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001 closed; M002 ready | ADR-0004 accepted; bounded M002 handoff registered |
+| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001 closed; M002 closing | ADR-0004 accepted; implementation landed; hosted CI pending |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 blocked | archive content/finalization and consumer-owned extraction boundary |
 | CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 ready / ordered after M002 interface landing | registered plan consumes shared M002 binding/command types |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
@@ -86,7 +86,7 @@ Current dependency-ready implementation work:
 |---|---|---|---|---|
 | Release manifest | M002 final-artifact builder | closed | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | Closure `plans/closure/release-manifest/002-status.md` |
 | Build and qualification | M001 PackConfig/ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | Closure `plans/closure/build-qualification/001-status.md` |
-| Build and qualification | M002 native/cross builder seam | ready | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | M001 closed + ADR-0004 accepted |
+| Build and qualification | M002 native/cross builder seam | closing | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | local verification passed; hosted Linux/MSRV/macOS/Windows pending |
 | Bootstrap installers | M001 generator/direct fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Closure `plans/closure/bootstrap-installers/001-status.md` |
 | CI orchestration | M001 CIPlan/GitHub renderer | ready / ordered after M002 interface landing | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | ReleasePlan closed; consume Build M002 shared binding/command interface |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |

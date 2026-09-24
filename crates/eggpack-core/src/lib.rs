@@ -2,6 +2,9 @@
 #![deny(missing_docs)]
 //! Producer-side release planning and finalized artifact evidence.
 
+mod builder;
+pub use builder::*;
+
 use eggpack_contract::{
     expected_release_files, validate_release_inventory, DistributionContract, ExpandedAssets,
     ExtrasPolicy, ReleaseInventory,
@@ -74,11 +77,18 @@ fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
 fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
     if policy.toolchain.rust.is_empty()
         || policy.toolchain.rust.len() > 64
-        || policy
+        || !policy
             .toolchain
-            .cargo_zigbuild
-            .as_ref()
-            .is_some_and(|v| v.is_empty() || v.len() > 64)
+            .rust
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
+        || policy.toolchain.cargo_zigbuild.as_ref().is_some_and(|v| {
+            v.is_empty()
+                || v.len() > 64
+                || !v
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
+        })
     {
         return Err(err("toolchain requirement is empty or overlong"));
     }
@@ -90,8 +100,8 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
         ));
     }
     match policy.floor {
-        CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-") => {
-            return Err(err("glibc floor applies only to Linux targets"))
+        CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-gnu") => {
+            return Err(err("glibc floor applies only to GNU/Linux targets"))
         }
         CompatibilityFloor::Macos { .. } if !triple.ends_with("-apple-darwin") => {
             return Err(err("macOS floor applies only to macOS targets"))
