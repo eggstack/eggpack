@@ -856,6 +856,9 @@ mod tests {
         let (contract, release) = plan(strategy, support);
         project_ci_plan(&contract, &release, &bindings(&release)).unwrap()
     }
+    fn assert_golden(actual: &str, fixture: &str) {
+        assert_eq!(actual, fixture.replace("\r\n", "\n"));
+    }
 
     #[test]
     fn rendering_is_deterministic_parseable_read_only_and_hands_off_candidate() {
@@ -870,7 +873,7 @@ mod tests {
         );
         let output = render_github(&graph, &policy()).unwrap();
         assert_eq!(output, render_github(&graph, &policy()).unwrap());
-        assert_eq!(output, include_str!("../tests/fixtures/native-direct.yml"));
+        assert_golden(&output, include_str!("../tests/fixtures/native-direct.yml"));
         let encoded = graph.to_json().unwrap();
         assert_eq!(CIPlan::from_json(&encoded).unwrap(), graph);
         assert!(CIPlan::from_json(
@@ -1102,9 +1105,9 @@ mod tests {
         let workflow = render_github(&graph, &github).unwrap();
         let parsed: serde_yaml::Value = serde_yaml::from_str(&workflow).unwrap();
         assert!(parsed.get("jobs").is_some());
-        assert_eq!(
-            workflow,
-            include_str!("../tests/fixtures/native-direct-multitarget.yml")
+        assert_golden(
+            &workflow,
+            include_str!("../tests/fixtures/native-direct-multitarget.yml"),
         );
     }
 
