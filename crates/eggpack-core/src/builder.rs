@@ -369,6 +369,10 @@ fn run_bounded_inner(
         "TMP",
         "CARGO_HOME",
         "RUSTUP_HOME",
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER",
+        "CARGO_TARGET_AARCH64_PC_WINDOWS_MSVC_LINKER",
         "LIB",
         "LIBPATH",
         "INCLUDE",
@@ -1091,7 +1095,7 @@ mod tests {
                 .take(8)
                 .map(|entry| entry.display().to_string())
                 .collect::<Vec<_>>();
-            eprintln!("Windows linker search diagnostics: VCToolsInstallDir present={}, link.exe directories={linkers:?}", std::env::var_os("VCToolsInstallDir").is_some());
+            eprintln!("Windows linker search diagnostics: VCToolsInstallDir present={}, linker override present={}, RUSTFLAGS present={}, link.exe directories={linkers:?}", std::env::var_os("VCToolsInstallDir").is_some(), std::env::var_os("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER").is_some(), std::env::var_os("RUSTFLAGS").is_some());
         }
         let base = std::env::temp_dir().join(format!("eggpack-cargo-smoke-{}", std::process::id()));
         let repo = base.join("repo");
