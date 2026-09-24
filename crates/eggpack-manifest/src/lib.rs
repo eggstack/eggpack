@@ -655,11 +655,41 @@ mod tests {
             "../../../plans/closure/eggup-interoperability/fixtures/unknown-schema.json"
         ))
         .is_err());
+        assert!(ReleaseManifest::from_json(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/corrupt-digest.json"
+        ))
+        .is_err());
+        assert!(ReleaseManifest::from_json(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/corrupt-size.json"
+        ))
+        .is_err());
         let direct = ReleaseManifest::from_json(include_str!(
             "../../../plans/closure/eggup-interoperability/fixtures/direct-manifest.json"
         ))
         .unwrap();
         assert!(direct.target("x86_64-pc-windows-gnu").is_err());
+        assert_eq!(direct.product_id, "eggsact");
+        assert_eq!(direct.release_id, "1.2.6");
+        let bundle = ReleaseManifest::from_json(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/bundle-manifest.json"
+        ))
+        .unwrap();
+        match &bundle.target("x86_64-unknown-linux-gnu").unwrap().form {
+            ArtifactForm::Bundle { entries } => assert_eq!(entries.len(), 3),
+            _ => panic!("bundle fixture changed form"),
+        }
+        let archive = ReleaseManifest::from_json(include_str!(
+            "../../../plans/closure/eggup-interoperability/fixtures/archive-manifest.json"
+        ))
+        .unwrap();
+        match &archive.target("x86_64-unknown-linux-gnu").unwrap().form {
+            ArtifactForm::Archive { artifact, members } => {
+                assert_eq!(artifact.size, 3);
+                assert_eq!(members.len(), 2);
+                assert_eq!(members[0].source, "bin/egress-helper");
+            }
+            _ => panic!("archive fixture changed form"),
+        }
         let projection: serde_json::Value = serde_json::from_str(include_str!(
             "../../../plans/closure/eggup-interoperability/fixtures/projection-archive.json"
         ))
