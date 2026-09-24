@@ -444,34 +444,6 @@ mod tests {
             .unwrap()
             .status
             .success());
-        if Command::new("pwsh").arg("-Version").output().is_ok() {
-            let origin = serve_once(b"abc", "200 OK");
-            let ps = render_powershell(
-                &c,
-                &m,
-                &BootstrapSpec {
-                    origin,
-                    fixture_http: true,
-                },
-            )
-            .unwrap();
-            let ps_path = root.join("install.ps1");
-            let ps_dest = root.join("powershell-destination");
-            fs::write(&ps_path, ps).unwrap();
-            let powershell_result = Command::new("pwsh")
-                .arg("-NoProfile")
-                .arg("-File")
-                .arg(&ps_path)
-                .arg(&ps_dest)
-                .output()
-                .unwrap();
-            assert!(
-                powershell_result.status.success(),
-                "{}",
-                String::from_utf8_lossy(&powershell_result.stderr)
-            );
-            assert_eq!(fs::read(ps_dest.join("eggsact")).unwrap(), b"abc");
-        }
         let host_target = match (std::env::consts::OS, std::env::consts::ARCH) {
             ("macos", "aarch64") => "aarch64-apple-darwin",
             ("macos", _) => "x86_64-apple-darwin",
@@ -483,6 +455,63 @@ mod tests {
             .iter()
             .position(|target| target.target == host_target)
             .unwrap();
+        if Command::new("pwsh").arg("-Version").output().is_ok() {
+            let run_ps = |label: &str,
+                          manifest: &ReleaseManifest,
+                          body: &'static [u8],
+                          response: &'static str| {
+                let origin = serve_once(body, response);
+                let script = render_powershell(
+                    &c,
+                    manifest,
+                    &BootstrapSpec {
+                        origin,
+                        fixture_http: true,
+                    },
+                )
+                .unwrap();
+                let script_path = root.join(format!("{label}.ps1"));
+                let destination = root.join(format!("{label}-destination"));
+                fs::write(&script_path, script).unwrap();
+                let result = Command::new("pwsh")
+                    .arg("-NoProfile")
+                    .arg("-File")
+                    .arg(&script_path)
+                    .arg(&destination)
+                    .output()
+                    .unwrap();
+                (result.status.success(), destination, script_path)
+            };
+            let (ok, ps_dest, ps_path) = run_ps("install", &m, b"abc", "200 OK");
+            assert!(ok);
+            assert_eq!(fs::read(ps_dest.join("eggsact")).unwrap(), b"abc");
+            let repeat = Command::new("pwsh")
+                .arg("-NoProfile")
+                .arg("-File")
+                .arg(&ps_path)
+                .arg(&ps_dest)
+                .output()
+                .unwrap();
+            assert!(!repeat.status.success());
+            let mut bad_size_ps = m.clone();
+            if let ArtifactForm::Direct { artifact, .. } = &mut bad_size_ps.targets[selected].form {
+                artifact.size = 4;
+            }
+            let (ok, dest, _) = run_ps("bad-size-powershell", &bad_size_ps, b"abc", "200 OK");
+            assert!(!ok);
+            assert_eq!(fs::read_dir(dest).unwrap().count(), 0);
+            let mut bad_digest_ps = m.clone();
+            if let ArtifactForm::Direct { artifact, .. } = &mut bad_digest_ps.targets[selected].form
+            {
+                artifact.sha256 = "00".repeat(32);
+            }
+            let (ok, dest, _) = run_ps("bad-digest-powershell", &bad_digest_ps, b"abc", "200 OK");
+            assert!(!ok);
+            assert_eq!(fs::read_dir(dest).unwrap().count(), 0);
+            let (ok, dest, _) = run_ps("missing-powershell", &m, b"", "404 Not Found");
+            assert!(!ok);
+            assert_eq!(fs::read_dir(dest).unwrap().count(), 0);
+        }
         let mut bad_size = m.clone();
         if let ArtifactForm::Direct { artifact, .. } = &mut bad_size.targets[selected].form {
             artifact.size = 4;
