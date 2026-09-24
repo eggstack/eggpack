@@ -456,6 +456,13 @@ fn run_bounded_inner(
     } else {
         CommandOutcome::Failed(status.code().unwrap_or(-1))
     };
+    #[cfg(test)]
+    if matches!(&outcome, CommandOutcome::Failed(_)) {
+        eprintln!(
+            "bounded test process diagnostic: {}",
+            String::from_utf8_lossy(&stderr)
+        );
+    }
     Ok(ProcessEvidence {
         outcome,
         stdout_bytes: stdout.len(),
@@ -1072,6 +1079,22 @@ mod tests {
         fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
         let mut t = target();
         t.policy.toolchain.rust = "stable".into();
+        let (triple, os, arch) = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("windows", "x86_64") => ("x86_64-pc-windows-msvc", HostOs::Windows, HostArch::X86_64),
+            ("macos", "x86_64") => ("x86_64-apple-darwin", HostOs::Macos, HostArch::X86_64),
+            ("macos", "aarch64") => ("aarch64-apple-darwin", HostOs::Macos, HostArch::Aarch64),
+            ("linux", "x86_64") => ("x86_64-unknown-linux-gnu", HostOs::Linux, HostArch::X86_64),
+            ("linux", "aarch64") => (
+                "aarch64-unknown-linux-gnu",
+                HostOs::Linux,
+                HostArch::Aarch64,
+            ),
+            other => panic!("unsupported hosted Cargo smoke platform: {other:?}"),
+        };
+        t.target = triple.into();
+        t.policy.target = triple.into();
+        t.policy.host_os = os;
+        t.policy.host_arch = arch;
         let binding = BuildBinding {
             selector: LogicalOutputSelector::Direct,
             package: "smoke-fixture".into(),
