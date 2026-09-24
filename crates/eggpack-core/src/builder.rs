@@ -1084,6 +1084,15 @@ mod tests {
     }
     #[test]
     fn real_local_cargo_fixture_builds_a_direct_candidate() {
+        #[cfg(windows)]
+        {
+            let linkers = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+                .filter(|entry| entry.join("link.exe").is_file())
+                .take(8)
+                .map(|entry| entry.display().to_string())
+                .collect::<Vec<_>>();
+            eprintln!("Windows linker search diagnostics: VCToolsInstallDir present={}, link.exe directories={linkers:?}", std::env::var_os("VCToolsInstallDir").is_some());
+        }
         let base = std::env::temp_dir().join(format!("eggpack-cargo-smoke-{}", std::process::id()));
         let repo = base.join("repo");
         let work = base.join("work");
