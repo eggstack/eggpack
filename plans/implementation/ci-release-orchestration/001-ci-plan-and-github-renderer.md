@@ -1,8 +1,8 @@
 # CI and Release Orchestration Milestone 001 — Provider-Neutral CIPlan and Deterministic GitHub Renderer
 
-Status: ready for implementation — Build/Qualification M002 is closed
+Status: implementation in progress
 
-Repository baseline: 1666df9ac68062f7a1be4ed757a4f1ccc21aad5b
+Repository baseline: 00a3399773045121baabbe86f062d41a4c2ce1fb (Build/Qualification M002 closure)
 
 Source roadmap: plans/subsystems/ci-release-orchestration-roadmap.md
 

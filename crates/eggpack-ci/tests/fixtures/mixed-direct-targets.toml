@@ -1,0 +1,29 @@
+schema_version = 1
+
+[product]
+id = "mixed"
+display_name = "Mixed"
+
+[[targets]]
+triple = "x86_64-unknown-linux-gnu"
+aliases = ["linux-x64"]
+
+[targets.asset]
+kind = "direct"
+asset = "{product}-{version}-{target}"
+install = "{product}"
+
+[targets.checksum]
+sidecar = "{asset}.sha256"
+
+[[targets]]
+triple = "aarch64-unknown-linux-gnu"
+aliases = ["linux-arm64"]
+
+[targets.asset]
+kind = "direct"
+asset = "{product}-{version}-{target}"
+install = "{product}"
+
+[targets.checksum]
+sidecar = "{asset}.sha256"

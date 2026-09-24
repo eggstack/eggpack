@@ -1,0 +1,51 @@
+name: Eggpack candidate builds
+'on':
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eggpack-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  preflight:
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Check Cargo availability
+        shell: bash
+        run: cargo --version
+  build_x86_64_unknown_linux_gnu:
+    needs: preflight
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    continue-on-error: false
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Set up Rust toolchain
+        uses: "dtolnay/rust-toolchain@0123456789abcdef0123456789abcdef01234567"
+        with:
+          toolchain: "1.89.0"
+          targets: "x86_64-unknown-linux-gnu"
+      - name: Verify Rust toolchain
+        shell: bash
+        run: cargo +'1.89.0' --version
+      - name: Build "x86_64-unknown-linux-gnu / eggsact"
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
+        run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'eggsact' '--bin' 'eggsact'"
+      - name: Hand off internal candidate bytes
+        uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-x86_64-unknown-linux-gnu-direct"
+          path: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}/x86_64-unknown-linux-gnu/release/eggsact"
+          if-no-files-found: error
+          retention-days: 7

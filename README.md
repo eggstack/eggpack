@@ -34,3 +34,10 @@ not qualified or finalized release artifacts.
 PowerShell scripts from the contract and manifest; it does not select releases
 or update existing installations. SHA-256 checks establish integrity, not
 authenticity.
+
+`eggpack-ci` projects resolved release plans and explicit M002 Cargo bindings
+into a provider-neutral CI graph, renders read-only deterministic GitHub
+Actions workflows from caller-supplied runner/action-pin policy, and checks
+workflow drift without writing files. Generated jobs hand off candidate build
+bytes only; qualification, aggregation, finalization, staging, and publication
+remain later work.
