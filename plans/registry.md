@@ -106,7 +106,7 @@ Current dependency-ready implementation work:
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
-The ready implementation milestones have registered handoffs; CI Orchestration M001 is only ready for a plan to be authored. Follow the batch sequencing below.
+The next operational producer handoffs are registered. Execute Build/Qualification M002 first for the shared build-binding/command seam; CI Orchestration M001 may develop its provider-neutral graph in parallel but must reuse that M002 interface for GitHub build-step rendering. Follow the batch sequencing below.
 
 ## Immediate execution graph
 
