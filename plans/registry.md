@@ -52,9 +52,9 @@ Distribution predecessor evidence:
 - M002 strict template/collision corrective: `0a68f29fce44adf5f12d79f1b440a2c08aca9cb7`;
 - M003 conformance implementation: `9941c58d7039410c728860f9e4e382881d4ccf54`;
 - M003 closure: `4169c8021b447fe73c8ee3ea71a80a535c940f54`;
-- `eggup-dist` is unpublished and frozen;
-- Eggup distribution M004 was a blocked retirement plan and may execute only after Eggpack Contract M002 closes;
-- Contract M002 has now ported the closed M003 behavior, authorizing Eggup M004 retirement.
+- `eggup-dist` was unpublished predecessor evidence and has now been removed from Eggup;
+- Eggup distribution M004 implementation `bc25885bd41b86bfdf2f32d1e42856e00829cd7a` is closed at `plans/closure/distribution-bootstrap/004-status.md` in `eggstack/eggup`;
+- Contract M002 ported/qualified the closed M003 behavior before that retirement, so Eggpack is now the sole active producer distribution authority.
 
 ### External backend evidence
 
@@ -66,7 +66,7 @@ Distribution predecessor evidence:
 
 | Subsystem | Status | Roadmap | Current milestone | Dependencies / blockers |
 |---|---|---|---|---|
-| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement authorized |
+| Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement closed; consumer evidence gates M003 |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M001a closed; M002 ready | M001/M001a and conformance M002 closed |
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001 ready | Contract M001/M002, manifest M001/M001a, backend evaluation closed |
@@ -90,13 +90,12 @@ Current dependency-ready implementation work:
 
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
-| Eggup distribution | M004 retire eggup-dist | ready / authorized | Eggpack Contract M002 closed; execution remains in Eggup |
 | CI orchestration | M001 CIPlan/renderer | blocked | Build/qualification M001 interface |
 | Adoption | eggsact/stegoeggo | blocked | contract + required generator/CI pieces |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
-Milestones above with status `ready` have satisfied hard/interface dependencies; detailed implementation plans still need registration before execution handoff.
+The ready milestones above have satisfied hard/interface dependencies and now have registered implementation handoffs. Follow the batch sequencing below.
 
 ## Immediate execution graph
 
@@ -109,7 +108,7 @@ Eggpack contract M001 [CLOSED]
                v
 contract conformance M002 [CLOSED: M003 PORT QUALIFIED]
         |                      |
-        |                      +--> Eggup M004 retire eggup-dist [AUTHORIZED]
+        |                      +--> Eggup M004 retire eggup-dist [CLOSED]
         v
 ReleaseManifest M001 [CLOSED HISTORICALLY]
         |
@@ -129,7 +128,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 - Rust baseline: 1.89 unless changed by ADR.
 - `eggpack-contract` migration is fidelity-first; no opportunistic schema redesign.
-- `eggup-dist` is frozen after closed Eggup M003 and is removed only after Eggpack Contract M002 migration closure through the already-registered Eggup M004 retirement plan.
+- `eggup-dist` was frozen through the migration and has now been removed by closed Eggup M004 after Eggpack Contract M002 qualification.
 - concrete release manifests describe final bytes only.
 - generated CI is checked in and drift-checked.
 - staging/qualification does not automatically publish.
