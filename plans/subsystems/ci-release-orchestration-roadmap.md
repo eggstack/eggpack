@@ -80,7 +80,11 @@ M002 qualification/aggregation gates and drift check.
 
 Implementation plan: `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md`.
 
-M003 draft GitHub Release staging adapter.
+M003 draft GitHub Release staging adapter, split into M003a provider/payload machinery and M003b generated staging-job integration/operational qualification.
+
+M003a implementation plan: `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md`.
+
+M003b implementation plan: `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md`.
 
 ## 8. Cross-cutting requirements
 
@@ -100,7 +104,7 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Closed Build M002 and ADR-0004 define the shared native build-binding/command boundary. CI Orchestration M001 is unblocked and must reuse this interface. No publication/staging authority is authorized.
+Build/Qualification M001-M004 and CI M001/M002/M002a are closed. ADR-0003 authorizes draft staging while keeping public publication manual. M003a is the next dependency-ready implementation slice; M003b is defined but blocked on M003a closure and live operational staging evidence.
 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
@@ -108,4 +112,5 @@ Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Close
 | M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
 | M002 qualification/aggregation gates + drift CLI | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | `plans/closure/ci-release-orchestration/002-status.md` | Post-closure generated-workflow execution defect corrected and qualified by M002a |
 | M002a generated workflow execution wiring | closed | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | `plans/closure/ci-release-orchestration/002a-status.md` | Closed on implementation `4d2270a` + hosted run 36154905956 (attempt 1, all lanes green) via closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` |
-| M003 draft release staging | blocked | — | — | Explicit staging adapter plan (M002a precondition satisfied) |
+| M003a local staging payload + GitHub draft adapter | ready | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | — | M002a/Bootstrap M002a/Build M004 closed; ADR-0003 already authorizes draft-only staging |
+| M003b generated draft staging job + operational qualification | blocked / planned | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | — | hard dependency on M003a closure; full closure also needs maintainer-authorized live draft fixture |
