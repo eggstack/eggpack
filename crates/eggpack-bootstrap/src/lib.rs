@@ -1457,6 +1457,211 @@ mod tests {
         .unwrap()
     }
 
+    fn host_triple() -> &'static str {
+        match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+            ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+            ("linux", _) => "x86_64-unknown-linux-gnu",
+            ("macos", "aarch64") => "aarch64-apple-darwin",
+            ("macos", _) => "x86_64-apple-darwin",
+            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+            ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+            _ => "x86_64-unknown-linux-gnu",
+        }
+    }
+
+    fn host_bundle_case() -> (
+        DistributionContract,
+        ReleaseManifest,
+        BootstrapInstallPolicyV1,
+        Vec<(String, Vec<u8>)>,
+    ) {
+        let triple = host_triple();
+        let contract = DistributionContract::parse_toml_str(&format!(
+            r#"schema_version = 1
+[product]
+id = "hostbundle"
+[[targets]]
+triple = "{triple}"
+aliases = []
+[targets.asset]
+kind = "bundle"
+[[targets.asset.entries]]
+asset = "{{product}}-{{version}}-{{target}}-main"
+install = "host-main"
+[[targets.asset.entries]]
+asset = "{{product}}-helper-{{version}}-{{target}}"
+install = "host-helper"
+[[targets.asset.entries]]
+asset = "{{product}}-manifest-{{version}}.json"
+install = "host-manifest.json"
+[targets.checksum]
+sidecar = "{{asset}}.sha256"
+"#
+        ))
+        .unwrap();
+        let bodies = [
+            b"host-main-bytes".to_vec(),
+            b"host-helper-bytes".to_vec(),
+            b"{\"manifest\":true}".to_vec(),
+        ];
+        let expanded = contract.expand(triple, "1.0.0").unwrap();
+        let bundle = match expanded.assets {
+            eggpack_contract::ExpandedAssets::Bundle(b) => b,
+            _ => panic!("bundle expected"),
+        };
+        let mut entries = Vec::new();
+        let mut modes = BTreeMap::new();
+        for (index, contract_entry) in bundle.entries.iter().enumerate() {
+            let body = &bodies[index];
+            entries.push(eggpack_manifest::BundleRecord {
+                artifact: eggpack_manifest::ArtifactRecord {
+                    name: contract_entry.asset_file.clone(),
+                    size: body.len() as u64,
+                    sha256: sha_hex(body),
+                },
+                install: contract_entry.install_name.clone(),
+            });
+            let mode = if index == 2 {
+                InstallMode::Data
+            } else {
+                InstallMode::Executable
+            };
+            modes.insert(contract_entry.install_name.clone(), mode);
+        }
+        let manifest = ReleaseManifest {
+            schema_version: 1,
+            product_id: "hostbundle".into(),
+            release_id: "1.0.0".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![eggpack_manifest::TargetRecord {
+                target: triple.into(),
+                form: ArtifactForm::Bundle { entries },
+            }],
+            evidence_references: vec![],
+        };
+        manifest.validate().unwrap();
+        let policy = BootstrapInstallPolicyV1 {
+            schema_version: 1,
+            targets: [(
+                triple.to_string(),
+                TargetInstallPolicy {
+                    modes,
+                    archive_encoding: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let routes = bundle
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| (entry.asset_file.clone(), bodies[index].clone()))
+            .collect();
+        (contract, manifest, policy, routes)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn host_archive_case() -> (
+        DistributionContract,
+        ReleaseManifest,
+        BootstrapInstallPolicyV1,
+        Vec<u8>,
+        Vec<(String, Vec<u8>)>,
+    ) {
+        let triple = host_triple();
+        let contract = DistributionContract::parse_toml_str(&format!(
+            r#"schema_version = 1
+[product]
+id = "hostarchive"
+[[targets]]
+triple = "{triple}"
+aliases = []
+[targets.asset]
+kind = "archive"
+asset = "{{product}}-{{version}}-{{target}}.tar.gz"
+[[targets.asset.members]]
+source = "hostbin"
+install = "hostbin"
+[[targets.asset.members]]
+source = "bin/host-helper"
+install = "host-helper"
+[targets.checksum]
+sidecar = "{{asset}}.sha256"
+"#
+        ))
+        .unwrap();
+        let member_bodies = vec![
+            ("hostbin".to_string(), b"hostbin-bytes".to_vec()),
+            ("bin/host-helper".to_string(), b"host-helper-bytes".to_vec()),
+        ];
+        let archive_bytes = build_deterministic_tar_gz(&[
+            ("hostbin", member_bodies[0].1.as_slice()),
+            ("bin/host-helper", member_bodies[1].1.as_slice()),
+        ]);
+        let expanded = contract.expand(triple, "1.0.0").unwrap();
+        let archive = match expanded.assets {
+            eggpack_contract::ExpandedAssets::Archive(a) => a,
+            _ => panic!("archive expected"),
+        };
+        let members = archive
+            .members
+            .iter()
+            .map(|contract_member| {
+                let body = member_bodies
+                    .iter()
+                    .find(|(source, _)| source == &contract_member.source)
+                    .unwrap();
+                eggpack_manifest::ArchiveMemberRecord {
+                    source: contract_member.source.clone(),
+                    install: contract_member.install_name.clone(),
+                    bytes: eggpack_manifest::ByteEvidence {
+                        size: body.1.len() as u64,
+                        sha256: sha_hex(&body.1),
+                    },
+                }
+            })
+            .collect::<Vec<_>>();
+        let manifest = ReleaseManifest {
+            schema_version: 1,
+            product_id: "hostarchive".into(),
+            release_id: "1.0.0".into(),
+            source_revision: "b".repeat(40),
+            targets: vec![eggpack_manifest::TargetRecord {
+                target: triple.into(),
+                form: ArtifactForm::Archive {
+                    artifact: eggpack_manifest::ArtifactRecord {
+                        name: archive.archive_file.clone(),
+                        size: archive_bytes.len() as u64,
+                        sha256: sha_hex(&archive_bytes),
+                    },
+                    members,
+                },
+            }],
+            evidence_references: vec![],
+        };
+        manifest.validate().unwrap();
+        let policy = BootstrapInstallPolicyV1 {
+            schema_version: 1,
+            targets: [(
+                triple.to_string(),
+                TargetInstallPolicy {
+                    modes: [
+                        ("hostbin".into(), InstallMode::Executable),
+                        ("host-helper".into(), InstallMode::Data),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    archive_encoding: Some(BundleArchiveEncoding::TarGzip),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        (contract, manifest, policy, archive_bytes, member_bodies)
+    }
+
     fn archive_contract() -> DistributionContract {
         DistributionContract::parse_toml_str(include_str!(
             "../../eggpack-contract/tests/fixtures/egress-archive.toml"
@@ -1868,8 +2073,7 @@ sidecar = "{asset}.sha256"
     #[test]
     fn m002_bundle_posix_runtime_matrix() {
         use std::{fs, os::unix::fs::PermissionsExt, process::Command};
-        let contract = bundle_contract();
-        let (manifest, route_bodies, policy) = bundle_manifest_and_bodies();
+        let (contract, manifest, policy, route_bodies) = host_bundle_case();
         let mut routes = HashMap::new();
         for (name, body) in &route_bodies {
             routes.insert(format!("/releases/{name}"), (body.clone(), "200 OK".into()));
@@ -1921,18 +2125,18 @@ sidecar = "{asset}.sha256"
             .status()
             .unwrap()
             .success());
-        let main_bytes = fs::read(dest.join("codegg")).unwrap();
-        assert_eq!(main_bytes, b"codegg-main-bytes");
+        let main_bytes = fs::read(dest.join("host-main")).unwrap();
+        assert_eq!(main_bytes, b"host-main-bytes");
         assert_eq!(
-            fs::read(dest.join("codegg-helper")).unwrap(),
-            b"helper-bytes"
+            fs::read(dest.join("host-helper")).unwrap(),
+            b"host-helper-bytes"
         );
         assert_eq!(
-            fs::read(dest.join("codegg-manifest.json")).unwrap(),
+            fs::read(dest.join("host-manifest.json")).unwrap(),
             b"{\"manifest\":true}"
         );
         assert_eq!(
-            fs::metadata(dest.join("codegg"))
+            fs::metadata(dest.join("host-main"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -1940,7 +2144,7 @@ sidecar = "{asset}.sha256"
             0o755
         );
         assert_eq!(
-            fs::metadata(dest.join("codegg-helper"))
+            fs::metadata(dest.join("host-helper"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -1948,7 +2152,7 @@ sidecar = "{asset}.sha256"
             0o755
         );
         assert_eq!(
-            fs::metadata(dest.join("codegg-manifest.json"))
+            fs::metadata(dest.join("host-manifest.json"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -2024,7 +2228,7 @@ sidecar = "{asset}.sha256"
         assert_eq!(fs::read_dir(&missing_dest).unwrap().count(), 0);
 
         // Existing first and later destinations prevent placement.
-        for existing in ["codegg", "codegg-manifest.json"] {
+        for existing in ["host-main", "host-manifest.json"] {
             let dest = root.join(format!("existing-{existing}"));
             fs::create_dir_all(&dest).unwrap();
             fs::write(dest.join(existing), b"sentinel").unwrap();
@@ -2108,87 +2312,14 @@ sidecar = "{asset}.sha256"
     #[allow(clippy::type_complexity)]
     fn m002_archive_posix_runtime_matrix() {
         use std::{fs, os::unix::fs::PermissionsExt, process::Command};
-        // Use single-target archive contract for runtime (host is x86_64 linux).
-        let contract = DistributionContract::parse_toml_str(
-            r#"schema_version = 1
-[product]
-id = "egress"
-[[targets]]
-triple = "x86_64-unknown-linux-gnu"
-aliases = ["linux-x64"]
-[targets.asset]
-kind = "archive"
-asset = "{product}-{version}-{target}.tar.gz"
-[[targets.asset.members]]
-source = "egress"
-install = "egress"
-[[targets.asset.members]]
-source = "bin/egress-helper"
-install = "egress-helper"
-[targets.checksum]
-sidecar = "{asset}.sha256"
-"#,
-        )
-        .unwrap();
-        let member_main = b"egress-binary-bytes".to_vec();
-        let member_helper = b"helper-binary-bytes".to_vec();
-        let archive_bytes = build_deterministic_tar_gz(&[
-            ("egress", member_main.as_slice()),
-            ("bin/egress-helper", member_helper.as_slice()),
-        ]);
-        let manifest = ReleaseManifest {
-            schema_version: 1,
-            product_id: "egress".into(),
-            release_id: "3.1.0".into(),
-            source_revision: "b".repeat(40),
-            targets: vec![eggpack_manifest::TargetRecord {
-                target: "x86_64-unknown-linux-gnu".into(),
-                form: ArtifactForm::Archive {
-                    artifact: eggpack_manifest::ArtifactRecord {
-                        name: "egress-3.1.0-x86_64-unknown-linux-gnu.tar.gz".into(),
-                        size: archive_bytes.len() as u64,
-                        sha256: sha_hex(&archive_bytes),
-                    },
-                    members: vec![
-                        eggpack_manifest::ArchiveMemberRecord {
-                            source: "egress".into(),
-                            install: "egress".into(),
-                            bytes: eggpack_manifest::ByteEvidence {
-                                size: member_main.len() as u64,
-                                sha256: sha_hex(&member_main),
-                            },
-                        },
-                        eggpack_manifest::ArchiveMemberRecord {
-                            source: "bin/egress-helper".into(),
-                            install: "egress-helper".into(),
-                            bytes: eggpack_manifest::ByteEvidence {
-                                size: member_helper.len() as u64,
-                                sha256: sha_hex(&member_helper),
-                            },
-                        },
-                    ],
-                },
-            }],
-            evidence_references: vec![],
+        // Host-specific single-target archive case so Unix lanes (Linux/macOS) execute.
+        let (contract, manifest, policy, archive_bytes, member_bodies) = host_archive_case();
+        let member_main = member_bodies[0].1.clone();
+        let member_helper = member_bodies[1].1.clone();
+        let archive_name = match &manifest.targets[0].form {
+            ArtifactForm::Archive { artifact, .. } => artifact.name.clone(),
+            _ => panic!("archive expected"),
         };
-        let policy = BootstrapInstallPolicyV1 {
-            schema_version: 1,
-            targets: [(
-                "x86_64-unknown-linux-gnu".into(),
-                TargetInstallPolicy {
-                    modes: [
-                        ("egress".into(), InstallMode::Executable),
-                        ("egress-helper".into(), InstallMode::Data),
-                    ]
-                    .into_iter()
-                    .collect(),
-                    archive_encoding: Some(BundleArchiveEncoding::TarGzip),
-                },
-            )]
-            .into_iter()
-            .collect(),
-        };
-        let archive_name = "egress-3.1.0-x86_64-unknown-linux-gnu.tar.gz";
         let mut routes = HashMap::new();
         routes.insert(
             format!("/releases/{archive_name}"),
@@ -2229,11 +2360,11 @@ sidecar = "{asset}.sha256"
             .status()
             .unwrap()
             .success());
-        assert_eq!(fs::read(dest.join("egress")).unwrap(), member_main);
-        assert_eq!(fs::read(dest.join("egress-helper")).unwrap(), member_helper);
+        assert_eq!(fs::read(dest.join("hostbin")).unwrap(), member_main);
+        assert_eq!(fs::read(dest.join("host-helper")).unwrap(), member_helper);
         assert!(!dest.join("bin").exists());
         assert_eq!(
-            fs::metadata(dest.join("egress"))
+            fs::metadata(dest.join("hostbin"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -2241,7 +2372,7 @@ sidecar = "{asset}.sha256"
             0o755
         );
         assert_eq!(
-            fs::metadata(dest.join("egress-helper"))
+            fs::metadata(dest.join("host-helper"))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -2314,26 +2445,26 @@ sidecar = "{asset}.sha256"
 
         // Missing / extra / traversal / absolute members reject.
         let tampered_cases: Vec<(&str, Vec<(&str, &[u8])>)> = vec![
-            ("missing", vec![("egress", member_main.as_slice())]),
+            ("missing", vec![("hostbin", member_main.as_slice())]),
             (
                 "extra",
                 vec![
-                    ("egress", member_main.as_slice()),
-                    ("bin/egress-helper", member_helper.as_slice()),
+                    ("hostbin", member_main.as_slice()),
+                    ("bin/host-helper", member_helper.as_slice()),
                     ("extra-file", b"extra" as &[u8]),
                 ],
             ),
             (
                 "traversal",
                 vec![
-                    ("egress", member_main.as_slice()),
+                    ("hostbin", member_main.as_slice()),
                     ("../evil", member_helper.as_slice()),
                 ],
             ),
             (
                 "absolute",
                 vec![
-                    ("egress", member_main.as_slice()),
+                    ("hostbin", member_main.as_slice()),
                     ("/abs", member_helper.as_slice()),
                 ],
             ),
@@ -2347,7 +2478,7 @@ sidecar = "{asset}.sha256"
                 // use correct archive bytes but mutate manifest expectation via script?
                 // Instead serve an archive with wrong member names that tar accepts.
                 build_deterministic_tar_gz(&[
-                    ("egress", member_main.as_slice()),
+                    ("hostbin", member_main.as_slice()),
                     ("other", member_helper.as_slice()),
                 ])
             } else {
@@ -2395,7 +2526,7 @@ sidecar = "{asset}.sha256"
             archive.mode(tar::HeaderMode::Deterministic);
             let mut header = tar::Header::new_gnu();
             header.set_entry_type(tar::EntryType::Regular);
-            header.set_path("egress").unwrap();
+            header.set_path("hostbin").unwrap();
             header.set_size(member_main.len() as u64);
             header.set_mode(0o755);
             header.set_uid(0);
@@ -2405,8 +2536,8 @@ sidecar = "{asset}.sha256"
             archive.append(&header, member_main.as_slice()).unwrap();
             let mut link_header = tar::Header::new_gnu();
             link_header.set_entry_type(tar::EntryType::Symlink);
-            link_header.set_path("bin/egress-helper").unwrap();
-            link_header.set_link_name("egress").unwrap();
+            link_header.set_path("bin/host-helper").unwrap();
+            link_header.set_link_name("hostbin").unwrap();
             link_header.set_mode(0o777);
             link_header.set_uid(0);
             link_header.set_gid(0);
@@ -2498,7 +2629,7 @@ sidecar = "{asset}.sha256"
         {
             let dest = root.join("preexisting");
             fs::create_dir_all(&dest).unwrap();
-            fs::write(dest.join("egress"), b"sentinel").unwrap();
+            fs::write(dest.join("hostbin"), b"sentinel").unwrap();
             assert!(!Command::new("sh")
                 .arg(&script_path)
                 .arg(&dest)
@@ -2506,7 +2637,7 @@ sidecar = "{asset}.sha256"
                 .unwrap()
                 .status
                 .success());
-            assert_eq!(fs::read(dest.join("egress")).unwrap(), b"sentinel");
+            assert_eq!(fs::read(dest.join("hostbin")).unwrap(), b"sentinel");
         }
 
         fs::remove_dir_all(root).unwrap();
@@ -2515,8 +2646,7 @@ sidecar = "{asset}.sha256"
     #[test]
     fn m002_powershell_static_and_runtime() {
         use std::{fs, process::Command};
-        let contract = bundle_contract();
-        let (manifest, route_bodies, policy) = bundle_manifest_and_bodies();
+        let (contract, manifest, policy, route_bodies) = host_bundle_case();
         let mut routes = HashMap::new();
         for (name, body) in &route_bodies {
             routes.insert(format!("/releases/{name}"), (body.clone(), "200 OK".into()));
@@ -2580,7 +2710,10 @@ sidecar = "{asset}.sha256"
                 "pwsh bundle install failed: {}",
                 String::from_utf8_lossy(&result.stderr)
             );
-            assert_eq!(fs::read(dest.join("codegg")).unwrap(), b"codegg-main-bytes");
+            assert_eq!(
+                fs::read(dest.join("host-main")).unwrap(),
+                b"host-main-bytes"
+            );
             // No overwrite.
             let repeat = Command::new(shell)
                 .arg("-NoProfile")
@@ -2595,65 +2728,8 @@ sidecar = "{asset}.sha256"
         }
 
         // Archive PowerShell static checks.
-        let single_contract = DistributionContract::parse_toml_str(
-            r#"schema_version = 1
-[product]
-id = "egress"
-[[targets]]
-triple = "x86_64-unknown-linux-gnu"
-aliases = []
-[targets.asset]
-kind = "archive"
-asset = "{product}-{version}-{target}.tar.gz"
-[[targets.asset.members]]
-source = "egress"
-install = "egress"
-[targets.checksum]
-sidecar = "{asset}.sha256"
-"#,
-        )
-        .unwrap();
-        let member_body = b"egress-bytes".to_vec();
-        let archive_bytes = build_deterministic_tar_gz(&[("egress", member_body.as_slice())]);
-        let archive_manifest = ReleaseManifest {
-            schema_version: 1,
-            product_id: "egress".into(),
-            release_id: "3.1.0".into(),
-            source_revision: "b".repeat(40),
-            targets: vec![eggpack_manifest::TargetRecord {
-                target: "x86_64-unknown-linux-gnu".into(),
-                form: ArtifactForm::Archive {
-                    artifact: eggpack_manifest::ArtifactRecord {
-                        name: "egress-3.1.0-x86_64-unknown-linux-gnu.tar.gz".into(),
-                        size: archive_bytes.len() as u64,
-                        sha256: sha_hex(&archive_bytes),
-                    },
-                    members: vec![eggpack_manifest::ArchiveMemberRecord {
-                        source: "egress".into(),
-                        install: "egress".into(),
-                        bytes: eggpack_manifest::ByteEvidence {
-                            size: member_body.len() as u64,
-                            sha256: sha_hex(&member_body),
-                        },
-                    }],
-                },
-            }],
-            evidence_references: vec![],
-        };
-        let archive_policy = BootstrapInstallPolicyV1 {
-            schema_version: 1,
-            targets: [(
-                "x86_64-unknown-linux-gnu".into(),
-                TargetInstallPolicy {
-                    modes: [("egress".into(), InstallMode::Executable)]
-                        .into_iter()
-                        .collect(),
-                    archive_encoding: Some(BundleArchiveEncoding::TarGzip),
-                },
-            )]
-            .into_iter()
-            .collect(),
-        };
+        // Archive PowerShell static checks (host-specific so parser runs everywhere).
+        let (single_contract, archive_manifest, archive_policy, _, _) = host_archive_case();
         let archive_spec = BootstrapSpec {
             origin: "https://example.invalid/releases".into(),
             fixture_http: false,
