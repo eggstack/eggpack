@@ -90,7 +90,7 @@ At least two consumers have removed duplicated mapping/checksum authority from b
 
 ## 12. Milestone status
 
-M001 generator model and direct installer fixtures is closed and qualified. M002 is historical implementation/closure evidence; M002a is active to complete PowerShell archive runtime and inner-defense qualification. M003 adoption remains blocked.
+M001 generator model and direct installer fixtures is closed and qualified. M002 is historical implementation/closure evidence; M002a implementation is green and is now in coordinated closure/registry verification. M003 adoption remains blocked.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
