@@ -83,6 +83,14 @@ pub fn finalize_release(
             "finalization identity, target count, or root is invalid",
         ));
     }
+    if output_root.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::CurDir | std::path::Component::ParentDir
+        )
+    }) {
+        return Err(err("finalization root path contains traversal components"));
+    }
     let mut canonical_targets = BTreeSet::new();
     for target in &plan.targets {
         let expanded = contract
@@ -116,8 +124,8 @@ pub fn finalize_release(
     let canonical_parent =
         fs::canonicalize(parent).map_err(|_| err("finalization root parent cannot be resolved"))?;
     let root = canonical_parent.join(filename);
-    if root != output_root || fs::symlink_metadata(&root).is_ok() {
-        return Err(err("finalization root must be canonical and absent"));
+    if fs::symlink_metadata(&root).is_ok() {
+        return Err(err("finalization root must be absent"));
     }
     fs::create_dir(&root).map_err(|_| err("finalization root could not be created"))?;
     let result = (|| {
@@ -676,7 +684,10 @@ mod tests {
             assert_eq!(contract.product.id, product);
             let output = parent.join("release");
             let finalized = finalize_release(&contract, &plan, &request, &output).unwrap();
-            assert_eq!(finalized.root, output);
+            assert_eq!(
+                fs::canonicalize(&finalized.root).unwrap(),
+                fs::canonicalize(&output).unwrap()
+            );
             assert_eq!(finalized.manifest.release_id, release);
             match &finalized.manifest.targets[0].form {
                 ArtifactForm::Direct { artifact, .. } => {
@@ -809,6 +820,38 @@ mod tests {
         assert!(finalize_release(&contract, &plan, &request, &parent.join("extra-slot")).is_err());
         assert!(!parent.join("mixed-source").exists());
         assert!(!parent.join("extra-slot").exists());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn concurrent_invocations_with_distinct_roots_do_not_share_outputs() {
+        let parent = crate::test_temp_dir("finalize-concurrent");
+        let (contract, plan, request, _) = fixture(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "linux-x64",
+            "1.2.6",
+            &parent,
+        );
+        let contract_a = contract.clone();
+        let plan_a = plan.clone();
+        let request_a = request.clone();
+        let root_a = parent.join("release-a");
+        let root_b = parent.join("release-b");
+        let a = std::thread::spawn(move || {
+            finalize_release(&contract_a, &plan_a, &request_a, &root_a).unwrap()
+        });
+        let b = std::thread::spawn(move || {
+            finalize_release(&contract, &plan, &request, &root_b).unwrap()
+        });
+        let a = a.join().unwrap();
+        let b = b.join().unwrap();
+        assert_eq!(a.manifest, b.manifest);
+        let asset = "eggsact-1.2.6-x86_64-unknown-linux-gnu";
+        assert_eq!(
+            fs::read(a.root.join(asset)).unwrap(),
+            fs::read(b.root.join(asset)).unwrap()
+        );
+        assert!(a.root != b.root);
         fs::remove_dir_all(parent).unwrap();
     }
 }
