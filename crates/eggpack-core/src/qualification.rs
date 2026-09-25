@@ -2126,7 +2126,9 @@ stderr_limit = 1024
             fixture(Qualification::Structural, &bytes);
         let before = inspect_candidate(&attempt.candidates[0], &target.target).unwrap();
         let mut changed = bytes.clone();
-        *changed.last_mut().unwrap() ^= 1;
+        // Keep the structural header intact on all host formats. The final
+        // byte in the minimal PE fixture is part of its COFF machine field.
+        changed[20] ^= 1;
         fs::write(&attempt.candidates[0].path, &changed).unwrap();
         let after = inspect_candidate(&attempt.candidates[0], &target.target).unwrap();
         assert_eq!(before.size, after.size);
