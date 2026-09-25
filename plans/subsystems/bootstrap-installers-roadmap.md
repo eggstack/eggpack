@@ -90,10 +90,11 @@ At least two consumers have removed duplicated mapping/checksum authority from b
 
 ## 12. Milestone status
 
-M001 generator model and direct installer fixtures is closed and qualified. M002 bundle/archive safety is closed with hosted cross-platform evidence. M003 adoption remains blocked on real consumer evidence.
+M001 generator model and direct installer fixtures is closed and qualified. M002 is historical implementation/closure evidence; M002a is active to complete PowerShell archive runtime and inner-defense qualification. M003 adoption remains blocked.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 direct generator + fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | `plans/closure/bootstrap-installers/001-status.md` | direct first-install semantics qualified; archive-content/finalization evidence remains later work |
-| M002 bundle/archive bootstrap safety | closed | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | `plans/closure/bootstrap-installers/002-status.md` | Closed on implementation `df0120c` with hosted run 36142013486; M003 still blocked on adoption evidence |
-| M003 two-consumer adoption/receipt decision | blocked | — | — | M002 closed; still blocked on real adoption evidence and candidate review |
+| M002 bundle/archive bootstrap safety | closed historically / corrective active | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | `plans/closure/bootstrap-installers/002-status.md` | Post-closure PowerShell archive runtime evidence gap tracked by M002a |
+| M002a PowerShell archive runtime evidence | ready | `plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md` | — | execute PowerShell TarGzip path and correct inner-defense negative evidence |
+| M003 two-consumer adoption/receipt decision | blocked | — | — | M002a closure + real adoption evidence and candidate review |
