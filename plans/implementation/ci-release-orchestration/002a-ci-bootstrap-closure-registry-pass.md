@@ -1,6 +1,8 @@
 # CI/Bootstrap M002a Coordinated Closure and Registry Pass
 
-Status: ready for handoff
+Status: closed
+
+Closure disposition (2026-09-25): this coordinating pass is complete and creates no third capability closure. Completion evidence: `plans/closure/ci-release-orchestration/002a-status.md` and `plans/closure/bootstrap-installers/002a-status.md` (both citing implementation SHA `4d2270afe7de10bdff92563ed0f51a41ba807a04` and hosted run 36154905956, attempt 1, all lanes green); reconciled `plans/subsystems/ci-release-orchestration-roadmap.md`, `plans/subsystems/bootstrap-installers-roadmap.md`, and `plans/registry.md` with CI M002a and Bootstrap M002a closed; required local verification passed with no unresolved medium-or-higher finding; final repository CI green. CI M003 remains blocked solely on the explicit staging-adapter plan; Bootstrap M003 remains blocked solely on real adoption evidence/candidate review. No downstream implementation plan is authorized by this closeout.
 
 Repository baseline: `4d2270afe7de10bdff92563ed0f51a41ba807a04`
 

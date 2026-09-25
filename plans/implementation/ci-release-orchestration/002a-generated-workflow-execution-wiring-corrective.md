@@ -1,6 +1,10 @@
 # CI and Release Orchestration Milestone 002a — Generated Workflow Execution Wiring Corrective
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/ci-release-orchestration/002a-status.md`
+
+Closure disposition (2026-09-25): M002a is closed on implementation SHA `4d2270afe7de10bdff92563ed0f51a41ba807a04`. Hosted run 36154905956 (push, attempt 1) passed Linux stable, Linux Rust 1.89, macOS, and Windows including the focused `m002a_generated_orchestration_executes_end_to_end` and `generated_orchestration_cli_executes_capture_to_aggregate` steps. Generated build jobs create the exact handoff qualification consumes; every generated CLI invocation carries all required explicit arguments via the finite `RunnerCommand` model; qualification artifacts carry handoff + evidence + candidates; gate/aggregate consume canonical per-target directories; direct/bundle/archive orchestration executes through M004 finalization; optional incompleteness suppresses output; required failures fail closed; Emulated qualification without provider runtime rejects. No production semantic, permission, or publication change. CI M003 returns to blocked solely on the explicit staging-adapter plan; no staging implementation is authorized by this closure.
 
 Repository baseline: 388a8b056b05fb324122b1ac618e20bcb2963f77
 

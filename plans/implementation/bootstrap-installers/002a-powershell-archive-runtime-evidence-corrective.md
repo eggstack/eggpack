@@ -1,6 +1,10 @@
 # Bootstrap Installers Milestone 002a — PowerShell Archive Runtime Evidence Corrective
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/bootstrap-installers/002a-status.md`
+
+Closure disposition (2026-09-25): M002a is closed on implementation SHA `4d2270afe7de10bdff92563ed0f51a41ba807a04`. Hosted run 36154905956 (push, attempt 1) passed Linux stable, Linux Rust 1.89, macOS, and Windows including explicit `pwsh` 7 + `tar.exe` verification and the focused `m002a_powershell_archive_runtime` step. The generated PowerShell TarGzip installer executes end-to-end with exact bytes, nested-source flattening, no-overwrite, and pre-existing preservation; all inner member cases pass outer digest verification before reaching their intended guards; member evidence, tool-boundary, and rollback/pre-existing cases are proven; POSIX inner-defense tests use the same valid-outer-digest principle. No production renderer change was required. Bootstrap M003 returns to blocked solely on real adoption evidence/candidate review; no adoption plan is authorized by this closure.
 
 Repository baseline: 86321e1d7485e5e5eed923cbbff9e52140b3c16b
 
