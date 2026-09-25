@@ -42,11 +42,18 @@ artifacts.
 `eggpack-bootstrap` renders release-specific direct first-install shell and
 PowerShell scripts from the contract and manifest; it does not select releases
 or update existing installations. SHA-256 checks establish integrity, not
-authenticity.
+authenticity. Bundle releases install all verified members atomically, and
+archive releases support tar+gzip only with exact member inventory and
+size/hash validation before transactional placement under caller-owned
+executable/data modes.
 
 `eggpack-ci` projects resolved release plans and explicit M002 Cargo bindings
 into a provider-neutral CI graph, renders read-only deterministic GitHub
 Actions workflows from caller-supplied runner/action-pin policy, and checks
-workflow drift without writing files. Generated jobs hand off candidate build
-bytes only; qualification aggregation and finalization, staging, and
-publication remain later work.
+workflow drift without writing files. M002 adds executable qualification jobs,
+required-evidence gates, and aggregate/finalize nodes invoking M003/M004 through
+the `eggpack` CLI with pinned tooling; completed finalized releases are uploaded
+as internal workflow artifacts only. Staging and publication remain later work.
+
+`eggpack-cli` provides deterministic `eggpack ci generate` and `eggpack ci check`
+plus narrow internal runner commands wrapping core qualification and finalization.

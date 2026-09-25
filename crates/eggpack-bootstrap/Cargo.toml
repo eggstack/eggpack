@@ -14,3 +14,11 @@ workspace = true
 [dependencies]
 eggpack-contract = { path = "../eggpack-contract", version = "0.1.0" }
 eggpack-manifest = { path = "../eggpack-manifest", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+[dev-dependencies]
+sha2 = "0.10"
+tar = { version = "0.4.46", default-features = false }
+flate2 = "1.1.10"

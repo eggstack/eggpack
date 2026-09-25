@@ -2,10 +2,13 @@
 
 Provider-neutral projection of a resolved `ReleasePlan` plus `BuildBindingsV1` into a bounded `CIPlan`, with deterministic checked-in GitHub Actions rendering and drift checking. Builder arguments are derived through `eggpack_core::cargo_command`; this crate does not infer package/bin identities, execute builds, perform qualification, create final manifests, stage releases, publish, access GitHub, or accept arbitrary YAML/step input.
 
-The renderer requires caller-supplied runner labels and full immutable action commit pins. Runner policy declares whether cross-build images already contain cargo-zigbuild and Zig; M001 does not auto-install either tool. Generated build jobs use read-only permissions and hand off private candidate binaries as internal workflow artifacts. Qualification remains unresolved intent and no generated workflow claims release completion.
+The renderer requires caller-supplied runner labels and full immutable action commit pins. Runner policy declares whether cross-build images already contain cargo-zigbuild and Zig; M001 does not auto-install either tool. Generated build jobs use read-only permissions and hand off private candidate binaries as internal workflow artifacts. Qualification remains unresolved intent in M001 and no M001 workflow claims release completion.
 
-`render_github` is pure. `check_github` compares deterministic bytes after CRLF-to-LF normalization and reports drift without changing files.
+M002 layers an executable `ReleaseCIPlanV1` on the closed M001 graph: per-target qualification jobs projected from M003 bindings, a required-evidence gate reading structured evidence (never logs), and an aggregate/finalize node invoking M004. Build handoffs carry identity-bound relative paths without absolute runner paths; qualification evidence is transported as deterministic JSON with candidate bytes revalidated after download. Required targets must pass; missing or corrupt evidence fails closed; non-gating failures suppress the finalized release instead of producing a partial one. Generated release workflows stay read-only, pin the Eggpack runtime tool to the official repository at an exact revision installed with `--locked`, and upload the completed finalized release as an internal workflow artifact only. No GitHub Release, publication, signing, or staging is performed.
+
+`render_github` and `render_release_github` are pure. `check_github` and `check_release_github` compare deterministic bytes after CRLF-to-LF normalization and report drift without changing files.
 
 Runner labels and action commit pins are policy inputs rather than CIPlan data.
 Cross-build runners must declare preinstalled cargo-zigbuild and Zig; generated
-jobs check the configured cargo-zigbuild version and never install tools.
+build jobs check the configured cargo-zigbuild version and never install tools.
+Qualification and finalization jobs install the pinned `eggpack-cli` tool and verify it before use; no unpinned binary, arbitrary repository, or curl-pipe-shell is allowed.

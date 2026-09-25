@@ -83,6 +83,12 @@ version = "0.1.0"
 dependencies = [
  "eggpack-contract",
  "eggpack-manifest",
+ "flate2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "toml",
 ]
 
 [[package]]
@@ -95,6 +101,17 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+]
+
+[[package]]
+name = "eggpack-cli"
+version = "0.1.0"
+dependencies = [
+ "eggpack-ci",
+ "eggpack-contract",
+ "eggpack-core",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

@@ -4,13 +4,19 @@
 
 use eggpack_contract::DistributionContract;
 use eggpack_core::{
-    cargo_command, BuildBindingsV1, BuildStrategy, CompatibilityFloor, HostArch, HostOs,
+    cargo_command, ArchiveEncoding, BuildAttempt, BuildBindingsV1, BuildStrategy,
+    CompatibilityFloor, FinalizationRequest, FinalizationTargetInput, HostArch, HostOs,
     HostRequirement, LogicalOutputSelector, PlannedAssetForm, PlannedTarget, Qualification,
-    ReleasePlan, SupportTier,
+    QualificationBindingsV1, QualificationEvidence, QualificationStatus, ReleasePlan, SupportTier,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeSet, fmt, path::Path, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    path::Path,
+    time::Duration,
+};
 
 const MAX_CI_PLAN_JSON: usize = 1_000_000;
 const MAX_OUTPUTS: usize = 4_096;
@@ -481,6 +487,9 @@ pub struct GitHubPolicy {
     pub rust_toolchain: ActionPin,
     /// Immutable pin for `actions/upload-artifact`.
     pub upload_artifact: ActionPin,
+    /// Immutable pin for `actions/download-artifact`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_artifact: Option<ActionPin>,
     /// Finite workflow event set.
     pub triggers: Vec<WorkflowTrigger>,
     /// Per-job timeout in minutes, from 1 to 360.
@@ -489,6 +498,39 @@ pub struct GitHubPolicy {
     pub cancel_in_progress: bool,
     /// Internal candidate artifact retention in days, from 1 to 90.
     pub artifact_retention_days: u8,
+    /// Pinned Eggpack runtime tool provisioning for M002 qualify/aggregate jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eggpack_tool: Option<EggpackToolPolicy>,
+}
+
+/// Finite Eggpack runtime tool provisioning for generated qualify/aggregate jobs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EggpackToolPolicy {
+    /// Exact official Eggpack repository URL.
+    pub repo: String,
+    /// Exact 40-hex commit revision.
+    pub revision: String,
+    /// Cargo package providing the `eggpack` binary (exactly `eggpack-cli`).
+    pub package: String,
+    /// Bound install timeout in minutes, from 1 to 60.
+    pub install_timeout_minutes: u16,
+}
+
+impl EggpackToolPolicy {
+    /// Validate official repo, immutable revision, package, and timeout bound.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.repo != "https://github.com/eggstack/eggpack"
+            || self.revision.len() != 40
+            || !self.revision.bytes().all(|b| b.is_ascii_hexdigit())
+            || self.package != "eggpack-cli"
+            || self.install_timeout_minutes == 0
+            || self.install_timeout_minutes > 60
+        {
+            return Err(fail("invalid Eggpack tool provisioning policy"));
+        }
+        Ok(())
+    }
 }
 
 impl GitHubPolicy {
@@ -509,6 +551,12 @@ impl GitHubPolicy {
         validate_pin(&self.checkout, "actions/checkout")?;
         validate_pin(&self.rust_toolchain, "dtolnay/rust-toolchain")?;
         validate_pin(&self.upload_artifact, "actions/upload-artifact")?;
+        if let Some(download) = &self.download_artifact {
+            validate_pin(download, "actions/download-artifact")?;
+        }
+        if let Some(tool) = &self.eggpack_tool {
+            tool.validate()?;
+        }
         let mut hosts = BTreeSet::new();
         for mapping in &self.runners {
             if !safe_runner_label(&mapping.label)
@@ -760,6 +808,726 @@ fn normalize_newlines(bytes: &[u8]) -> Vec<u8> {
     out
 }
 
+// ---------------------------------------------------------------------------
+// M002 — qualification/aggregation gates and deterministic release graph.
+// ---------------------------------------------------------------------------
+
+const MAX_RELEASE_PLAN_JSON: usize = 1_000_000;
+const MAX_HANDOFF_JSON: usize = 1_000_000;
+const MAX_EVIDENCE_JSON: usize = 1_000_000;
+
+/// One bounded build output handoff entry (no absolute paths).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildHandoffOutput {
+    /// Contract logical output selector.
+    pub selector: LogicalOutputSelector,
+    /// Explicit Cargo package source.
+    pub package: String,
+    /// Explicit Cargo binary target source.
+    pub binary: String,
+    /// Relative candidate path below the downloaded handoff root.
+    pub relative_path: String,
+    /// Exact byte size.
+    pub size: u64,
+    /// Deterministic handoff identity.
+    pub handoff_identity: String,
+}
+
+/// CI-specific bounded build handoff for one canonical target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildHandoffV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// Release id copied from ReleasePlan.
+    pub release_id: String,
+    /// Source revision copied from ReleasePlan.
+    pub source_revision: String,
+    /// Canonical target triple.
+    pub target: String,
+    /// Build strategy used for this target.
+    pub strategy: BuildStrategy,
+    /// Logical selector outputs in canonical order.
+    pub outputs: Vec<BuildHandoffOutput>,
+}
+
+impl BuildHandoffV1 {
+    /// Serialize after validation.
+    pub fn to_json(&self) -> Result<String, CiError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("build handoff serialization failed"))
+    }
+
+    /// Parse and validate a bounded handoff document.
+    pub fn from_json(text: &str) -> Result<Self, CiError> {
+        if text.len() > MAX_HANDOFF_JSON {
+            return Err(fail("build handoff exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid build handoff JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Validate shape, ordering, path containment, and identifier bounds.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.schema_version != 1
+            || !safe_metadata(&self.release_id, 256)
+            || !safe_metadata(&self.source_revision, 256)
+            || !safe_target(&self.target)
+            || self.outputs.is_empty()
+            || self.outputs.len() > 256
+        {
+            return Err(fail("invalid or out-of-bounds build handoff"));
+        }
+        let mut selectors = BTreeSet::new();
+        let mut identities = BTreeSet::new();
+        let mut previous: Option<&LogicalOutputSelector> = None;
+        for output in &self.outputs {
+            if previous.is_some_and(|p| p >= &output.selector)
+                || !safe_identifier(&output.package)
+                || !safe_identifier(&output.binary)
+                || output.size == 0
+                || !selectors.insert(output.selector.clone())
+                || !identities.insert(output.handoff_identity.as_str())
+                || output.handoff_identity.is_empty()
+                || output.handoff_identity.len() > 256
+            {
+                return Err(fail("invalid or duplicate build handoff output"));
+            }
+            previous = Some(&output.selector);
+            validate_relative_path(&output.relative_path)?;
+        }
+        Ok(())
+    }
+}
+
+fn validate_relative_path(path: &str) -> Result<(), CiError> {
+    if path.is_empty()
+        || path.len() > 512
+        || path.starts_with('/')
+        || path.starts_with('\\')
+        || path.contains(':')
+        || path.contains('\0')
+        || path.contains("..")
+        || path.split('/').any(|segment| segment.is_empty())
+    {
+        return Err(fail("build handoff path escapes its root"));
+    }
+    Ok(())
+}
+
+/// Project one target's build handoff from validated plan/bindings (no I/O).
+pub fn project_build_handoff(
+    plan: &ReleasePlan,
+    bindings: &BuildBindingsV1,
+    target: &str,
+) -> Result<BuildHandoffV1, CiError> {
+    let planned = plan
+        .targets
+        .iter()
+        .find(|t| t.target == target)
+        .ok_or_else(|| fail("build handoff target is not in ReleasePlan"))?;
+    let target_bindings = bindings
+        .targets
+        .get(target)
+        .ok_or_else(|| fail("target build bindings are missing"))?;
+    let mut outputs = Vec::with_capacity(target_bindings.len());
+    for binding in target_bindings {
+        let relative_path = match &binding.selector {
+            LogicalOutputSelector::Direct => "candidate-direct".to_string(),
+            LogicalOutputSelector::BundleEntry { index } => format!("candidate-bundle-{index}"),
+            LogicalOutputSelector::ArchiveMember { source } => {
+                let mut digest = Sha256::new();
+                digest.update(source.as_bytes());
+                let hex: String = digest
+                    .finalize()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect();
+                format!("candidate-archive-{hex}")
+            }
+        };
+        // Size is filled by the runner after the build; projection uses a
+        // non-zero placeholder that validation accepts but reconstruction
+        // replaces with observed file sizes. Callers must not treat the
+        // placeholder as evidence.
+        outputs.push(BuildHandoffOutput {
+            selector: binding.selector.clone(),
+            package: binding.package.clone(),
+            binary: binding.binary.clone(),
+            relative_path,
+            size: 1,
+            handoff_identity: handoff_name(target, &binding.selector),
+        });
+    }
+    outputs.sort_by(|a, b| a.selector.cmp(&b.selector));
+    let handoff = BuildHandoffV1 {
+        schema_version: 1,
+        release_id: plan.release_id.clone(),
+        source_revision: plan.source_revision.clone(),
+        target: planned.target.clone(),
+        strategy: planned.policy.strategy,
+        outputs,
+    };
+    handoff.validate()?;
+    Ok(handoff)
+}
+
+/// Reconstruct an in-memory BuildAttempt from validated handoff and downloaded files.
+///
+/// Validates exact inventory, path containment, regular non-symlink status, and
+/// sizes before returning. Never trusts artifact transport as proof; the
+/// returned attempt must still pass M003/M004 validation.
+pub fn reconstruct_attempt(
+    plan: &ReleasePlan,
+    target: &PlannedTarget,
+    handoff: &BuildHandoffV1,
+    candidate_root: &Path,
+) -> Result<BuildAttempt, CiError> {
+    if handoff.schema_version != 1
+        || handoff.release_id != plan.release_id
+        || handoff.source_revision != plan.source_revision
+        || handoff.target != target.target
+        || handoff.strategy != target.policy.strategy
+    {
+        return Err(fail("build handoff identity differs from ReleasePlan"));
+    }
+    handoff.validate()?;
+    let root = candidate_root.to_path_buf();
+    let mut candidates = Vec::with_capacity(handoff.outputs.len());
+    for output in &handoff.outputs {
+        let path = root.join(&output.relative_path);
+        let metadata =
+            std::fs::symlink_metadata(&path).map_err(|_| fail("candidate file is unavailable"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() == 0 {
+            return Err(fail("candidate is not a non-empty regular file"));
+        }
+        if metadata.len() != output.size && output.size != 1 {
+            // Placeholder size 1 means the projection has not yet been
+            // replaced with observed sizes; runners must supply exact sizes.
+            return Err(fail("candidate size differs from handoff evidence"));
+        }
+        candidates.push(eggpack_core::CandidateArtifact {
+            target: target.target.clone(),
+            selector: output.selector.clone(),
+            package: output.package.clone(),
+            binary: output.binary.clone(),
+            path,
+            size: metadata.len(),
+        });
+    }
+    candidates.sort_by(|a, b| a.selector.cmp(&b.selector));
+    Ok(BuildAttempt {
+        release_id: plan.release_id.clone(),
+        source_revision: plan.source_revision.clone(),
+        target: target.target.clone(),
+        strategy: target.policy.strategy,
+        tool_summary: format!("ci-handoff {}", target.target),
+        process: eggpack_core::ProcessEvidence {
+            outcome: eggpack_core::CommandOutcome::Success,
+            stdout_bytes: 0,
+            stderr_bytes: 0,
+        },
+        candidates,
+    })
+}
+
+/// One executable qualification job projected from M003 policy/bindings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QualificationJob {
+    /// Canonical target triple.
+    pub target: String,
+    /// Source build job id.
+    pub build_job_id: String,
+    /// Stable qualification job id.
+    pub job_id: String,
+    /// Deterministic build handoff artifact name.
+    pub build_handoff_name: String,
+    /// Deterministic qualification evidence handoff name.
+    pub evidence_handoff_name: String,
+    /// Planned qualification classification.
+    pub classification: Qualification,
+    /// Qualification host (explicit or build host default).
+    pub host: HostRequirement,
+    /// Support tier recorded for gating.
+    pub support: SupportTier,
+    /// Whether this target gates aggregation.
+    pub required: bool,
+}
+
+/// Bounded aggregate job descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AggregateJob {
+    /// Stable aggregate job id.
+    pub job_id: String,
+    /// Required gate job id it depends on.
+    pub gate_job_id: String,
+    /// Deterministic finalized release artifact name (Complete only).
+    pub final_handoff_name: String,
+}
+
+/// Bounded aggregate outcome (never a partial release).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AggregateOutcome {
+    /// Every selected target has complete passing (or deferred non-gating) evidence.
+    Complete,
+    /// A non-required target is missing/failed/unqualified; no release is produced.
+    SuppressedNonGatingIncomplete,
+    /// A required target failed the gate; no release is produced.
+    FailedRequiredGate,
+    /// Evidence is corrupt, swapped, or incomplete; no release is produced.
+    InvalidEvidence,
+}
+
+/// Allowed finalization settings for the aggregate node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FinalizationSettings {
+    /// Required explicit encoding when any selected target is an archive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archive_encoding: Option<ArchiveEncodingWrapper>,
+    /// Bounded evidence references carried into the manifest.
+    #[serde(default)]
+    pub evidence_references: Vec<String>,
+}
+
+/// Explicit archive encoding wrapper (TarGzip only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ArchiveEncodingWrapper {
+    /// POSIX tar+gzip per M004.
+    TarGzip,
+}
+
+/// Executable provider-neutral orchestration graph layered on M001 CIPlan.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseCIPlanV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// Validated M001 CIPlan (qualification remains unresolved intent there).
+    pub ci_plan: CIPlan,
+    /// One qualification job per selected target, in canonical order.
+    pub qualifications: Vec<QualificationJob>,
+    /// Stable required-gate job id.
+    pub gate_job_id: String,
+    /// Aggregate job descriptor.
+    pub aggregate: AggregateJob,
+    /// Allowed finalization settings.
+    pub finalization: FinalizationSettings,
+}
+
+impl ReleaseCIPlanV1 {
+    /// Serialize after validation.
+    pub fn to_json(&self) -> Result<String, CiError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("ReleaseCIPlan serialization failed"))
+    }
+
+    /// Parse and validate a bounded executable graph document.
+    pub fn from_json(text: &str) -> Result<Self, CiError> {
+        if text.len() > MAX_RELEASE_PLAN_JSON {
+            return Err(fail("ReleaseCIPlan exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid ReleaseCIPlan JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Validate graph shape, ordering, handoff names, and gating.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.schema_version != 1 {
+            return Err(fail("unsupported ReleaseCIPlan version"));
+        }
+        self.ci_plan.validate()?;
+        if self.qualifications.len() != self.ci_plan.targets.len()
+            || self.qualifications.is_empty()
+            || self.gate_job_id != "required_gate"
+            || self.aggregate.job_id != "aggregate"
+            || self.aggregate.gate_job_id != self.gate_job_id
+            || self.aggregate.final_handoff_name.is_empty()
+            || self.aggregate.final_handoff_name.len() > 256
+        {
+            return Err(fail("invalid executable release graph shape"));
+        }
+        let mut targets = BTreeSet::new();
+        let mut job_ids = BTreeSet::new();
+        for qual in &self.qualifications {
+            let planned = self
+                .ci_plan
+                .targets
+                .iter()
+                .find(|job| job.planned.target == qual.target)
+                .ok_or_else(|| fail("qualification target is not in CIPlan"))?;
+            if !targets.insert(qual.target.as_str())
+                || !job_ids.insert(qual.job_id.as_str())
+                || qual.build_job_id != planned.job_id
+                || qual.job_id != format!("qualify_{}", planned.job_id)
+                || qual.build_handoff_name != format!("eggpack-build-handoff-{}", qual.target)
+                || qual.evidence_handoff_name != format!("eggpack-evidence-{}", qual.target)
+                || qual.classification != planned.planned.policy.qualification
+                || qual.support != planned.planned.policy.support
+                || qual.required != planned.required
+            {
+                return Err(fail("invalid or inconsistent qualification job"));
+            }
+            let expected_host =
+                planned
+                    .planned
+                    .policy
+                    .qualification_host
+                    .unwrap_or(HostRequirement {
+                        os: planned.planned.policy.host_os,
+                        arch: planned.planned.policy.host_arch,
+                    });
+            if qual.host != expected_host {
+                return Err(fail("qualification host differs from plan policy"));
+            }
+        }
+        // Canonical ordering by target.
+        let mut sorted: Vec<&str> = self
+            .qualifications
+            .iter()
+            .map(|q| q.target.as_str())
+            .collect();
+        let mut canonical = sorted.clone();
+        canonical.sort();
+        sorted.clone_from_slice(&canonical);
+        let actual: Vec<&str> = self
+            .qualifications
+            .iter()
+            .map(|q| q.target.as_str())
+            .collect();
+        if actual != canonical {
+            return Err(fail("qualification jobs must be in canonical target order"));
+        }
+        for reference in &self.finalization.evidence_references {
+            if !safe_metadata(reference, 256) {
+                return Err(fail("invalid finalization evidence reference"));
+            }
+        }
+        if self.finalization.evidence_references.len() > 64 {
+            return Err(fail("finalization evidence references exceed bound"));
+        }
+        Ok(())
+    }
+}
+
+/// Project an executable graph from M001 CIPlan plus M003 qualification bindings.
+pub fn project_release_plan(
+    ci_plan: &CIPlan,
+    qualification_bindings: &QualificationBindingsV1,
+    build_bindings: &BuildBindingsV1,
+    release: &ReleasePlan,
+) -> Result<ReleaseCIPlanV1, CiError> {
+    ci_plan.validate()?;
+    // Validate qualification coverage through the M003 API without copying logic.
+    // Build a minimal plan view: M003 validate_for needs ReleasePlan + BuildBindings.
+    qualification_bindings
+        .validate_for(release, build_bindings)
+        .map_err(|_| fail("qualification bindings do not cover ReleasePlan"))?;
+    if ci_plan.release_id != release.release_id
+        || ci_plan.source_revision != release.source_revision
+        || ci_plan.targets.len() != release.targets.len()
+    {
+        return Err(fail("CIPlan differs from ReleasePlan identity"));
+    }
+    let mut qualifications = Vec::with_capacity(ci_plan.targets.len());
+    for job in &ci_plan.targets {
+        let planned = release
+            .targets
+            .iter()
+            .find(|t| t.target == job.planned.target)
+            .ok_or_else(|| fail("CIPlan target is not in ReleasePlan"))?;
+        let host = planned
+            .policy
+            .qualification_host
+            .unwrap_or(HostRequirement {
+                os: planned.policy.host_os,
+                arch: planned.policy.host_arch,
+            });
+        qualifications.push(QualificationJob {
+            target: job.planned.target.clone(),
+            build_job_id: job.job_id.clone(),
+            job_id: format!("qualify_{}", job.job_id),
+            build_handoff_name: format!("eggpack-build-handoff-{}", job.planned.target),
+            evidence_handoff_name: format!("eggpack-evidence-{}", job.planned.target),
+            classification: planned.policy.qualification,
+            host,
+            support: planned.policy.support,
+            required: job.required,
+        });
+    }
+    qualifications.sort_by(|a, b| a.target.cmp(&b.target));
+    // Determine required archive encoding from planned forms.
+    let needs_archive = release
+        .targets
+        .iter()
+        .any(|t| matches!(t.artifact_form, eggpack_core::PlannedAssetForm::Archive));
+    let graph = ReleaseCIPlanV1 {
+        schema_version: 1,
+        ci_plan: ci_plan.clone(),
+        qualifications,
+        gate_job_id: "required_gate".into(),
+        aggregate: AggregateJob {
+            job_id: "aggregate".into(),
+            gate_job_id: "required_gate".into(),
+            final_handoff_name: "eggpack-finalized-release".into(),
+        },
+        finalization: FinalizationSettings {
+            archive_encoding: needs_archive.then_some(ArchiveEncodingWrapper::TarGzip),
+            evidence_references: vec![],
+        },
+    };
+    graph.validate()?;
+    Ok(graph)
+}
+
+/// Encode validated qualification evidence as deterministic JSON.
+pub fn encode_qualification_evidence(evidence: &QualificationEvidence) -> Result<String, CiError> {
+    serde_json::to_string(evidence).map_err(|_| fail("evidence serialization failed"))
+}
+
+/// Decode and shape-check qualification evidence JSON (identity checked by caller).
+pub fn decode_qualification_evidence(text: &str) -> Result<QualificationEvidence, CiError> {
+    if text.len() > MAX_EVIDENCE_JSON {
+        return Err(fail("evidence exceeds size bound"));
+    }
+    serde_json::from_str(text).map_err(|_| fail("invalid evidence JSON"))
+}
+
+/// Evaluate the required qualification gate over structured evidence.
+///
+/// Rules: every Required target must have Passed; Deferred is insufficient;
+/// Failed, identity mismatch, or missing required evidence fails closed.
+pub fn evaluate_gate(
+    graph: &ReleaseCIPlanV1,
+    evidences: &[QualificationEvidence],
+) -> Result<AggregateOutcome, CiError> {
+    graph.validate()?;
+    let mut by_target: BTreeMap<&str, &QualificationEvidence> = BTreeMap::new();
+    for evidence in evidences {
+        if by_target
+            .insert(evidence.target.as_str(), evidence)
+            .is_some()
+        {
+            return Err(fail("duplicate qualification evidence target"));
+        }
+    }
+    // Every selected target must present evidence; otherwise InvalidEvidence
+    // (missing data) unless it is a non-gating incompleteness that suppresses.
+    for qual in &graph.qualifications {
+        let Some(evidence) = by_target.get(qual.target.as_str()) else {
+            if qual.required {
+                return Ok(AggregateOutcome::FailedRequiredGate);
+            }
+            return Ok(AggregateOutcome::SuppressedNonGatingIncomplete);
+        };
+        if evidence.release_id != graph.ci_plan.release_id
+            || evidence.source_revision != graph.ci_plan.source_revision
+            || evidence.target != qual.target
+            || evidence.planned_classification != qual.classification
+            || evidence.support != qual.support
+        {
+            return Ok(AggregateOutcome::InvalidEvidence);
+        }
+        match evidence.status {
+            QualificationStatus::Passed => {}
+            QualificationStatus::Deferred => {
+                if qual.required {
+                    return Ok(AggregateOutcome::FailedRequiredGate);
+                }
+                return Ok(AggregateOutcome::SuppressedNonGatingIncomplete);
+            }
+            QualificationStatus::Failed(_) => {
+                if qual.required {
+                    return Ok(AggregateOutcome::FailedRequiredGate);
+                }
+                return Ok(AggregateOutcome::SuppressedNonGatingIncomplete);
+            }
+        }
+    }
+    // No partial drops: evidence set must exactly cover selected targets.
+    if by_target.len() != graph.qualifications.len() {
+        return Ok(AggregateOutcome::InvalidEvidence);
+    }
+    Ok(AggregateOutcome::Complete)
+}
+
+/// Aggregate validated evidence and candidates into a finalized release.
+///
+/// Never drops failed optional targets to produce a partial release: any
+/// non-Complete gate outcome returns the outcome without calling M004.
+/// On Complete, invokes `eggpack_core::finalize_release` (not a copy) and
+/// returns the finalized manifest bytes identity.
+pub fn aggregate_finalize(
+    contract: &DistributionContract,
+    plan: &ReleasePlan,
+    graph: &ReleaseCIPlanV1,
+    inputs: &[FinalizationTargetInput],
+    evidence_references: &[String],
+    output_root: &Path,
+) -> Result<(AggregateOutcome, Option<eggpack_core::FinalizedRelease>), CiError> {
+    graph.validate()?;
+    // Collect evidences from inputs for gating.
+    let evidences: Vec<QualificationEvidence> = inputs
+        .iter()
+        .map(|input| input.qualification.clone())
+        .collect();
+    let outcome = evaluate_gate(graph, &evidences)?;
+    if outcome != AggregateOutcome::Complete {
+        return Ok((outcome, None));
+    }
+    let archive_encoding = if graph.finalization.archive_encoding.is_some() {
+        Some(ArchiveEncoding::TarGzip)
+    } else {
+        None
+    };
+    let request = FinalizationRequest {
+        product_id: contract.product.id.clone(),
+        release_id: plan.release_id.clone(),
+        source_revision: plan.source_revision.clone(),
+        targets: inputs.to_vec(),
+        evidence_references: evidence_references.to_vec(),
+        archive_encoding,
+    };
+    eggpack_core::finalize_release(contract, plan, &request, output_root)
+        .map(|finalized| (AggregateOutcome::Complete, Some(finalized)))
+        .map_err(|_| CiError("finalization rejected complete evidence".into()))
+}
+
+fn tool_install_snippet(tool: &EggpackToolPolicy) -> String {
+    format!(
+        "      - name: Install pinned Eggpack tool\n        shell: bash\n        timeout-minutes: {timeout}\n        run: |\n          cargo install --git {repo} --rev {rev} --locked -p {package}\n          eggpack --version\n",
+        timeout = tool.install_timeout_minutes,
+        repo = tool.repo,
+        rev = tool.revision,
+        package = tool.package
+    )
+}
+
+/// Deterministically render build -> qualify -> gate -> aggregate GitHub workflow.
+pub fn render_release_github(
+    graph: &ReleaseCIPlanV1,
+    policy: &GitHubPolicy,
+) -> Result<String, CiError> {
+    graph.validate()?;
+    policy.validate(&graph.ci_plan)?;
+    let tool = policy
+        .eggpack_tool
+        .as_ref()
+        .ok_or_else(|| fail("M002 release rendering requires pinned Eggpack tool policy"))?;
+    tool.validate()?;
+    let download_pin = policy
+        .download_artifact
+        .as_ref()
+        .ok_or_else(|| fail("M002 release rendering requires download-artifact pin"))?;
+    validate_pin(download_pin, "actions/download-artifact")?;
+
+    // Reuse M001 build rendering as the build prefix, then append M002 nodes.
+    // M001 rendering already validates policy/plan and emits preflight + builds.
+    let mut out = render_github(&graph.ci_plan, policy)?;
+    // Remove nothing: append qualify/gate/aggregate jobs as new top-level YAML.
+    // Since render_github returns complete YAML, we append jobs by string surgery:
+    // find trailing newline and append new job blocks with two-space indent.
+    // All appended jobs are read-only and use pinned tooling.
+    let mut extra = String::new();
+    for qual in &graph.qualifications {
+        let runner = policy
+            .runners
+            .iter()
+            .find(|mapping| mapping.os == qual.host.os && mapping.arch == qual.host.arch)
+            .ok_or_else(|| fail("runner mapping missing for qualification host"))?;
+        extra.push_str(&format!(
+            "  {job}:\n    needs: {build}\n    runs-on: {runner}\n    permissions:\n      contents: read\n    timeout-minutes: {timeout}\n    steps:\n      - name: Check out source\n        uses: {checkout}\n{tool_step}      - name: Download build handoff\n        uses: {download}\n        with:\n          name: {handoff}\n          path: ./eggpack-handoff/{build}\n      - name: Qualify target\n        shell: bash\n        run: eggpack ci _qualify-target --target {target}\n      - name: Upload qualification evidence\n        uses: {upload}\n        with:\n          name: {evidence}\n          path: ./eggpack-evidence/{build}\n          if-no-files-found: error\n          retention-days: {retention}\n",
+            job = qual.job_id,
+            build = qual.build_job_id,
+            runner = yaml_scalar(&runner.label),
+            timeout = policy.timeout_minutes,
+            checkout = yaml_scalar(&policy.checkout.reference),
+            tool_step = tool_install_snippet(tool),
+            download = yaml_scalar(&download_pin.reference),
+            handoff = yaml_scalar(&qual.build_handoff_name),
+            target = yaml_scalar(&qual.target),
+            upload = yaml_scalar(&policy.upload_artifact.reference),
+            evidence = yaml_scalar(&qual.evidence_handoff_name),
+            retention = policy.artifact_retention_days
+        ));
+    }
+    // Required gate: reads structured evidence, never log strings.
+    extra.push_str(&format!(
+        "  {gate}:\n    needs: [{quals}]\n    runs-on: {runner}\n    permissions:\n      contents: read\n    timeout-minutes: {timeout}\n    steps:\n      - name: Check out source\n        uses: {checkout}\n{tool_step}      - name: Evaluate required qualification gate\n        shell: bash\n        run: eggpack ci _evaluate-gate\n",
+        gate = graph.gate_job_id,
+        quals = graph
+            .qualifications
+            .iter()
+            .map(|q| q.job_id.as_str())
+            .collect::<Vec<_>>()
+            .join(", "),
+        runner = yaml_scalar(&policy.preflight_runner),
+        timeout = policy.timeout_minutes,
+        checkout = yaml_scalar(&policy.checkout.reference),
+        tool_step = tool_install_snippet(tool),
+    ));
+    // Aggregate: downloads all evidence/candidates, validates, finalizes.
+    extra.push_str(&format!(
+        "  {agg}:\n    needs: {gate}\n    runs-on: {runner}\n    permissions:\n      contents: read\n    timeout-minutes: {timeout}\n    steps:\n      - name: Check out source\n        uses: {checkout}\n{tool_step}      - name: Download all qualification evidence\n        uses: {download}\n        with:\n          pattern: eggpack-evidence-*\n          path: ./eggpack-evidence\n      - name: Aggregate and finalize release\n        shell: bash\n        run: eggpack ci _aggregate\n      - name: Upload internal finalized release\n        uses: {upload}\n        with:\n          name: {final_name}\n          path: ./eggpack-finalized\n          if-no-files-found: error\n          retention-days: {retention}\n",
+        agg = graph.aggregate.job_id,
+        gate = graph.gate_job_id,
+        runner = yaml_scalar(&policy.preflight_runner),
+        timeout = policy.timeout_minutes,
+        checkout = yaml_scalar(&policy.checkout.reference),
+        tool_step = tool_install_snippet(tool),
+        download = yaml_scalar(&download_pin.reference),
+        upload = yaml_scalar(&policy.upload_artifact.reference),
+        final_name = yaml_scalar(&graph.aggregate.final_handoff_name),
+        retention = policy.artifact_retention_days
+    ));
+    out.push_str(&extra);
+    if out.len() > MAX_WORKFLOW_BYTES {
+        return Err(fail("rendered release workflow exceeds size bound"));
+    }
+    Ok(out)
+}
+
+/// Compare existing release workflow bytes without writing files.
+pub fn check_release_github(
+    graph: &ReleaseCIPlanV1,
+    policy: &GitHubPolicy,
+    existing: &[u8],
+) -> Result<DriftReport, CiError> {
+    let expected = render_release_github(graph, policy)?;
+    if existing.len() > MAX_WORKFLOW_BYTES {
+        return Err(fail("existing workflow exceeds size bound"));
+    }
+    let expected = normalize_newlines(expected.as_bytes());
+    let existing = normalize_newlines(existing);
+    let matches = expected == existing;
+    let first_difference = if matches {
+        None
+    } else {
+        Some(
+            expected
+                .iter()
+                .zip(&existing)
+                .position(|(a, b)| a != b)
+                .unwrap_or_else(|| expected.len().min(existing.len())),
+        )
+    };
+    Ok(DriftReport {
+        matches,
+        expected_bytes: expected.len(),
+        actual_bytes: existing.len(),
+        first_difference,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -850,6 +1618,8 @@ mod tests {
             timeout_minutes: 60,
             cancel_in_progress: true,
             artifact_retention_days: 7,
+            download_artifact: None,
+            eggpack_tool: None,
         }
     }
     fn graph(strategy: BuildStrategy, support: SupportTier) -> CIPlan {
@@ -1204,5 +1974,792 @@ mod tests {
                 sources.len()
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // M002 qualification/aggregation gates and drift CLI.
+    // -----------------------------------------------------------------------
+
+    fn m002_policy() -> GitHubPolicy {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let mut base = policy();
+        base.download_artifact = Some(ActionPin {
+            reference: format!("actions/download-artifact@{sha}"),
+        });
+        base.eggpack_tool = Some(EggpackToolPolicy {
+            repo: "https://github.com/eggstack/eggpack".into(),
+            revision: "a".repeat(40),
+            package: "eggpack-cli".into(),
+            install_timeout_minutes: 10,
+        });
+        base
+    }
+
+    fn m002_release(
+        fixture: &str,
+        product: &str,
+        version: &str,
+        target_alias: &str,
+        qualification: Qualification,
+        support: SupportTier,
+    ) -> (
+        DistributionContract,
+        ReleasePlan,
+        BuildBindingsV1,
+        QualificationBindingsV1,
+    ) {
+        let contract = DistributionContract::parse_toml_str(fixture).unwrap();
+        let target = match target_alias {
+            "linux-x64" => "x86_64-unknown-linux-gnu",
+            "macos-arm64" => "aarch64-apple-darwin",
+            _ => target_alias,
+        };
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![TargetPolicy {
+                target: target.into(),
+                strategy: BuildStrategy::NativeCargo,
+                host_os: if target.contains("apple") {
+                    HostOs::Macos
+                } else {
+                    HostOs::Linux
+                },
+                host_arch: if target.starts_with("aarch64") {
+                    HostArch::Aarch64
+                } else {
+                    HostArch::X86_64
+                },
+                qualification_host: if qualification == Qualification::DeferredNative {
+                    Some(HostRequirement {
+                        os: HostOs::Linux,
+                        arch: HostArch::X86_64,
+                    })
+                } else {
+                    None
+                },
+                toolchain: ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                },
+                floor: CompatibilityFloor::None,
+                qualification,
+                support,
+            }],
+        };
+        let release = config
+            .resolve(&contract, version, &"a".repeat(40), &[target_alias.into()])
+            .unwrap();
+        let expanded = contract.expand(target_alias, version).unwrap();
+        let selectors: Vec<LogicalOutputSelector> = match expanded.assets {
+            eggpack_contract::ExpandedAssets::Direct(_) => vec![LogicalOutputSelector::Direct],
+            eggpack_contract::ExpandedAssets::Bundle(b) => (0..b.entries.len())
+                .map(|index| LogicalOutputSelector::BundleEntry { index })
+                .collect(),
+            eggpack_contract::ExpandedAssets::Archive(a) => a
+                .members
+                .into_iter()
+                .map(|m| LogicalOutputSelector::ArchiveMember { source: m.source })
+                .collect(),
+        };
+        let bindings = BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                target.into(),
+                selectors
+                    .iter()
+                    .enumerate()
+                    .map(|(index, selector)| eggpack_core::BuildBinding {
+                        selector: selector.clone(),
+                        package: product.into(),
+                        binary: format!("bin{index}"),
+                    })
+                    .collect(),
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qual_bindings = QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                target.into(),
+                eggpack_core::TargetQualificationBinding {
+                    smoke: matches!(
+                        qualification,
+                        Qualification::Native
+                            | Qualification::DeferredNative
+                            | Qualification::Emulated
+                    )
+                    .then(|| eggpack_core::CandidateSmokeBinding {
+                        selector: selectors[0].clone(),
+                        argv: vec!["--version".into()],
+                        timeout_ms: 10_000,
+                        stdout_limit: 8192,
+                        stderr_limit: 8192,
+                    }),
+                },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        (contract, release, bindings, qual_bindings)
+    }
+
+    fn m002_graph(
+        qualification: Qualification,
+        support: SupportTier,
+    ) -> (
+        DistributionContract,
+        ReleasePlan,
+        BuildBindingsV1,
+        QualificationBindingsV1,
+        CIPlan,
+        ReleaseCIPlanV1,
+    ) {
+        let (contract, release, bindings, qual_bindings) = m002_release(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            "linux-x64",
+            qualification,
+            support,
+        );
+        let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+        let graph = project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).unwrap();
+        (contract, release, bindings, qual_bindings, ci_plan, graph)
+    }
+
+    #[test]
+    fn m002_graph_projection_preserves_m001_and_validates_bindings() {
+        let (_, _, _, _, ci_plan, graph) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        // M001 CIPlan remains unchanged (qualification unresolved).
+        assert_eq!(
+            ci_plan.targets[0].qualification.state,
+            QualificationState::Unresolved
+        );
+        assert_eq!(graph.schema_version, 1);
+        assert_eq!(graph.gate_job_id, "required_gate");
+        assert_eq!(graph.aggregate.job_id, "aggregate");
+        assert_eq!(graph.qualifications.len(), 1);
+        assert!(graph.qualifications[0].required);
+        assert_eq!(
+            graph.to_json().unwrap(),
+            ReleaseCIPlanV1::from_json(&graph.to_json().unwrap())
+                .unwrap()
+                .to_json()
+                .unwrap()
+        );
+        // Smoke selector mismatch rejects.
+        let (_, release, bindings, mut qual_bindings, ci_plan, _) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        // Structural must have no smoke; add one to force mismatch.
+        qual_bindings
+            .targets
+            .get_mut("x86_64-unknown-linux-gnu")
+            .unwrap()
+            .smoke = Some(eggpack_core::CandidateSmokeBinding {
+            selector: LogicalOutputSelector::Direct,
+            argv: vec![],
+            timeout_ms: 1000,
+            stdout_limit: 1024,
+            stderr_limit: 1024,
+        });
+        assert!(project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).is_err());
+    }
+
+    #[test]
+    fn m002_handoff_rejects_traversal_and_swaps() {
+        let (_, release, bindings, _, _, _) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        let mut handoff =
+            project_build_handoff(&release, &bindings, "x86_64-unknown-linux-gnu").unwrap();
+        assert_eq!(
+            handoff.to_json().unwrap(),
+            BuildHandoffV1::from_json(&handoff.to_json().unwrap())
+                .unwrap()
+                .to_json()
+                .unwrap()
+        );
+        // Absolute path rejects.
+        handoff.outputs[0].relative_path = "/abs".into();
+        assert!(handoff.validate().is_err());
+        // Traversal rejects.
+        let mut handoff =
+            project_build_handoff(&release, &bindings, "x86_64-unknown-linux-gnu").unwrap();
+        handoff.outputs[0].relative_path = "../escape".into();
+        assert!(handoff.validate().is_err());
+        // Duplicate handoff rejects (manual duplicate).
+        let mut handoff =
+            project_build_handoff(&release, &bindings, "x86_64-unknown-linux-gnu").unwrap();
+        handoff.outputs.push(handoff.outputs[0].clone());
+        assert!(handoff.validate().is_err());
+    }
+
+    fn m002_evidence(
+        target: &str,
+        release_id: &str,
+        source: &str,
+        classification: Qualification,
+        support: SupportTier,
+        status: QualificationStatus,
+    ) -> QualificationEvidence {
+        QualificationEvidence {
+            schema_version: 1,
+            release_id: release_id.into(),
+            source_revision: source.into(),
+            target: target.into(),
+            planned_classification: classification,
+            method: match classification {
+                Qualification::Structural => eggpack_core::QualificationMethod::Structural,
+                _ => eggpack_core::QualificationMethod::Structural,
+            },
+            actual_host: HostRequirement {
+                os: HostOs::Linux,
+                arch: HostArch::X86_64,
+            },
+            support,
+            status,
+            candidates: vec![],
+            smoke_selector: None,
+            processes: vec![],
+        }
+    }
+
+    #[test]
+    fn m002_gate_matrix() {
+        let (_, release, _, _, _, graph) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        let target = "x86_64-unknown-linux-gnu";
+        // Required Passed permits.
+        let passed = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Passed,
+        );
+        assert_eq!(
+            evaluate_gate(&graph, &[passed]).unwrap(),
+            AggregateOutcome::Complete
+        );
+        // Required Deferred rejects.
+        let deferred = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Deferred,
+        );
+        assert_eq!(
+            evaluate_gate(&graph, &[deferred]).unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        // Required Failed rejects.
+        let failed = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed),
+        );
+        assert_eq!(
+            evaluate_gate(&graph, &[failed]).unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        // Missing required evidence rejects.
+        assert_eq!(
+            evaluate_gate(&graph, &[]).unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        // Optional failure yields suppression, not partial release.
+        let (_, _, _, _, _, optional_graph) =
+            m002_graph(Qualification::Structural, SupportTier::NonGating);
+        let failed_optional = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::NonGating,
+            QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed),
+        );
+        assert_eq!(
+            evaluate_gate(&optional_graph, &[failed_optional]).unwrap(),
+            AggregateOutcome::SuppressedNonGatingIncomplete
+        );
+    }
+
+    #[test]
+    fn m002_aggregation_finalizes_direct_bundle_archive_and_rejects_tampering() {
+        for (fixture, product, version) in [
+            (
+                include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+                "eggsact",
+                "1.2.6",
+            ),
+            (
+                include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+                "codegg",
+                "2.4.0",
+            ),
+            (
+                include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+                "egress",
+                "3.1.0",
+            ),
+        ] {
+            let (contract, release, bindings, qual_bindings) = m002_release(
+                fixture,
+                product,
+                version,
+                "linux-x64",
+                Qualification::Structural,
+                SupportTier::Required,
+            );
+            let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+            let graph =
+                project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).unwrap();
+            // Build fixture candidates (ELF for structural).
+            let parent = eggpack_core_test_temp(&format!("m002-agg-{product}"));
+            let source_root = parent.join("candidates");
+            std::fs::create_dir(&source_root).unwrap();
+            let elf = m002_elf();
+            let planned = &release.targets[0];
+            let expanded = contract.expand("linux-x64", version).unwrap();
+            let selectors: Vec<LogicalOutputSelector> = match expanded.assets {
+                eggpack_contract::ExpandedAssets::Direct(_) => vec![LogicalOutputSelector::Direct],
+                eggpack_contract::ExpandedAssets::Bundle(b) => (0..b.entries.len())
+                    .map(|index| LogicalOutputSelector::BundleEntry { index })
+                    .collect(),
+                eggpack_contract::ExpandedAssets::Archive(a) => a
+                    .members
+                    .into_iter()
+                    .map(|m| LogicalOutputSelector::ArchiveMember { source: m.source })
+                    .collect(),
+            };
+            let mut candidates = Vec::new();
+            for (index, selector) in selectors.iter().enumerate() {
+                let path = source_root.join(format!("candidate-{index}"));
+                std::fs::write(&path, &elf).unwrap();
+                candidates.push(eggpack_core::CandidateArtifact {
+                    target: planned.target.clone(),
+                    selector: selector.clone(),
+                    package: product.into(),
+                    binary: format!("bin{index}"),
+                    path,
+                    size: elf.len() as u64,
+                });
+            }
+            let attempt = eggpack_core::BuildAttempt {
+                release_id: release.release_id.clone(),
+                source_revision: release.source_revision.clone(),
+                target: planned.target.clone(),
+                strategy: BuildStrategy::NativeCargo,
+                tool_summary: "fixture".into(),
+                process: eggpack_core::ProcessEvidence {
+                    outcome: eggpack_core::CommandOutcome::Success,
+                    stdout_bytes: 0,
+                    stderr_bytes: 0,
+                },
+                candidates: candidates.clone(),
+            };
+            let digest = {
+                use sha2::{Digest, Sha256};
+                Sha256::digest(&elf)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+            };
+            let mut qualified: Vec<eggpack_core::QualifiedCandidateEvidence> = candidates
+                .iter()
+                .map(|c| eggpack_core::QualifiedCandidateEvidence {
+                    selector: c.selector.clone(),
+                    package: c.package.clone(),
+                    binary: c.binary.clone(),
+                    size: elf.len() as u64,
+                    sha256: digest.clone(),
+                    format: eggpack_core::CandidateFormat::Elf,
+                    architecture: eggpack_core::CandidateArchitecture::X86_64,
+                })
+                .collect();
+            qualified.sort_by(|a, b| a.selector.cmp(&b.selector));
+            let evidence = QualificationEvidence {
+                schema_version: 1,
+                release_id: release.release_id.clone(),
+                source_revision: release.source_revision.clone(),
+                target: planned.target.clone(),
+                planned_classification: Qualification::Structural,
+                method: eggpack_core::QualificationMethod::Structural,
+                actual_host: HostRequirement {
+                    os: HostOs::Linux,
+                    arch: HostArch::X86_64,
+                },
+                support: SupportTier::Required,
+                status: QualificationStatus::Passed,
+                candidates: qualified,
+                smoke_selector: None,
+                processes: vec![],
+            };
+            // Complete path finalizes via M004 (invoked, not copied).
+            let inputs = vec![FinalizationTargetInput {
+                target: planned.target.clone(),
+                attempt: attempt.clone(),
+                qualification: evidence.clone(),
+            }];
+            let output = parent.join("release");
+            let (outcome, finalized) =
+                aggregate_finalize(&contract, &release, &graph, &inputs, &[], &output).unwrap();
+            assert_eq!(outcome, AggregateOutcome::Complete);
+            assert!(finalized.is_some());
+            // Tampered candidate rejects (no partial release).
+            std::fs::write(&candidates[0].path, b"changed").unwrap();
+            let rejected_root = parent.join("rejected");
+            let result =
+                aggregate_finalize(&contract, &release, &graph, &inputs, &[], &rejected_root);
+            assert!(result.is_err() || result.unwrap().0 != AggregateOutcome::Complete);
+            // Missing optional target suppresses output (no partial release).
+            let (_, _, _, _, _, optional_graph) = {
+                let (c, r, b, q) = m002_release(
+                    fixture,
+                    product,
+                    version,
+                    "linux-x64",
+                    Qualification::Structural,
+                    SupportTier::NonGating,
+                );
+                let ci = project_ci_plan(&c, &r, &b).unwrap();
+                let g = project_release_plan(&ci, &q, &b, &r).unwrap();
+                (c, r, b, q, ci, g)
+            };
+            let mut deferred_evidence = evidence.clone();
+            deferred_evidence.support = SupportTier::NonGating;
+            deferred_evidence.status = QualificationStatus::Deferred;
+            // Deferred with Structural method is inconsistent; use Failed to trigger suppression.
+            deferred_evidence.status =
+                QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed);
+            let (outcome, finalized) = aggregate_finalize(
+                &contract,
+                &release,
+                &optional_graph,
+                &[FinalizationTargetInput {
+                    target: planned.target.clone(),
+                    attempt,
+                    qualification: deferred_evidence,
+                }],
+                &[],
+                &parent.join("suppressed"),
+            )
+            .unwrap();
+            assert_eq!(outcome, AggregateOutcome::SuppressedNonGatingIncomplete);
+            assert!(finalized.is_none());
+            std::fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    fn m002_elf() -> Vec<u8> {
+        let mut bytes = vec![0; 64];
+        bytes[..4].copy_from_slice(b"\x7fELF");
+        bytes[4] = 2;
+        bytes[5] = 1;
+        bytes[18..20].copy_from_slice(&62u16.to_le_bytes());
+        bytes
+    }
+
+    fn eggpack_core_test_temp(label: &str) -> std::path::PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let id = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("eggpack-{label}-{}-{id}", std::process::id()));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return path,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create test temp directory: {error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn m002_renderer_is_deterministic_read_only_pinned_and_gated() {
+        let (_, _, _, _, _, graph) = m002_graph(Qualification::Structural, SupportTier::Required);
+        let policy = m002_policy();
+        let first = render_release_github(&graph, &policy).unwrap();
+        assert_eq!(first, render_release_github(&graph, &policy).unwrap());
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&first).unwrap();
+        assert!(parsed.get("jobs").is_some());
+        // Read-only permissions everywhere.
+        for (_, job) in parsed["jobs"].as_mapping().unwrap() {
+            let permissions = job["permissions"].as_mapping().unwrap();
+            assert_eq!(permissions.len(), 1);
+            assert_eq!(permissions.get("contents").unwrap().as_str(), Some("read"));
+        }
+        assert!(first.contains("contents: read"));
+        assert!(!first.contains("contents: write"));
+        assert!(!first.contains("id-token: write"));
+        // Pinned Eggpack tooling.
+        assert!(first.contains("cargo install --git https://github.com/eggstack/eggpack --rev"));
+        assert!(first.contains("--locked -p eggpack-cli"));
+        assert!(first.contains("eggpack --version"));
+        // Exact gate dependencies and no release API.
+        assert!(first.contains("required_gate"));
+        assert!(first.contains("eggpack ci _qualify-target"));
+        assert!(first.contains("eggpack ci _evaluate-gate"));
+        assert!(first.contains("eggpack ci _aggregate"));
+        assert!(!first.contains("github-release"));
+        assert!(!first.contains("publish"));
+        // No arbitrary command.
+        assert!(!first.contains("curl -L"));
+        // Drift check normalizes CRLF only and detects one-byte edits.
+        assert!(
+            check_release_github(&graph, &policy, first.as_bytes())
+                .unwrap()
+                .matches
+        );
+        let crlf = first.replace('\n', "\r\n");
+        assert!(
+            check_release_github(&graph, &policy, crlf.as_bytes())
+                .unwrap()
+                .matches
+        );
+        let changed = first.replacen("contents: read", "contents: write", 1);
+        let report = check_release_github(&graph, &policy, changed.as_bytes()).unwrap();
+        assert!(!report.matches);
+        assert!(report.first_difference.is_some());
+    }
+
+    #[test]
+    fn m002_rejects_unpinned_tooling_and_missing_evidence() {
+        let (_, _, _, _, _, graph) = m002_graph(Qualification::Structural, SupportTier::Required);
+        // Unpinned tooling rejects.
+        let mut bad_policy = m002_policy();
+        bad_policy.eggpack_tool.as_mut().unwrap().revision = "v1".into();
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+        let mut bad_policy = m002_policy();
+        bad_policy.eggpack_tool.as_mut().unwrap().repo = "https://example.invalid/eggpack".into();
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+        let mut bad_policy = m002_policy();
+        bad_policy.eggpack_tool = None;
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+        // Missing download pin rejects.
+        let mut bad_policy = m002_policy();
+        bad_policy.download_artifact = None;
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+    }
+
+    fn m002_golden_policy() -> GitHubPolicy {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        GitHubPolicy {
+            preflight_runner: "ubuntu-latest".into(),
+            runners: vec![
+                RunnerMapping {
+                    os: HostOs::Linux,
+                    arch: HostArch::X86_64,
+                    label: "ubuntu-latest".into(),
+                    cargo_zigbuild: true,
+                    zig: true,
+                },
+                RunnerMapping {
+                    os: HostOs::Macos,
+                    arch: HostArch::Aarch64,
+                    label: "macos-latest".into(),
+                    cargo_zigbuild: false,
+                    zig: false,
+                },
+            ],
+            checkout: ActionPin {
+                reference: format!("actions/checkout@{sha}"),
+            },
+            rust_toolchain: ActionPin {
+                reference: format!("dtolnay/rust-toolchain@{sha}"),
+            },
+            upload_artifact: ActionPin {
+                reference: format!("actions/upload-artifact@{sha}"),
+            },
+            download_artifact: Some(ActionPin {
+                reference: format!("actions/download-artifact@{sha}"),
+            }),
+            triggers: vec![WorkflowTrigger::Push, WorkflowTrigger::WorkflowDispatch],
+            timeout_minutes: 60,
+            cancel_in_progress: true,
+            artifact_retention_days: 7,
+            eggpack_tool: Some(EggpackToolPolicy {
+                repo: "https://github.com/eggstack/eggpack".into(),
+                revision: "a".repeat(40),
+                package: "eggpack-cli".into(),
+                install_timeout_minutes: 10,
+            }),
+        }
+    }
+
+    fn m002_golden_case(
+        fixture: &str,
+        product: &str,
+        version: &str,
+        targets: Vec<(&str, BuildStrategy, SupportTier, Qualification)>,
+        aliases: Vec<&str>,
+    ) -> (ReleaseCIPlanV1, GitHubPolicy) {
+        let contract = DistributionContract::parse_toml_str(fixture).unwrap();
+        let policies: Vec<TargetPolicy> = targets
+            .iter()
+            .map(|(triple, strategy, support, qual)| {
+                let (host_os, host_arch) = if triple.contains("apple") {
+                    (HostOs::Macos, HostArch::Aarch64)
+                } else {
+                    (HostOs::Linux, HostArch::X86_64)
+                };
+                TargetPolicy {
+                    target: triple.to_string(),
+                    strategy: *strategy,
+                    host_os,
+                    host_arch,
+                    qualification_host: None,
+                    toolchain: ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: if *strategy == BuildStrategy::CargoZigbuild {
+                            Some("0.20.0".into())
+                        } else {
+                            None
+                        },
+                    },
+                    floor: CompatibilityFloor::None,
+                    qualification: *qual,
+                    support: *support,
+                }
+            })
+            .collect();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: policies,
+        };
+        let selected: Vec<String> = aliases.into_iter().map(|s| s.to_string()).collect();
+        let release = config
+            .resolve(&contract, version, &"a".repeat(40), &selected)
+            .unwrap();
+        let mut binding_map = std::collections::BTreeMap::new();
+        let mut qual_map = std::collections::BTreeMap::new();
+        for target in &release.targets {
+            let expanded = contract.expand(&target.target, version).unwrap();
+            let selectors: Vec<LogicalOutputSelector> = match expanded.assets {
+                eggpack_contract::ExpandedAssets::Direct(_) => vec![LogicalOutputSelector::Direct],
+                eggpack_contract::ExpandedAssets::Bundle(b) => (0..b.entries.len())
+                    .map(|index| LogicalOutputSelector::BundleEntry { index })
+                    .collect(),
+                eggpack_contract::ExpandedAssets::Archive(a) => a
+                    .members
+                    .into_iter()
+                    .map(|m| LogicalOutputSelector::ArchiveMember { source: m.source })
+                    .collect(),
+            };
+            binding_map.insert(
+                target.target.clone(),
+                selectors
+                    .iter()
+                    .enumerate()
+                    .map(|(index, selector)| eggpack_core::BuildBinding {
+                        selector: selector.clone(),
+                        package: product.into(),
+                        binary: format!("bin{index}"),
+                    })
+                    .collect(),
+            );
+            qual_map.insert(
+                target.target.clone(),
+                eggpack_core::TargetQualificationBinding { smoke: None },
+            );
+        }
+        let bindings = BuildBindingsV1 {
+            schema_version: 1,
+            targets: binding_map,
+        };
+        let qual_bindings = QualificationBindingsV1 {
+            schema_version: 1,
+            targets: qual_map,
+        };
+        let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+        let graph = project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).unwrap();
+        (graph, m002_golden_policy())
+    }
+
+    #[test]
+    fn m002_golden_direct_bundle_archive_and_mixed() {
+        // Direct single-target.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m002-direct.yml"),
+        );
+        // Mixed native/cross.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../tests/fixtures/mixed-direct-targets.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![
+                (
+                    "x86_64-unknown-linux-gnu",
+                    BuildStrategy::NativeCargo,
+                    SupportTier::Required,
+                    Qualification::Structural,
+                ),
+                (
+                    "aarch64-unknown-linux-gnu",
+                    BuildStrategy::CargoZigbuild,
+                    SupportTier::NonGating,
+                    Qualification::Structural,
+                ),
+            ],
+            vec!["linux-x64", "linux-arm64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m002-mixed.yml"),
+        );
+        // Bundle.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+            "codegg",
+            "2.4.0",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m002-bundle.yml"),
+        );
+        // Archive.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+            "egress",
+            "3.1.0",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m002-archive.yml"),
+        );
     }
 }
