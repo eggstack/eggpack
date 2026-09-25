@@ -53,7 +53,12 @@ Actions workflows from caller-supplied runner/action-pin policy, and checks
 workflow drift without writing files. M002 adds executable qualification jobs,
 required-evidence gates, and aggregate/finalize nodes invoking M003/M004 through
 the `eggpack` CLI with pinned tooling; completed finalized releases are uploaded
-as internal workflow artifacts only. Staging and publication remain later work.
+as internal workflow artifacts only, alongside a standalone deterministic
+`release-manifest.json` that decodes back to the exact M004 manifest without
+changing the finalized root. M003a adds the local staging payload materializer
+and GitHub draft adapter (draft-only, exact existing tag, no publication);
+generated draft staging remains M003b work.
 
 `eggpack-cli` provides deterministic `eggpack ci generate` and `eggpack ci check`
-plus narrow internal runner commands wrapping core qualification and finalization.
+plus narrow internal runner commands wrapping core qualification, finalization,
+and draft staging.

@@ -1,0 +1,26 @@
+[package]
+name = "eggpack-github"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GitHub draft release staging adapter and local staging payload materializer"
+readme = "README.md"
+
+[lints]
+workspace = true
+
+[dependencies]
+eggpack-contract = { path = "../eggpack-contract", version = "0.1.0" }
+eggpack-manifest = { path = "../eggpack-manifest", version = "0.1.0" }
+eggpack-core = { path = "../eggpack-core", version = "0.1.0" }
+eggpack-bootstrap = { path = "../eggpack-bootstrap", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt", "time", "macros", "net", "io-util"] }
+eggfetch-core = { version = "0.2.0", default-features = false, features = ["standard-http1", "tls-rustls", "tls-native-roots", "json"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "net", "io-util"] }

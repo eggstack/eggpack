@@ -19,5 +19,12 @@ workspace = true
 eggpack-contract = { path = "../eggpack-contract", version = "0.1.0" }
 eggpack-core = { path = "../eggpack-core", version = "0.1.0" }
 eggpack-ci = { path = "../eggpack-ci", version = "0.1.0" }
+eggpack-manifest = { path = "../eggpack-manifest", version = "0.1.0" }
+eggpack-bootstrap = { path = "../eggpack-bootstrap", version = "0.1.0" }
+eggpack-github = { path = "../eggpack-github", version = "0.1.0" }
 serde_json = "1"
 toml = "0.8"
+tokio = { version = "1", features = ["rt"] }
+
+[dev-dependencies]
+sha2 = "0.10"

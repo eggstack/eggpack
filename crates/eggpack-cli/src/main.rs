@@ -20,21 +20,21 @@ fn run(args: Vec<String>) -> i32 {
 
 fn dispatch(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
-        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     if args[0] == "--version" || args[0] == "-V" {
         println!("eggpack {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args[0] == "--help" || args[0] == "-h" {
-        println!("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate> [options]");
+        println!("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]");
         return Ok(());
     }
     if args[0] != "ci" {
-        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     if args.len() < 2 {
-        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     match args[1].as_str() {
         "generate" => ci_generate(&args[2..]),
@@ -43,6 +43,8 @@ fn dispatch(args: Vec<String>) -> Result<(), String> {
         "_qualify-target" => ci_qualify_target(&args[2..]),
         "_evaluate-gate" => ci_evaluate_gate(&args[2..]),
         "_aggregate" => ci_aggregate(&args[2..]),
+        "_prepare-stage" => ci_prepare_stage(&args[2..]),
+        "_stage-github-draft" => ci_stage_github_draft(&args[2..]),
         _ => Err("unknown ci subcommand".to_owned()),
     }
 }
@@ -492,6 +494,30 @@ fn ci_aggregate(args: &[String]) -> Result<(), String> {
         &output_root,
     )
     .map_err(|_| "aggregation failed".to_owned())?;
+    // Additive staging handoff: alongside summary.json, write a standalone
+    // deterministic release-manifest.json that decodes back to the exact M004
+    // manifest. This file lives beside the finalized root, never inside it,
+    // so M004 release-root semantics remain unchanged.
+    if let Some(finalized) = finalized.as_ref() {
+        let manifest_json = finalized
+            .manifest
+            .to_json()
+            .map_err(|_| "manifest encode failed".to_owned())?;
+        let decoded = eggpack_manifest::ReleaseManifest::from_json(&manifest_json)
+            .map_err(|_| "manifest roundtrip failed".to_owned())?;
+        let decoded_json = decoded
+            .to_json()
+            .map_err(|_| "manifest roundtrip failed".to_owned())?;
+        if decoded_json != manifest_json {
+            return Err("staging manifest does not decode to exact manifest".to_owned());
+        }
+        if let Some(parent) = output_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let manifest_path = parent.join("release-manifest.json");
+                atomic_write(&manifest_path, manifest_json.as_bytes())?;
+            }
+        }
+    }
     let summary = serde_json::json!({
         "outcome": outcome,
         "manifest": finalized.as_ref().map(|f| f.manifest.to_json().unwrap_or_default()),
@@ -506,6 +532,108 @@ fn ci_aggregate(args: &[String]) -> Result<(), String> {
         }
         _ => Err(format!("aggregate: {outcome:?}")),
     }
+}
+
+fn read_install_policy(path: &Path) -> Result<eggpack_bootstrap::BootstrapInstallPolicyV1, String> {
+    let text = read_bounded(path, 256 * 1024, "install policy")?;
+    // Accept TOML first (checked-in policy files are TOML), then JSON.
+    if let Ok(policy) = eggpack_bootstrap::BootstrapInstallPolicyV1::from_toml(&text) {
+        return Ok(policy);
+    }
+    eggpack_bootstrap::BootstrapInstallPolicyV1::from_json(&text)
+        .map_err(|_| "invalid install policy".to_owned())
+}
+
+fn ci_prepare_stage(args: &[String]) -> Result<(), String> {
+    let contract_path = PathBuf::from(get_flag(args, "contract")?);
+    let manifest_path = PathBuf::from(get_flag(args, "release-manifest")?);
+    let finalized_root = PathBuf::from(get_flag(args, "finalized-root")?);
+    let policy_path = PathBuf::from(get_flag(args, "github-policy")?);
+    let install_policy_path = PathBuf::from(get_flag(args, "install-policy")?);
+    let output_dir = PathBuf::from(get_flag(args, "output-dir")?);
+    let output_payload = PathBuf::from(get_flag(args, "output-payload")?);
+    if args.len() > 14 {
+        return Err("too many arguments for ci _prepare-stage".to_owned());
+    }
+    let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
+    let manifest_text = read_bounded(&manifest_path, 1_048_576, "release manifest")?;
+    let policy_text = read_bounded(&policy_path, 256 * 1024, "github policy")?;
+    let contract = eggpack_contract::DistributionContract::parse_toml_str(&contract_text)
+        .map_err(|_| "invalid contract".to_owned())?;
+    let manifest = eggpack_manifest::ReleaseManifest::from_json(&manifest_text)
+        .map_err(|_| "invalid release manifest".to_owned())?;
+    let policy = eggpack_github::GitHubDraftPolicyV1::from_json(&policy_text)
+        .map_err(|_| "invalid github draft policy".to_owned())?;
+    let install_policy = read_install_policy(&install_policy_path)?;
+    let payload = eggpack_github::prepare_staging_payload(
+        &contract,
+        &manifest,
+        &finalized_root,
+        &policy,
+        &install_policy,
+        &output_dir,
+    )
+    .map_err(|_| "stage preparation failed".to_owned())?;
+    let payload_json = payload
+        .to_json()
+        .map_err(|_| "payload encode failed".to_owned())?;
+    atomic_write(&output_payload, payload_json.as_bytes())?;
+    println!("prepare-stage: {} assets", payload.assets.len());
+    Ok(())
+}
+
+fn ci_stage_github_draft(args: &[String]) -> Result<(), String> {
+    let payload_path = PathBuf::from(get_flag(args, "payload")?);
+    let policy_path = PathBuf::from(get_flag(args, "github-policy")?);
+    let receipt_path = PathBuf::from(get_flag(args, "output-receipt")?);
+    if args.len() > 6 {
+        return Err("too many arguments for ci _stage-github-draft".to_owned());
+    }
+    let payload_text = read_bounded(&payload_path, 1_048_576, "staging payload")?;
+    let policy_text = read_bounded(&policy_path, 256 * 1024, "github policy")?;
+    let payload = eggpack_github::StagingPayloadV1::from_json(&payload_text)
+        .map_err(|_| "invalid staging payload".to_owned())?;
+    let policy = eggpack_github::GitHubDraftPolicyV1::from_json(&policy_text)
+        .map_err(|_| "invalid github draft policy".to_owned())?;
+    // Credential from environment only; absence fails before network I/O.
+    // The token text is never logged, serialized, or included in errors.
+    let token = eggpack_github::read_token(&policy.token_env)
+        .map_err(|_| "github token is absent".to_owned())?;
+    let transport = eggpack_github::EggfetchTransport::new(
+        token.clone(),
+        policy.request_timeout_secs,
+        policy.max_metadata_bytes,
+    )
+    .map_err(|_| "github transport failed".to_owned())?;
+    // Staging directory is the parent of the payload file's sibling?
+    // The payload records flat relative paths; the CLI resolves them against
+    // an explicit --staging-dir when present, otherwise the payload's parent.
+    let staging_dir = get_flag_optional(args, "staging-dir")
+        .map(PathBuf::from)
+        .or_else(|| payload_path.parent().map(PathBuf::from))
+        .ok_or_else(|| "missing staging directory".to_owned())?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|_| "tokio runtime failed".to_owned())?;
+    let receipt = runtime
+        .block_on(eggpack_github::stage_with_dir(
+            &payload,
+            &policy,
+            &transport,
+            &token,
+            &staging_dir,
+        ))
+        .map_err(|_| "github draft staging failed".to_owned())?;
+    let receipt_json = receipt
+        .to_json()
+        .map_err(|_| "receipt encode failed".to_owned())?;
+    atomic_write(&receipt_path, receipt_json.as_bytes())?;
+    println!(
+        "stage-github-draft: release {} draft staged",
+        receipt.github_release_id
+    );
+    Ok(())
 }
 
 #[cfg(test)]
@@ -918,6 +1046,21 @@ mod tests {
         let summary: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&summary_out).unwrap()).unwrap();
         assert_eq!(summary["outcome"], "complete");
+        // M003a additive handoff: standalone release-manifest.json beside the
+        // finalized root decodes to the exact M004 manifest, while the root
+        // itself retains only contract artifacts plus sidecars.
+        let manifest_path = root.join("release-manifest.json");
+        let manifest_text = std::fs::read_to_string(&manifest_path).unwrap();
+        let manifest = eggpack_manifest::ReleaseManifest::from_json(&manifest_text).unwrap();
+        assert_eq!(
+            manifest_text,
+            manifest.to_json().unwrap(),
+            "standalone manifest must be deterministic"
+        );
+        assert!(
+            !output_root.join("release-manifest.json").exists(),
+            "M004 root semantics must remain unchanged"
+        );
 
         // Negative: tampered candidate bytes fail closed at gate/aggregate.
         std::fs::write(
@@ -973,6 +1116,117 @@ mod tests {
         ])
         .is_err());
 
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn prepare_stage_materializes_exact_payload() {
+        use sha2::Digest;
+        let root = temp_root("prepare-stage");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract_path = root.join("contract.toml");
+        std::fs::write(&contract_path, contract_text).unwrap();
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        // Two-target direct manifest with deterministic byte facts.
+        let body = b"body";
+        let digest: String = sha2::Sha256::digest(body)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let manifest = eggpack_manifest::ReleaseManifest {
+            schema_version: 1,
+            product_id: "eggsact".to_owned(),
+            release_id: "1.2.6".to_owned(),
+            source_revision: "a".repeat(40),
+            targets: vec![
+                eggpack_manifest::TargetRecord {
+                    target: "aarch64-apple-darwin".to_owned(),
+                    form: eggpack_manifest::ArtifactForm::Direct {
+                        artifact: eggpack_manifest::ArtifactRecord {
+                            name: "eggsact-1.2.6-aarch64-apple-darwin".to_owned(),
+                            size: body.len() as u64,
+                            sha256: digest.clone(),
+                        },
+                        install: "eggsact".to_owned(),
+                    },
+                },
+                eggpack_manifest::TargetRecord {
+                    target: "x86_64-unknown-linux-gnu".to_owned(),
+                    form: eggpack_manifest::ArtifactForm::Direct {
+                        artifact: eggpack_manifest::ArtifactRecord {
+                            name: "eggsact-1.2.6-x86_64-unknown-linux-gnu".to_owned(),
+                            size: body.len() as u64,
+                            sha256: digest.clone(),
+                        },
+                        install: "eggsact".to_owned(),
+                    },
+                },
+            ],
+            evidence_references: Vec::new(),
+        };
+        let manifest_path = root.join("release-manifest.json");
+        std::fs::write(&manifest_path, manifest.to_json().unwrap()).unwrap();
+        // Finalized root with exact artifacts plus sidecars.
+        let finalized = root.join("finalized");
+        std::fs::create_dir(&finalized).unwrap();
+        for name in [
+            "eggsact-1.2.6-aarch64-apple-darwin",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+        ] {
+            std::fs::write(finalized.join(name), body).unwrap();
+            std::fs::write(
+                finalized.join(format!("{name}.sha256")),
+                format!("{digest}  {name}\n"),
+            )
+            .unwrap();
+        }
+        let policy = eggpack_github::GitHubDraftPolicyV1 {
+            schema_version: 1,
+            owner: "acme".to_owned(),
+            repository: "widget".to_owned(),
+            tag: "v1.2.6".to_owned(),
+            title: "widget 1.2.6".to_owned(),
+            body: "notes".to_owned(),
+            prerelease: false,
+            token_env: "GITHUB_TOKEN".to_owned(),
+            request_timeout_secs: 30,
+            max_metadata_bytes: 1_000_000,
+            max_list_pages: 5,
+        };
+        let policy_path = root.join("github-policy.json");
+        std::fs::write(&policy_path, policy.to_json().unwrap()).unwrap();
+        let install_policy_path = root.join("install-policy.toml");
+        std::fs::write(&install_policy_path, "schema_version = 1\n").unwrap();
+        let staging = root.join("staging");
+        let payload_out = root.join("payload.json");
+        ci_prepare_stage(&[
+            "--contract".to_owned(),
+            contract_path.to_string_lossy().into_owned(),
+            "--release-manifest".to_owned(),
+            manifest_path.to_string_lossy().into_owned(),
+            "--finalized-root".to_owned(),
+            finalized.to_string_lossy().into_owned(),
+            "--github-policy".to_owned(),
+            policy_path.to_string_lossy().into_owned(),
+            "--install-policy".to_owned(),
+            install_policy_path.to_string_lossy().into_owned(),
+            "--output-dir".to_owned(),
+            staging.to_string_lossy().into_owned(),
+            "--output-payload".to_owned(),
+            payload_out.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        assert!(staging.join("release-manifest.json").exists());
+        assert!(staging.join("install.sh").exists());
+        assert!(staging.join("install.ps1").exists());
+        let payload = eggpack_github::StagingPayloadV1::from_json(
+            &std::fs::read_to_string(&payload_out).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload.assets.len(), 7);
+        let _ = contract;
         std::fs::remove_dir_all(root).unwrap();
     }
 }
