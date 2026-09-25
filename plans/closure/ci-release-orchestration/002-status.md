@@ -85,3 +85,16 @@ CI M002 is closed. CI M001 remains closed and truthful. Build M003/M004 remain c
 | Ecosystem adoption | blocked | Still requires consumer selection plus staging/publication maturity. |
 
 CI M003 is therefore **not ready to plan**: the gating/aggregation precondition is satisfied, but the explicit staging adapter plan remains outstanding and must be reviewed before any M003 planning begins.
+
+
+## Post-closure corrective registration
+
+Post-closure review found that the M002 GitHub renderer does not yet wire the internal CLI commands into an executable end-to-end workflow.
+
+At the historical implementation baseline, build jobs upload candidate bytes but do not create the BuildHandoffV1 artifact that qualification jobs request. Generated _qualify-target, _evaluate-gate, and _aggregate commands also omit mandatory file/path arguments required by eggpack-cli, and the aggregate job does not receive the complete per-target build-handoff/evidence/candidate layout its CLI expects.
+
+The underlying CI library primitives, gate logic, finalization adapter, deterministic rendering, and CLI implementations remain useful historical evidence, but the claim that generated release CI is operationally executable is withdrawn pending corrective qualification.
+
+Corrective plan: plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md.
+
+CI M003 remains blocked on both M002a closure and its separately required staging-adapter plan.
