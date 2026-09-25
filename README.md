@@ -36,8 +36,9 @@ bounded fixed arguments. Qualification evidence is distinct from finalized
 artifact and manifest evidence.
 `finalize_release` gates required targets on qualification, assigns exact contract
 filenames, writes checksum sidecars, assembles explicitly selected `.tar.gz`
-archives, and returns a manifest over the final bytes from a new private output
-root. It does not extract, install, publish, or authenticate artifacts.
+archives, and returns a manifest over the final bytes from a new output root
+under a caller-secured parent. It does not extract, install, publish, or authenticate
+artifacts.
 `eggpack-bootstrap` renders release-specific direct first-install shell and
 PowerShell scripts from the contract and manifest; it does not select releases
 or update existing installations. SHA-256 checks establish integrity, not

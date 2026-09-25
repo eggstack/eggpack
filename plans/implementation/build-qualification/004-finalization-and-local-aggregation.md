@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 004 — Finalization and Local Aggregation
 
-Status: active
+Status: closed
 
 Repository baseline: `25a6f185f865510be0ab26a51a819d949701674c`
 
@@ -34,6 +34,8 @@ Release Manifest M002 is closed and exposes explicit final-file manifest constru
 - Artifact and install-name collision rules remain those of Contract/Manifest v1.
 - No directory scan, network access, publication, extraction, installer, or consumer installation authority.
 - Archive encoding is explicit producer-side input; never inferred from executable names or hidden defaults.
+
+Implementation resolution: M004 supports the explicit `TarGzip` encoding only. Callers must select it when an archive target is present, and the contract-derived archive filename must end in `.tar.gz`; all other archive encodings fail closed. This keeps output interpretation visible in the contract asset name without adding a schema field. A future consumer that needs format semantics independent of the asset suffix, or a second encoding, requires a contract/ADR review before support is added.
 
 ## 5. Scope
 
@@ -73,7 +75,7 @@ If no repository-owned contract identifies archive encoding and a consumer needs
 
 ## 8. Failure, restart, and contention semantics
 
-Use a unique owner-private invocation root and refuse preexisting destinations. A failed operation returns no success manifest and does not reuse stale outputs. Cleanup may remove only paths proven to be owned by this invocation. Concurrent invocations use distinct roots; no shared mutable staging state.
+Use a unique owner-private invocation root and refuse preexisting destinations. The caller supplies a private parent on Windows, where the root inherits its ACL; Unix roots are restricted to mode 0700. A failed operation returns no success manifest and does not reuse stale outputs. Cleanup may remove only paths proven to be owned by this invocation. Concurrent invocations use distinct roots; no shared mutable staging state.
 
 ## 9. Compatibility and migration
 
@@ -119,3 +121,5 @@ Record implementation SHA, exact tests, hosted links, archive format coverage, u
 ## 16. Handoff
 
 After closure, reassess CI Orchestration M002, Bootstrap M002, and any real-consumer work against their explicit dependency graphs. Do not mark another repository migrated without its own reviewed commit/evidence.
+
+Closure: `plans/closure/build-qualification/004-status.md`.

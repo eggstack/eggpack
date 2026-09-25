@@ -68,7 +68,7 @@ ReleasePlan -> CIPlan -> GitHub renderer -> checked-in release.yml
 
 ## 6. Dependency graph
 
-Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 qualification execution is closed at `plans/closure/build-qualification/003-status.md`; CI M002 remains blocked until M004 closes its finalization interface.
+Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 and M004 are closed at `plans/closure/build-qualification/003-status.md` and `plans/closure/build-qualification/004-status.md`; CI M002 is ready to plan against those stable qualification/finalization interfaces.
 
 ## 7. Milestones
 
@@ -104,5 +104,5 @@ Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Close
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
-| M002 qualification/aggregation gates + drift CLI | blocked | — | — | M001 closed and Build M003 closed; await Build M004 finalization interfaces |
+| M002 qualification/aggregation gates + drift CLI | ready to plan | — | — | CI M001 and Build M003/M004 closed; define hosted evidence gates and consume finalized release results |
 | M003 draft release staging | blocked | — | — | M002 + explicit staging adapter plan |

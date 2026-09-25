@@ -62,7 +62,9 @@ pub struct FinalizedRelease {
 ///
 /// Required targets must have passing qualification. Non-gating/experimental targets may
 /// remain deferred, but still need complete candidate byte evidence. All outputs are written
-/// under `output_root`; on any error this invocation removes only the root it created.
+/// under `output_root`; on any error this invocation removes only the root it created. The
+/// parent directory must be caller-secured/private on Windows (its ACL is inherited); Unix
+/// output roots are restricted to mode 0700.
 pub fn finalize_release(
     contract: &DistributionContract,
     plan: &ReleasePlan,
