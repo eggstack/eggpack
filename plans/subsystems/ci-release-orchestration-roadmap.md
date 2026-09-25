@@ -68,7 +68,7 @@ ReleasePlan -> CIPlan -> GitHub renderer -> checked-in release.yml
 
 ## 6. Dependency graph
 
-Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 and M004 are closed at `plans/closure/build-qualification/003-status.md` and `plans/closure/build-qualification/004-status.md`; CI M002 is ready to plan against those stable qualification/finalization interfaces.
+Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 and M004 are closed at `plans/closure/build-qualification/003-status.md` and `plans/closure/build-qualification/004-status.md`; CI M002 is implemented historically; M002a is the active corrective for executable generated-workflow wiring.
 
 ## 7. Milestones
 
@@ -106,5 +106,6 @@ Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Close
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
-| M002 qualification/aggregation gates + drift CLI | closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | `plans/closure/ci-release-orchestration/002-status.md` | Closed on implementation `df0120c` with hosted run 36142013486; M003 still blocked on staging adapter plan |
-| M003 draft release staging | blocked | — | — | M002 closed; still blocked on explicit staging adapter plan |
+| M002 qualification/aggregation gates + drift CLI | closed historically / corrective active | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | `plans/closure/ci-release-orchestration/002-status.md` | Post-closure generated-workflow execution defect tracked by M002a |
+| M002a generated workflow execution wiring | ready | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | — | make rendered build -> qualify -> gate -> aggregate workflow operational end-to-end |
+| M003 draft release staging | blocked | — | — | M002a closure + explicit staging adapter plan |
