@@ -68,7 +68,7 @@ ReleasePlan -> CIPlan -> GitHub renderer -> checked-in release.yml
 
 ## 6. Dependency graph
 
-Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 and M004 are closed at `plans/closure/build-qualification/003-status.md` and `plans/closure/build-qualification/004-status.md`; CI M002 is implemented historically; M002a is the active corrective for executable generated-workflow wiring.
+Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 and M004 are closed at `plans/closure/build-qualification/003-status.md` and `plans/closure/build-qualification/004-status.md`; CI M002 is historical; M002a implementation is green and is now in coordinated closure/registry verification.
 
 ## 7. Milestones
 
@@ -107,5 +107,5 @@ Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Close
 |---|---|---|---|---|
 | M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
 | M002 qualification/aggregation gates + drift CLI | closed historically / corrective active | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | `plans/closure/ci-release-orchestration/002-status.md` | Post-closure generated-workflow execution defect tracked by M002a |
-| M002a generated workflow execution wiring | ready | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | — | make rendered build -> qualify -> gate -> aggregate workflow operational end-to-end |
+| M002a generated workflow execution wiring | closing | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | — | implementation `4d2270a` + run 36154905956 are green; closure/registry handoff `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` |
 | M003 draft release staging | blocked | — | — | M002a closure + explicit staging adapter plan |
