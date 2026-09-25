@@ -2674,7 +2674,7 @@ sidecar = "{asset}.sha256"
         assert!(ps_bundle.contains("-MaximumRedirection 0"));
         assert!(!ps_bundle.contains("curl"));
 
-        // PowerShell parser succeeds where pwsh is available.
+        // PowerShell parser succeeds where pwsh/powershell is available.
         let shell = if cfg!(windows) {
             "powershell.exe"
         } else {
@@ -2691,43 +2691,47 @@ sidecar = "{asset}.sha256"
                 .status()
                 .unwrap()
                 .success());
-            // Runtime bundle install via pwsh.
-            let root = std::env::temp_dir().join(format!("eggpack-m002-ps-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&root);
-            fs::create_dir_all(&root).unwrap();
-            let script_path = root.join("install.ps1");
-            fs::write(&script_path, &ps_bundle).unwrap();
-            let dest = root.join("dest-ok");
-            let result = Command::new(shell)
-                .arg("-NoProfile")
-                .arg("-File")
-                .arg(&script_path)
-                .arg(&dest)
-                .output()
-                .unwrap();
-            assert!(
-                result.status.success(),
-                "pwsh bundle install failed: {}",
-                String::from_utf8_lossy(&result.stderr)
-            );
-            assert_eq!(
-                fs::read(dest.join("host-main")).unwrap(),
-                b"host-main-bytes"
-            );
-            // No overwrite.
-            let repeat = Command::new(shell)
-                .arg("-NoProfile")
-                .arg("-File")
-                .arg(&script_path)
-                .arg(&dest)
-                .output()
-                .unwrap();
-            assert!(!repeat.status.success());
-            let _ = fs::remove_dir_all(root);
+            // Runtime bundle install via pwsh 7 (Get-FileHash/tar.exe behavior).
+            // Windows powershell.exe 5.1 lacks reliable Get-FileHash in CI, so use
+            // pwsh where available; static/parser coverage still runs on 5.1.
+            if Command::new("pwsh").arg("-Version").output().is_ok() {
+                let root =
+                    std::env::temp_dir().join(format!("eggpack-m002-ps-{}", std::process::id()));
+                let _ = fs::remove_dir_all(&root);
+                fs::create_dir_all(&root).unwrap();
+                let script_path = root.join("install.ps1");
+                fs::write(&script_path, &ps_bundle).unwrap();
+                let dest = root.join("dest-ok");
+                let result = Command::new("pwsh")
+                    .arg("-NoProfile")
+                    .arg("-File")
+                    .arg(&script_path)
+                    .arg(&dest)
+                    .output()
+                    .unwrap();
+                assert!(
+                    result.status.success(),
+                    "pwsh bundle install failed: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+                assert_eq!(
+                    fs::read(dest.join("host-main")).unwrap(),
+                    b"host-main-bytes"
+                );
+                // No overwrite.
+                let repeat = Command::new("pwsh")
+                    .arg("-NoProfile")
+                    .arg("-File")
+                    .arg(&script_path)
+                    .arg(&dest)
+                    .output()
+                    .unwrap();
+                assert!(!repeat.status.success());
+                let _ = fs::remove_dir_all(root);
+            }
             let _ = fs::remove_file(ps_path);
         }
 
-        // Archive PowerShell static checks.
         // Archive PowerShell static checks (host-specific so parser runs everywhere).
         let (single_contract, archive_manifest, archive_policy, _, _) = host_archive_case();
         let archive_spec = BootstrapSpec {
