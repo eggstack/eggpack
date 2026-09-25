@@ -123,7 +123,7 @@ Implementation plan: `plans/implementation/build-qualification/002a-windows-buil
 
 ### M003 — Qualification execution model
 
-Active implementation: `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md`. Native/deferred/emulated/structural evidence and bounded hooks are in progress.
+Active implementation: `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md`. M003 binds BuildAttempt to release/source identity, validates exact qualification bindings and candidate inventory, structurally checks ELF/PE/COFF/thin Mach-O, and records bounded native/deferred/QEMU/structural evidence.
 
 ### M004 — Finalization and local aggregation
 

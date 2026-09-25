@@ -27,9 +27,13 @@ schema-v1 predecessor. Contract conformance validators are closed, and the
 ReleaseManifest v1 domain is implemented.
 
 `eggpack-core` owns pure PackConfig/ReleasePlan resolution, explicit Cargo
-build bindings and bounded candidate production, and producer-side manifest
-construction from explicitly named finalized files. Builder candidates are
-not qualified or finalized release artifacts.
+build bindings and bounded candidate production, qualification evidence for
+native/deferred/QEMU/structural paths, and producer-side manifest construction
+from explicitly named finalized files. BuildAttempt identity is tied to the
+release and source revision; qualification verifies candidate format and
+architecture, hashes candidate bytes, and runs only a selected candidate with
+bounded fixed arguments. Qualification evidence is distinct from finalized
+artifact and manifest evidence.
 `eggpack-bootstrap` renders release-specific direct first-install shell and
 PowerShell scripts from the contract and manifest; it does not select releases
 or update existing installations. SHA-256 checks establish integrity, not
@@ -39,5 +43,5 @@ authenticity.
 into a provider-neutral CI graph, renders read-only deterministic GitHub
 Actions workflows from caller-supplied runner/action-pin policy, and checks
 workflow drift without writing files. Generated jobs hand off candidate build
-bytes only; qualification, aggregation, finalization, staging, and publication
-remain later work.
+bytes only; qualification aggregation and finalization, staging, and
+publication remain later work.

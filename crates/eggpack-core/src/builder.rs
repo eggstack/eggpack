@@ -70,6 +70,13 @@ fn build_err(s: &str) -> BuildError {
     BuildError(s.to_owned())
 }
 
+#[derive(Clone, Copy)]
+enum ExecutableAllowance {
+    Builder,
+    Candidate,
+    Qemu,
+}
+
 /// Explicit shell-free process command. Executable and argv are separate OS arguments.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -105,7 +112,7 @@ pub struct BoundCommand {
 }
 
 /// Command exit classification.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandOutcome {
     /// Process exited with success.
     Success,
@@ -167,6 +174,10 @@ pub struct CandidateArtifact {
 /// Result of a single bounded build attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildAttempt {
+    /// Release identity from the supplied ReleasePlan.
+    pub release_id: String,
+    /// Source revision from the supplied ReleasePlan.
+    pub source_revision: String,
     /// Canonical target triple.
     pub target: String,
     /// Selected strategy.
@@ -334,23 +345,39 @@ pub fn run_bounded_cancellable(
     spec: &CommandSpec,
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
-    run_bounded_inner(spec, Some(cancellation), false)
+    run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Builder)
 }
 
 pub(crate) fn run_qualification_process(
     spec: &CommandSpec,
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
-    run_bounded_inner(spec, Some(cancellation), true)
+    run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Candidate)
+}
+
+pub(crate) fn run_qemu_process(
+    spec: &CommandSpec,
+    cancellation: &BuildCancellation,
+) -> Result<ProcessEvidence, BuildError> {
+    run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Qemu)
 }
 
 fn run_bounded_inner(
     spec: &CommandSpec,
     cancellation: Option<&BuildCancellation>,
-    absolute_executable: bool,
+    allowance: ExecutableAllowance,
 ) -> Result<ProcessEvidence, BuildError> {
-    if !(matches!(spec.executable.as_str(), "cargo" | "rustc" | "zig")
-        || (absolute_executable && Path::new(&spec.executable).is_absolute()))
+    let executable_allowed = match allowance {
+        ExecutableAllowance::Builder => {
+            matches!(spec.executable.as_str(), "cargo" | "rustc" | "zig")
+        }
+        ExecutableAllowance::Candidate => Path::new(&spec.executable).is_absolute(),
+        ExecutableAllowance::Qemu => matches!(
+            spec.executable.as_str(),
+            "qemu-x86_64" | "qemu-aarch64" | "qemu-arm"
+        ),
+    };
+    if !executable_allowed
         || spec.timeout.is_zero()
         || spec.timeout > Duration::from_secs(86_400)
         || spec.stdout_limit == 0
@@ -368,7 +395,7 @@ fn run_bounded_inner(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let environment = if absolute_executable {
+    let environment = if !matches!(allowance, ExecutableAllowance::Builder) {
         ["PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"].as_slice()
     } else {
         [
@@ -670,6 +697,8 @@ pub fn execute_target_cancellable(
         let evidence = run_bounded_cancellable(&spec, cancellation)?;
         if evidence.outcome != CommandOutcome::Success {
             return Ok(BuildAttempt {
+                release_id: plan.release_id.clone(),
+                source_revision: plan.source_revision.clone(),
                 target: target.target.clone(),
                 strategy: target.policy.strategy,
                 tool_summary: format!("rust {}", target.policy.toolchain.rust),
@@ -689,6 +718,8 @@ pub fn execute_target_cancellable(
         last = evidence;
     }
     Ok(BuildAttempt {
+        release_id: plan.release_id.clone(),
+        source_revision: plan.source_revision.clone(),
         target: target.target.clone(),
         strategy: target.policy.strategy,
         tool_summary: format!(
@@ -808,6 +839,9 @@ pub fn discover_candidate(
 mod tests {
     use super::*;
     use crate::{HostArch, HostOs, Qualification, SupportTier, TargetPolicy, ToolchainRequirement};
+    use std::sync::Mutex;
+
+    static CARGO_FIXTURE_LOCK: Mutex<()> = Mutex::new(());
 
     fn target() -> crate::PlannedTarget {
         crate::PlannedTarget {
@@ -863,7 +897,7 @@ mod tests {
         assert_eq!(c.env["CARGO_TARGET_DIR"], "/private/target");
         let mut arbitrary = c;
         arbitrary.executable = "sh".into();
-        assert!(run_bounded_inner(&arbitrary, None, false).is_err());
+        assert!(run_bounded_inner(&arbitrary, None, ExecutableAllowance::Builder).is_err());
     }
     #[test]
     fn zigbuild_floor_uses_only_gnu_target_syntax() {
@@ -985,7 +1019,7 @@ mod tests {
             stderr_limit: 1024,
             expected_stdout: None,
         };
-        let result = run_bounded_inner(&spec, None, false).unwrap();
+        let result = run_bounded_inner(&spec, None, ExecutableAllowance::Builder).unwrap();
         assert_eq!(result.outcome, CommandOutcome::Success);
         assert!(result.stdout_bytes <= 1024);
     }
@@ -1002,7 +1036,9 @@ mod tests {
             expected_stdout: None,
         };
         assert!(matches!(
-            run_bounded_inner(&spec, None, false).unwrap().outcome,
+            run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                .unwrap()
+                .outcome,
             CommandOutcome::Failed(_)
         ));
     }
@@ -1029,13 +1065,16 @@ mod tests {
             expected_stdout: None,
         };
         assert_eq!(
-            run_bounded_inner(&spec, None, false).unwrap().outcome,
+            run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                .unwrap()
+                .outcome,
             CommandOutcome::OutputLimitExceeded
         );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn timeout_kills_and_waits_for_the_process_group() {
+        let _cargo_guard = CARGO_FIXTURE_LOCK.lock().unwrap();
         let root = crate::test_temp_dir("timeout");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("Cargo.toml"), "[package]\nname='timeout-fixture'\nversion='0.1.0'\nedition='2021'\nbuild='build.rs'\n").unwrap();
@@ -1050,7 +1089,6 @@ mod tests {
         )
         .unwrap();
         fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
-        let target_dir = root.join("cargo-target");
         let mut spec = CommandSpec {
             executable: "cargo".into(),
             args: vec![
@@ -1067,24 +1105,27 @@ mod tests {
             stderr_limit: 4096,
             expected_stdout: None,
         };
-        spec.env.insert(
-            "CARGO_TARGET_DIR".into(),
-            target_dir.to_string_lossy().into_owned(),
-        );
-        let warm_started = root.join("warm-started");
-        spec.env.insert(
-            "EGGPACK_BUILD_STARTED".into(),
-            warm_started.to_string_lossy().into_owned(),
-        );
-        assert_eq!(
-            run_bounded_inner(&spec, None, false).unwrap().outcome,
-            CommandOutcome::Success
-        );
-        assert!(warm_started.is_file(), "warm build script did not start");
-
         for iteration in 0..3 {
-            spec.timeout = Duration::from_secs(5);
+            spec.timeout = Duration::from_secs(60);
             spec.env.remove("EGGPACK_BUILD_SLEEP");
+            let timeout_target = root.join(format!("cargo-target-timeout-{iteration}"));
+            spec.env.insert(
+                "CARGO_TARGET_DIR".into(),
+                timeout_target.to_string_lossy().into_owned(),
+            );
+            let warm_timeout = root.join(format!("warm-timeout-{iteration}"));
+            spec.env.insert(
+                "EGGPACK_BUILD_STARTED".into(),
+                warm_timeout.to_string_lossy().into_owned(),
+            );
+            assert_eq!(
+                run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                    .unwrap()
+                    .outcome,
+                CommandOutcome::Success
+            );
+            assert!(warm_timeout.is_file(), "timeout fixture warm-up failed");
+            spec.timeout = Duration::from_secs(5);
             spec.env.insert("EGGPACK_BUILD_SLEEP".into(), "1".into());
             let timeout_started = root.join(format!("timeout-started-{iteration}"));
             spec.env.insert(
@@ -1092,11 +1133,35 @@ mod tests {
                 timeout_started.to_string_lossy().into_owned(),
             );
             assert_eq!(
-                run_bounded_inner(&spec, None, false).unwrap().outcome,
+                run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                    .unwrap()
+                    .outcome,
                 CommandOutcome::TimedOut
             );
             assert!(timeout_started.is_file(), "build script never started");
+
+            spec.timeout = Duration::from_secs(60);
+            spec.env.remove("EGGPACK_BUILD_SLEEP");
+            let cancel_target = root.join(format!("cargo-target-cancel-{iteration}"));
+            spec.env.insert(
+                "CARGO_TARGET_DIR".into(),
+                cancel_target.to_string_lossy().into_owned(),
+            );
+            let warm_cancel = root.join(format!("warm-cancel-{iteration}"));
+            spec.env.insert(
+                "EGGPACK_BUILD_STARTED".into(),
+                warm_cancel.to_string_lossy().into_owned(),
+            );
+            assert_eq!(
+                run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                    .unwrap()
+                    .outcome,
+                CommandOutcome::Success
+            );
+            assert!(warm_cancel.is_file(), "cancellation fixture warm-up failed");
+
             spec.timeout = Duration::from_secs(180);
+            spec.env.insert("EGGPACK_BUILD_SLEEP".into(), "1".into());
             let cancellation = BuildCancellation::new();
             let request = cancellation.clone();
             let cancellation_started = root.join(format!("cancellation-started-{iteration}"));
@@ -1129,6 +1194,7 @@ mod tests {
     }
     #[test]
     fn real_local_cargo_fixture_builds_a_direct_candidate() {
+        let _cargo_guard = CARGO_FIXTURE_LOCK.lock().unwrap();
         let base = crate::test_temp_dir("cargo-smoke");
         let repo = base.join("repo");
         let work = base.join("work");
@@ -1176,6 +1242,8 @@ mod tests {
         };
         let attempt = execute_target(&plan, &t, &[binding], &repo, &work, "smoke").unwrap();
         assert_eq!(attempt.process.outcome, CommandOutcome::Success);
+        assert_eq!(attempt.release_id, plan.release_id);
+        assert_eq!(attempt.source_revision, plan.source_revision);
         assert_eq!(attempt.candidates.len(), 1);
         assert!(attempt.candidates[0].size > 0);
         fs::remove_dir_all(base).unwrap();

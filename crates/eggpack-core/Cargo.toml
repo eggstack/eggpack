@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Producer-side planning and finalized manifest construction for Eggpack"
+description = "Producer-side planning, qualification, and manifest construction for Eggpack"
 readme = "README.md"
 
 [lints]

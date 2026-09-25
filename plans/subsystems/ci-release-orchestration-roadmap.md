@@ -68,7 +68,7 @@ ReleasePlan -> CIPlan -> GitHub renderer -> checked-in release.yml
 
 ## 6. Dependency graph
 
-Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 qualification execution is now registered at `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md`; CI M002 remains blocked until M003 and M004 close their qualification/finalization interfaces.
+Hard/interface dependencies: Build/qualification M001 ReleasePlan + contract/manifest are closed. ADR-0004 and closed Build M002/M002a define the stable build-binding/command seam. Build M003 qualification execution is active at `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md`; CI M002 remains blocked until M003 and M004 close their qualification/finalization interfaces.
 
 ## 7. Milestones
 
