@@ -3,7 +3,9 @@
 //! Producer-side release planning and finalized artifact evidence.
 
 mod builder;
+mod qualification;
 pub use builder::*;
+pub use qualification::*;
 
 use eggpack_contract::{
     expected_release_files, validate_release_inventory, DistributionContract, ExpandedAssets,

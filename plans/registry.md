@@ -42,7 +42,7 @@ This file is the compact control surface for active interim planning. Detailed r
 - Release Manifest M001a implementation: `20a3084bbfbc7fac03b70e0c397f9059186169c8`; closure: `plans/closure/release-manifest/001a-status.md`. Install-name collisions are target-local; release-artifact filename collisions remain manifest-global;
 - Eggup interface historical baseline: `99c9040a5d106cfa46a4ba02f9fa0cee8653166c`; Eggpack-side corrective M001a implementation: `8d9264b3c224f3f05a061f4038b0f328b1c5c95e`; closure: `plans/closure/eggup-interoperability/001a-status.md`; hosted CI: `35998756491`; Eggup adapter M001 implementation: `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; Eggup adapter M001a qualification implementation: `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure: `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md`; hosted CI: `36014508645`;
 - prior foundation handoffs closed: Manifest M002, Build/Qualification M001, Bootstrap M001, and Eggup Interop M001/M001a;
-- operational producer handoffs registered: ADR-0004 `e8bc338ab193fa8ed5fc7debb0cd68b54ebf586b`, Build/Qualification M002 plan `1666df9ac68062f7a1be4ed757a4f1ccc21aad5b`, CI Orchestration M001 plan `b7270df591efd4b6a3b8c8e02af70d3960c72f0f`, M002a Windows stability corrective `59bf3621da94b7b6ae5d64c357dee21bb27b7527`, and Build/Qualification M003 plan `fb60fe0ac0ee726e24857da661043df8cfd4454f`;
+- operational producer handoffs registered: ADR-0004 `e8bc338ab193fa8ed5fc7debb0cd68b54ebf586b`, Build/Qualification M002 plan `1666df9ac68062f7a1be4ed757a4f1ccc21aad5b`, CI Orchestration M001 plan `b7270df591efd4b6a3b8c8e02af70d3960c72f0f`; post-closure Windows stability corrective M002a plan `59bf3621da94b7b6ae5d64c357dee21bb27b7527`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`.
 
 ### Eggup predecessor
@@ -72,7 +72,7 @@ Distribution predecessor evidence:
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement closed; consumer evidence gates M003 |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
-| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001/M002/M002a closed; M003 ready | registered qualification execution/evidence handoff is next |
+| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001/M002/M002a closed; M003 active; M004 blocked on M003 closure | qualification execution and evidence is in progress |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 blocked | archive content/finalization and consumer-owned extraction boundary |
 | CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001 closed; M002 remains blocked on Build M003/M004 interfaces | Build qualification interfaces and explicit staging adapter plan |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
@@ -88,7 +88,7 @@ Current dependency-ready implementation work:
 | Build and qualification | M001 PackConfig/ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | Closure `plans/closure/build-qualification/001-status.md` |
 | Build and qualification | M002 native/cross builder seam | closed (historical) | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | Closure `plans/closure/build-qualification/002-status.md`; post-closure Windows stability finding tracked by M002a |
 | Build and qualification | M002a Windows qualification stability | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | Closure `plans/closure/build-qualification/002a-status.md`; three first-attempt hosted Windows runs passed |
-| Build and qualification | M003 qualification execution | ready | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | M002/M002a closed; stable candidate evidence interface |
+| Build and qualification | M003 qualification execution | active | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | Native/deferred/emulated/structural evidence and bounded hooks |
 | Bootstrap installers | M001 generator/direct fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Closure `plans/closure/bootstrap-installers/001-status.md` |
 | CI orchestration | M001 CIPlan/GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Closure `plans/closure/ci-release-orchestration/001-status.md`; hosted run 36040032768 passes all lanes |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |
@@ -98,7 +98,8 @@ Current dependency-ready implementation work:
 
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
-| Build and qualification | M004 finalization/aggregation | blocked | M003 closure + Manifest M002 |
+| Build and qualification | M003 qualification execution | active | M002 and M002a closed; stable candidate evidence interface |
+| Build and qualification | M004 finalization/aggregation | blocked | M003 closure; Manifest M002 is closed |
 | CI orchestration | M002 qualification/aggregation gates + drift CLI | blocked | CI M001 + Build M003/M004 interfaces |
 | CI orchestration | M003 draft release staging | blocked | CI M002 + explicit staging adapter plan |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
@@ -107,7 +108,7 @@ Current dependency-ready implementation work:
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
-Build/Qualification M002 remains historical closure evidence, and M002a closed the Windows stability corrective after three clean first-attempt hosted runs. CI Orchestration M001 remains closed. Build M003 is now registered and ready for implementation; Build M004 and CI M002/M003 remain blocked until M003/M004 evidence/finalization interfaces close.
+Build/Qualification M002 remains historical closure evidence, and M002a has closed the subsequent Windows stability corrective after three clean first-attempt hosted runs. CI Orchestration M001 remains closed. Build M003 has an active implementation plan; M004 remains blocked only on M003 closure because Manifest M002 is closed. CI M002/M003 remain blocked on their downstream interfaces.
 
 ## Immediate execution graph
 
@@ -140,7 +141,7 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
         |                         v
         |              build/qualification M002a [CLOSED: WINDOWS STABILITY QUALIFIED]
         |                         |
-        |                         +--> qualification M003 [READY; PLAN REGISTERED]
+        |                         +--> qualification M003 [ACTIVE]
         |                         `--> CI Orchestration M001 [CLOSED; consumes M002 interface]
         |                                      |
         |                                      `--> CI M002 [BLOCKED on qualification/finalization]
@@ -174,7 +175,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-Manifest M002, Build/Qualification M001/M002/M002a, CI Orchestration M001, Bootstrap Installers M001, and Eggup Interoperability M001a retain their closure records. Build/Qualification M003 is registered at `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` and is the next producer implementation handoff. Build M004 and CI M002/M003, staging/publication, and ecosystem adoption remain blocked until qualification/finalization interfaces close. Eggup M003 real-consumer adapter adoption remains an independent ready branch, not the producer critical path.
+Manifest M002, Build/Qualification M001/M002/M002a, CI Orchestration M001, Bootstrap Installers M001, and Eggup Interoperability M001a retain their closure records. The next producer handoff is completing Build/Qualification M003 now that M002a has passed its three-run Windows stability matrix. Build M004 becomes ready when M003 closes; Manifest M002 is already closed. CI M002/M003, staging/publication, and ecosystem adoption remain blocked on their downstream interfaces. Eggup M003 real-consumer adapter adoption is independently ready to plan but is not the producer critical path.
 
 ## Registry update rule
 

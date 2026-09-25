@@ -59,7 +59,7 @@ pub struct BuildBindingsV1 {
 
 /// Failure from producer build planning or execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuildError(String);
+pub struct BuildError(pub(crate) String);
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -105,7 +105,7 @@ pub struct BoundCommand {
 }
 
 /// Command exit classification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CommandOutcome {
     /// Process exited with success.
     Success,
@@ -131,13 +131,13 @@ impl BuildCancellation {
     pub fn cancel(&self) {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    fn is_cancelled(&self) -> bool {
+    pub(crate) fn is_cancelled(&self) -> bool {
         self.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
 /// Bounded process evidence with no environment dump.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessEvidence {
     /// Outcome classification.
     pub outcome: CommandOutcome,
@@ -334,14 +334,23 @@ pub fn run_bounded_cancellable(
     spec: &CommandSpec,
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
-    run_bounded_inner(spec, Some(cancellation))
+    run_bounded_inner(spec, Some(cancellation), false)
+}
+
+pub(crate) fn run_qualification_process(
+    spec: &CommandSpec,
+    cancellation: &BuildCancellation,
+) -> Result<ProcessEvidence, BuildError> {
+    run_bounded_inner(spec, Some(cancellation), true)
 }
 
 fn run_bounded_inner(
     spec: &CommandSpec,
     cancellation: Option<&BuildCancellation>,
+    absolute_executable: bool,
 ) -> Result<ProcessEvidence, BuildError> {
-    if !matches!(spec.executable.as_str(), "cargo" | "rustc" | "zig")
+    if !(matches!(spec.executable.as_str(), "cargo" | "rustc" | "zig")
+        || (absolute_executable && Path::new(&spec.executable).is_absolute()))
         || spec.timeout.is_zero()
         || spec.timeout > Duration::from_secs(86_400)
         || spec.stdout_limit == 0
@@ -359,27 +368,33 @@ fn run_bounded_inner(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    for key in [
-        "PATH",
-        "HOME",
-        "USERPROFILE",
-        "SystemRoot",
-        "WINDIR",
-        "TEMP",
-        "TMP",
-        "CARGO_HOME",
-        "RUSTUP_HOME",
-        "LIB",
-        "LIBPATH",
-        "INCLUDE",
-        "VCToolsInstallDir",
-        "VisualStudioVersion",
-        "VCINSTALLDIR",
-        "WindowsSdkDir",
-        "WindowsSDKVersion",
-        "UniversalCRTSdkDir",
-        "UCRTVersion",
-    ] {
+    let environment = if absolute_executable {
+        ["PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"].as_slice()
+    } else {
+        [
+            "PATH",
+            "HOME",
+            "USERPROFILE",
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "LIB",
+            "LIBPATH",
+            "INCLUDE",
+            "VCToolsInstallDir",
+            "VisualStudioVersion",
+            "VCINSTALLDIR",
+            "WindowsSdkDir",
+            "WindowsSDKVersion",
+            "UniversalCRTSdkDir",
+            "UCRTVersion",
+        ]
+        .as_slice()
+    };
+    for key in environment {
         if let Some(value) = std::env::var_os(key) {
             command.env(key, value);
         }
@@ -848,7 +863,7 @@ mod tests {
         assert_eq!(c.env["CARGO_TARGET_DIR"], "/private/target");
         let mut arbitrary = c;
         arbitrary.executable = "sh".into();
-        assert!(run_bounded_inner(&arbitrary, None).is_err());
+        assert!(run_bounded_inner(&arbitrary, None, false).is_err());
     }
     #[test]
     fn zigbuild_floor_uses_only_gnu_target_syntax() {
@@ -970,7 +985,7 @@ mod tests {
             stderr_limit: 1024,
             expected_stdout: None,
         };
-        let result = run_bounded_inner(&spec, None).unwrap();
+        let result = run_bounded_inner(&spec, None, false).unwrap();
         assert_eq!(result.outcome, CommandOutcome::Success);
         assert!(result.stdout_bytes <= 1024);
     }
@@ -987,7 +1002,7 @@ mod tests {
             expected_stdout: None,
         };
         assert!(matches!(
-            run_bounded_inner(&spec, None).unwrap().outcome,
+            run_bounded_inner(&spec, None, false).unwrap().outcome,
             CommandOutcome::Failed(_)
         ));
     }
@@ -1014,70 +1029,77 @@ mod tests {
             expected_stdout: None,
         };
         assert_eq!(
-            run_bounded_inner(&spec, None).unwrap().outcome,
+            run_bounded_inner(&spec, None, false).unwrap().outcome,
             CommandOutcome::OutputLimitExceeded
         );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn timeout_kills_and_waits_for_the_process_group() {
-        for _ in 0..3 {
-            let root = crate::test_temp_dir("timeout");
-            fs::create_dir_all(root.join("src")).unwrap();
-            fs::write(root.join("Cargo.toml"), "[package]\nname='timeout-fixture'\nversion='0.1.0'\nedition='2021'\nbuild='build.rs'\n").unwrap();
-            fs::write(
-                root.join("Cargo.lock"),
-                "version = 3\n\n[[package]]\nname = \"timeout-fixture\"\nversion = \"0.1.0\"\n",
-            )
-            .unwrap();
-            fs::write(
-                root.join("build.rs"),
-                "fn main() { std::fs::write(std::env::var_os(\"EGGPACK_BUILD_STARTED\").unwrap(), b\"started\").unwrap(); std::thread::sleep(std::time::Duration::from_secs(30)); }\n",
-            )
-            .unwrap();
-            fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
-            let spec = CommandSpec {
-                executable: "cargo".into(),
-                args: vec![
-                    "build".into(),
-                    "--locked".into(),
-                    "--offline".into(),
-                    "--manifest-path".into(),
-                    root.join("Cargo.toml").to_string_lossy().into_owned(),
-                ],
-                cwd: root.clone(),
-                env: BTreeMap::new(),
-                timeout: Duration::from_secs(5),
-                stdout_limit: 4096,
-                stderr_limit: 4096,
-                expected_stdout: None,
-            };
-            let mut spec = spec;
-            spec.env.insert(
-                "CARGO_TARGET_DIR".into(),
-                root.join("cargo-target-timeout")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
-            let timeout_started = root.join("timeout-started");
+        let root = crate::test_temp_dir("timeout");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("Cargo.toml"), "[package]\nname='timeout-fixture'\nversion='0.1.0'\nedition='2021'\nbuild='build.rs'\n").unwrap();
+        fs::write(
+            root.join("Cargo.lock"),
+            "version = 3\n\n[[package]]\nname = \"timeout-fixture\"\nversion = \"0.1.0\"\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("build.rs"),
+            "fn main() { println!(\"cargo:rerun-if-env-changed=EGGPACK_BUILD_STARTED\"); println!(\"cargo:rerun-if-env-changed=EGGPACK_BUILD_SLEEP\"); if let Some(path) = std::env::var_os(\"EGGPACK_BUILD_STARTED\") { std::fs::write(path, b\"started\").unwrap(); } if std::env::var_os(\"EGGPACK_BUILD_SLEEP\").is_some() { std::thread::sleep(std::time::Duration::from_secs(30)); } }\n",
+        )
+        .unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn fixture() {}\n").unwrap();
+        let target_dir = root.join("cargo-target");
+        let mut spec = CommandSpec {
+            executable: "cargo".into(),
+            args: vec![
+                "build".into(),
+                "--locked".into(),
+                "--offline".into(),
+                "--manifest-path".into(),
+                root.join("Cargo.toml").to_string_lossy().into_owned(),
+            ],
+            cwd: root.clone(),
+            env: BTreeMap::new(),
+            timeout: Duration::from_secs(60),
+            stdout_limit: 4096,
+            stderr_limit: 4096,
+            expected_stdout: None,
+        };
+        spec.env.insert(
+            "CARGO_TARGET_DIR".into(),
+            target_dir.to_string_lossy().into_owned(),
+        );
+        let warm_started = root.join("warm-started");
+        spec.env.insert(
+            "EGGPACK_BUILD_STARTED".into(),
+            warm_started.to_string_lossy().into_owned(),
+        );
+        assert_eq!(
+            run_bounded_inner(&spec, None, false).unwrap().outcome,
+            CommandOutcome::Success
+        );
+        assert!(warm_started.is_file(), "warm build script did not start");
+
+        for iteration in 0..3 {
+            spec.timeout = Duration::from_secs(5);
+            spec.env.remove("EGGPACK_BUILD_SLEEP");
+            spec.env.insert("EGGPACK_BUILD_SLEEP".into(), "1".into());
+            let timeout_started = root.join(format!("timeout-started-{iteration}"));
             spec.env.insert(
                 "EGGPACK_BUILD_STARTED".into(),
                 timeout_started.to_string_lossy().into_owned(),
             );
             assert_eq!(
-                run_bounded_inner(&spec, None).unwrap().outcome,
+                run_bounded_inner(&spec, None, false).unwrap().outcome,
                 CommandOutcome::TimedOut
             );
             assert!(timeout_started.is_file(), "build script never started");
+            spec.timeout = Duration::from_secs(180);
             let cancellation = BuildCancellation::new();
             let request = cancellation.clone();
-            let cancellation_started = root.join("cancellation-started");
-            spec.env.insert(
-                "CARGO_TARGET_DIR".into(),
-                root.join("cargo-target-cancellation")
-                    .to_string_lossy()
-                    .into_owned(),
-            );
+            let cancellation_started = root.join(format!("cancellation-started-{iteration}"));
             spec.env.insert(
                 "EGGPACK_BUILD_STARTED".into(),
                 cancellation_started.to_string_lossy().into_owned(),
@@ -1102,8 +1124,8 @@ mod tests {
             );
             canceller.join().unwrap();
             assert!(cancellation_started.is_file());
-            fs::remove_dir_all(root).unwrap();
         }
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn real_local_cargo_fixture_builds_a_direct_candidate() {
