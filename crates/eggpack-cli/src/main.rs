@@ -64,6 +64,20 @@ fn get_flag(args: &[String], name: &str) -> Result<String, String> {
     Err(format!("missing required {flag}"))
 }
 
+fn get_flag_optional(args: &[String], name: &str) -> Option<String> {
+    let flag = format!("--{name}");
+    let mut iter = args.iter().peekable();
+    while let Some(arg) = iter.next() {
+        if arg == &flag {
+            return iter.next().cloned();
+        }
+        if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
 fn read_bounded(path: &Path, max: usize, label: &str) -> Result<String, String> {
     let metadata =
         std::fs::symlink_metadata(path).map_err(|_| format!("{label} is unavailable"))?;
@@ -182,8 +196,16 @@ fn ci_capture_build(args: &[String]) -> Result<(), String> {
     let plan_path = PathBuf::from(get_flag(args, "release-plan")?);
     let bindings_path = PathBuf::from(get_flag(args, "build-bindings")?);
     let target = get_flag(args, "target")?;
-    let candidate_dir = PathBuf::from(get_flag(args, "candidate-dir")?);
-    let output_path = PathBuf::from(get_flag(args, "output")?);
+    let candidate_dir = get_flag_optional(args, "candidate-dir").map(PathBuf::from);
+    let cargo_target_dir = get_flag_optional(args, "cargo-target-dir").map(PathBuf::from);
+    let output_path = get_flag_optional(args, "output").map(PathBuf::from);
+    let output_dir = get_flag_optional(args, "output-dir").map(PathBuf::from);
+    if output_path.is_none() && output_dir.is_none() {
+        return Err("missing required --output or --output-dir".to_owned());
+    }
+    if candidate_dir.is_none() && cargo_target_dir.is_none() {
+        return Err("missing required --candidate-dir or --cargo-target-dir".to_owned());
+    }
     let plan_text = read_bounded(&plan_path, 1_000_000, "release plan")?;
     let bindings_text = read_bounded(&bindings_path, 1_000_000, "build bindings")?;
     let plan: eggpack_core::ReleasePlan =
@@ -195,28 +217,77 @@ fn ci_capture_build(args: &[String]) -> Result<(), String> {
         })?;
     let mut handoff = eggpack_ci::project_build_handoff(&plan, &bindings, &target)
         .map_err(|_| "handoff projection failed".to_owned())?;
-    // Replace placeholder sizes with observed regular file sizes.
-    let dir_metadata = std::fs::symlink_metadata(&candidate_dir)
-        .map_err(|_| "candidate dir unavailable".to_owned())?;
-    if !dir_metadata.is_dir() || dir_metadata.file_type().is_symlink() {
-        return Err("candidate dir is not a real directory".to_owned());
-    }
+    // Resolve each candidate source: explicit Cargo target root derivation when
+    // provided (generated shell passes the target root, never per-file Cargo
+    // discovery logic), otherwise the staged candidate directory keyed by the
+    // canonical handoff relative names.
+    let mut staged_sources: Vec<PathBuf> = Vec::with_capacity(handoff.outputs.len());
     for output in &mut handoff.outputs {
-        let path = candidate_dir.join(&output.relative_path);
-        let metadata = std::fs::symlink_metadata(&path)
+        let source = if let Some(root) = &cargo_target_dir {
+            let dir_meta = std::fs::symlink_metadata(root)
+                .map_err(|_| "cargo target dir unavailable".to_owned())?;
+            if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
+                return Err("cargo target dir is not a real directory".to_owned());
+            }
+            eggpack_ci::cargo_output_path(root, &target, &output.binary)
+                .map_err(|_| "cargo output derivation failed".to_owned())?
+        } else {
+            let dir = candidate_dir.as_ref().expect("candidate dir checked");
+            let dir_metadata = std::fs::symlink_metadata(dir)
+                .map_err(|_| "candidate dir unavailable".to_owned())?;
+            if !dir_metadata.is_dir() || dir_metadata.file_type().is_symlink() {
+                return Err("candidate dir is not a real directory".to_owned());
+            }
+            dir.join(&output.relative_path)
+        };
+        let metadata = std::fs::symlink_metadata(&source)
             .map_err(|_| "candidate file unavailable".to_owned())?;
         if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() == 0 {
             return Err("candidate is not a non-empty regular file".to_owned());
         }
         output.size = metadata.len();
+        staged_sources.push(source);
     }
     handoff
         .validate()
         .map_err(|_| "handoff validation failed".to_owned())?;
-    let json = handoff
-        .to_json()
-        .map_err(|_| "handoff serialization failed".to_owned())?;
-    atomic_write(&output_path, json.as_bytes())?;
+    if let Some(dir) = &output_dir {
+        // Write the canonical build artifact layout: build-handoff.json plus
+        // candidates/<relative_path> bytes (hard-link preferred, copy fallback).
+        let dir_meta = std::fs::symlink_metadata(dir);
+        match dir_meta {
+            Ok(meta) => {
+                if !meta.is_dir() || meta.file_type().is_symlink() {
+                    return Err("output dir is not a real directory".to_owned());
+                }
+            }
+            Err(_) => {
+                std::fs::create_dir_all(dir)
+                    .map_err(|_| "output dir creation failed".to_owned())?;
+            }
+        }
+        let dest_candidates = dir.join("candidates");
+        std::fs::create_dir_all(&dest_candidates)
+            .map_err(|_| "output dir creation failed".to_owned())?;
+        for (output, source) in handoff.outputs.iter().zip(staged_sources.iter()) {
+            let dest = dest_candidates.join(&output.relative_path);
+            if std::fs::hard_link(source, &dest).is_err() {
+                std::fs::copy(source, &dest).map_err(|_| "candidate staging failed".to_owned())?;
+            }
+        }
+        let json = handoff
+            .to_json()
+            .map_err(|_| "handoff serialization failed".to_owned())?;
+        atomic_write(&dir.join("build-handoff.json"), json.as_bytes())?;
+        eggpack_ci::validate_build_artifact_dir(dir)
+            .map_err(|_| "staged build artifact validation failed".to_owned())?;
+    }
+    if let Some(path) = &output_path {
+        let json = handoff
+            .to_json()
+            .map_err(|_| "handoff serialization failed".to_owned())?;
+        atomic_write(path, json.as_bytes())?;
+    }
     println!("captured build handoff for {target}");
     Ok(())
 }
@@ -229,6 +300,7 @@ fn ci_qualify_target(args: &[String]) -> Result<(), String> {
     let candidate_dir = PathBuf::from(get_flag(args, "candidate-dir")?);
     let handoff_path = PathBuf::from(get_flag(args, "build-handoff")?);
     let output_dir = PathBuf::from(get_flag(args, "output-dir")?);
+    let qemu_sysroot = get_flag_optional(args, "qemu-sysroot").map(PathBuf::from);
     let plan_text = read_bounded(&plan_path, 1_000_000, "release plan")?;
     let bindings_text = read_bounded(&bindings_path, 1_000_000, "build bindings")?;
     let qual_text = read_bounded(&qual_bindings_path, 1_000_000, "qualification bindings")?;
@@ -261,7 +333,16 @@ fn ci_qualify_target(args: &[String]) -> Result<(), String> {
             .map_err(|_| "invalid contract".to_owned())?;
     let attempt = eggpack_ci::reconstruct_attempt(&plan, planned, &handoff, &candidate_dir)
         .map_err(|_| "candidate reconstruction failed".to_owned())?;
-    let runtime = eggpack_core::QualificationRuntime { qemu_sysroot: None };
+    if let Some(sysroot) = &qemu_sysroot {
+        let meta = std::fs::symlink_metadata(sysroot)
+            .map_err(|_| "qemu sysroot unavailable".to_owned())?;
+        if !meta.is_dir() || meta.file_type().is_symlink() {
+            return Err("qemu sysroot is not a real directory".to_owned());
+        }
+    }
+    let runtime = eggpack_core::QualificationRuntime {
+        qemu_sysroot: qemu_sysroot.clone(),
+    };
     let cancellation = eggpack_core::BuildCancellation::new();
     let evidence = eggpack_core::qualify_target(eggpack_core::QualificationRequest {
         contract: &contract,
@@ -278,21 +359,62 @@ fn ci_qualify_target(args: &[String]) -> Result<(), String> {
     let evidence_json = eggpack_ci::encode_qualification_evidence(&evidence)
         .map_err(|_| "evidence encode failed".to_owned())?;
     atomic_write(&output_dir.join("evidence.json"), evidence_json.as_bytes())?;
+    // Canonical qualification artifact: copy the already-validated
+    // build-handoff and candidate bytes alongside the evidence so gate and
+    // aggregate consume one complete per-target directory.
+    let handoff_text = read_bounded(&handoff_path, 1_000_000, "build handoff")?;
+    atomic_write(
+        &output_dir.join("build-handoff.json"),
+        handoff_text.as_bytes(),
+    )?;
+    let candidates_src = {
+        let nested = candidate_dir.join("candidates");
+        if nested.exists() {
+            nested
+        } else {
+            candidate_dir.clone()
+        }
+    };
+    let handoff: eggpack_ci::BuildHandoffV1 = eggpack_ci::BuildHandoffV1::from_json(&handoff_text)
+        .map_err(|_| "invalid handoff".to_owned())?;
+    let dest_candidates = output_dir.join("candidates");
+    std::fs::create_dir_all(&dest_candidates)
+        .map_err(|_| "output dir creation failed".to_owned())?;
+    for output in &handoff.outputs {
+        let source = candidates_src.join(&output.relative_path);
+        let dest = dest_candidates.join(&output.relative_path);
+        if std::fs::hard_link(&source, &dest).is_err() {
+            std::fs::copy(&source, &dest).map_err(|_| "candidate staging failed".to_owned())?;
+        }
+    }
+    eggpack_ci::validate_qualification_artifact_dir(&output_dir)
+        .map_err(|_| "staged qualification artifact validation failed".to_owned())?;
     println!("qualified {target}: {:?}", evidence.status);
     Ok(())
 }
 
 fn ci_evaluate_gate(args: &[String]) -> Result<(), String> {
     let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
-    let evidence_dir = PathBuf::from(get_flag(args, "evidence-dir")?);
+    let evidence_dir = get_flag_optional(args, "evidence-dir").map(PathBuf::from);
+    let inputs_dir = get_flag_optional(args, "inputs-dir").map(PathBuf::from);
     let output_path = PathBuf::from(get_flag(args, "output")?);
+    if evidence_dir.is_none() && inputs_dir.is_none() {
+        return Err("missing required --evidence-dir or --inputs-dir".to_owned());
+    }
     let ci_text = read_bounded(&ci_plan_path, 1_000_000, "ci plan")?;
     let graph: eggpack_ci::ReleaseCIPlanV1 = eggpack_ci::ReleaseCIPlanV1::from_json(&ci_text)
         .map_err(|_| "invalid ci plan".to_owned())?;
     let mut evidences = Vec::new();
     for qual in &graph.qualifications {
-        let path = evidence_dir.join(format!("{}.json", qual.evidence_handoff_name));
-        let text = read_bounded(&path, 1_000_000, "evidence")?;
+        let text = if let Some(dir) = &inputs_dir {
+            // Canonical per-target layout: <inputs-dir>/<target>/evidence.json.
+            let path = dir.join(&qual.target).join("evidence.json");
+            read_bounded(&path, 1_000_000, "evidence")?
+        } else {
+            let dir = evidence_dir.as_ref().expect("evidence dir checked");
+            let path = dir.join(format!("{}.json", qual.evidence_handoff_name));
+            read_bounded(&path, 1_000_000, "evidence")?
+        };
         let evidence = eggpack_ci::decode_qualification_evidence(&text)
             .map_err(|_| "invalid evidence".to_owned())?;
         evidences.push(evidence);
@@ -497,6 +619,14 @@ mod tests {
                 package: "eggpack-cli".into(),
                 install_timeout_minutes: 10,
             }),
+            release_inputs: Some(eggpack_ci::GitHubReleaseInputsV1 {
+                contract: "contracts/simple-direct.toml".into(),
+                release_plan: "plans/release-plan.json".into(),
+                build_bindings: "bindings/build.toml".into(),
+                qualification_bindings: "bindings/qualification.toml".into(),
+                ci_plan: "plans/release-ci-plan.json".into(),
+            }),
+            emulated_sysroots: None,
         };
         (
             graph.to_json().unwrap(),
@@ -603,6 +733,246 @@ mod tests {
         .unwrap_err();
         assert!(err.len() < 500);
         assert!(!err.contains(&expected));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn write_text(path: &std::path::Path, contents: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, contents).unwrap();
+    }
+
+    fn fixture_elf() -> Vec<u8> {
+        let mut bytes = vec![0; 64];
+        bytes[..4].copy_from_slice(b"\x7fELF");
+        bytes[4] = 2;
+        bytes[5] = 1;
+        bytes[18..20].copy_from_slice(&62u16.to_le_bytes());
+        bytes
+    }
+
+    /// M002a generated-orchestration CLI harness: the renderer's exact
+    /// structured arguments drive capture -> qualify -> gate -> aggregate
+    /// through the real CLI entry points (no GitHub invocation).
+    #[test]
+    fn generated_orchestration_cli_executes_capture_to_aggregate() {
+        let root = temp_root("orchestration");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        let config = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: vec![eggpack_core::TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: eggpack_core::BuildStrategy::NativeCargo,
+                host_os: eggpack_core::HostOs::Linux,
+                host_arch: eggpack_core::HostArch::X86_64,
+                qualification_host: None,
+                toolchain: eggpack_core::ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                },
+                floor: eggpack_core::CompatibilityFloor::None,
+                qualification: eggpack_core::Qualification::Structural,
+                support: eggpack_core::SupportTier::Required,
+            }],
+        };
+        let release = config
+            .resolve(&contract, "1.2.3", &"a".repeat(40), &["linux-x64".into()])
+            .unwrap();
+        let bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                vec![eggpack_core::BuildBinding {
+                    selector: eggpack_core::LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "bin0".into(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qual_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                eggpack_core::TargetQualificationBinding { smoke: None },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let ci_plan = eggpack_ci::project_ci_plan(&contract, &release, &bindings).unwrap();
+        let graph = eggpack_ci::project_release_plan(&ci_plan, &qual_bindings, &bindings, &release)
+            .unwrap();
+
+        // Repository files the generated commands reference explicitly.
+        let contract_path = root.join("contracts/release.toml");
+        let release_plan_path = root.join("plans/release-plan.json");
+        let build_bindings_path = root.join("bindings/build.toml");
+        let qual_bindings_path = root.join("bindings/qualification.toml");
+        let ci_plan_path = root.join("plans/release-ci-plan.json");
+        write_text(&contract_path, contract_text);
+        write_text(
+            &release_plan_path,
+            &serde_json::to_string(&release).unwrap(),
+        );
+        write_text(&build_bindings_path, &toml::to_string(&bindings).unwrap());
+        write_text(
+            &qual_bindings_path,
+            &toml::to_string(&qual_bindings).unwrap(),
+        );
+        write_text(&ci_plan_path, &graph.to_json().unwrap());
+
+        // Fake Cargo target root with the exact binary the bindings name.
+        let cargo_root = root.join("cargo-target");
+        let cargo_bin_dir = cargo_root.join("x86_64-unknown-linux-gnu/release");
+        std::fs::create_dir_all(&cargo_bin_dir).unwrap();
+        let elf = fixture_elf();
+        std::fs::write(cargo_bin_dir.join("bin0"), &elf).unwrap();
+
+        // The renderer-derived capture command (structured, not string YAML).
+        let capture = eggpack_ci::RunnerCommand::CaptureBuild {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            build_bindings: build_bindings_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            cargo_target_dir: cargo_root.to_string_lossy().into_owned(),
+            output_dir: root
+                .join("artifacts/build/x86_64-unknown-linux-gnu")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        let argv = capture.argv();
+        assert_eq!(&argv[..3], &["eggpack", "ci", "_capture-build"]);
+        ci_capture_build(&argv[3..]).unwrap();
+        let build_dir = root.join("artifacts/build/x86_64-unknown-linux-gnu");
+        eggpack_ci::validate_build_artifact_dir(&build_dir).unwrap();
+
+        // Qualify via the renderer-derived command shape.
+        let qualify = eggpack_ci::RunnerCommand::QualifyTarget {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            build_bindings: build_bindings_path.to_string_lossy().into_owned(),
+            qualification_bindings: qual_bindings_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: build_dir.join("candidates").to_string_lossy().into_owned(),
+            build_handoff: build_dir
+                .join("build-handoff.json")
+                .to_string_lossy()
+                .into_owned(),
+            output_dir: root
+                .join("artifacts/qual/x86_64-unknown-linux-gnu")
+                .to_string_lossy()
+                .into_owned(),
+            qemu_sysroot: None,
+        };
+        let argv = qualify.argv();
+        ci_qualify_target(&argv[3..]).unwrap();
+        let qual_dir = root.join("artifacts/qual/x86_64-unknown-linux-gnu");
+        eggpack_ci::validate_qualification_artifact_dir(&qual_dir).unwrap();
+
+        // Gate over the canonical per-target inputs layout.
+        let inputs_dir = root.join("eggpack-inputs");
+        let target_inputs = inputs_dir.join("x86_64-unknown-linux-gnu");
+        std::fs::create_dir_all(&target_inputs).unwrap();
+        for name in ["build-handoff.json", "evidence.json"] {
+            std::fs::copy(qual_dir.join(name), target_inputs.join(name)).unwrap();
+        }
+        std::fs::create_dir_all(target_inputs.join("candidates")).unwrap();
+        for entry in std::fs::read_dir(qual_dir.join("candidates")).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::copy(
+                entry.path(),
+                target_inputs.join("candidates").join(entry.file_name()),
+            )
+            .unwrap();
+        }
+        let gate_out = root.join("gate-outcome.json");
+        let gate = eggpack_ci::RunnerCommand::EvaluateGate {
+            ci_plan: ci_plan_path.to_string_lossy().into_owned(),
+            inputs_dir: inputs_dir.to_string_lossy().into_owned(),
+            output: gate_out.to_string_lossy().into_owned(),
+        };
+        let argv = gate.argv();
+        ci_evaluate_gate(&argv[3..]).unwrap();
+        let outcome: eggpack_ci::AggregateOutcome =
+            serde_json::from_str(&std::fs::read_to_string(&gate_out).unwrap()).unwrap();
+        assert_eq!(outcome, eggpack_ci::AggregateOutcome::Complete);
+
+        // Aggregate finalizes exact bytes through M004.
+        let summary_out = root.join("summary.json");
+        let output_root = root.join("finalized");
+        let aggregate = eggpack_ci::RunnerCommand::Aggregate {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            ci_plan: ci_plan_path.to_string_lossy().into_owned(),
+            inputs_dir: inputs_dir.to_string_lossy().into_owned(),
+            output_root: output_root.to_string_lossy().into_owned(),
+            output: summary_out.to_string_lossy().into_owned(),
+        };
+        let argv = aggregate.argv();
+        ci_aggregate(&argv[3..]).unwrap();
+        let summary: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&summary_out).unwrap()).unwrap();
+        assert_eq!(summary["outcome"], "complete");
+
+        // Negative: tampered candidate bytes fail closed at gate/aggregate.
+        std::fs::write(
+            target_inputs.join("candidates").join("candidate-direct"),
+            b"tampered",
+        )
+        .unwrap();
+        assert!(ci_aggregate(&argv[3..]).is_err());
+
+        // Negative: missing contract path fails with a bounded diagnostic.
+        let missing_argv = argv[3..].to_vec();
+        let _ = missing_argv;
+        assert!(ci_capture_build(&[
+            "--release-plan".into(),
+            release_plan_path.to_string_lossy().into_owned(),
+            "--build-bindings".into(),
+            build_bindings_path.to_string_lossy().into_owned(),
+            "--target".into(),
+            "x86_64-unknown-linux-gnu".into(),
+            "--cargo-target-dir".into(),
+            cargo_root.to_string_lossy().into_owned(),
+            "--output-dir".into(),
+            root.join("artifacts/missing-contract")
+                .to_string_lossy()
+                .into_owned(),
+        ])
+        .is_ok());
+        // ...but qualification with a missing contract rejects.
+        assert!(ci_qualify_target(&[
+            "--contract".into(),
+            root.join("no-such-contract.toml")
+                .to_string_lossy()
+                .into_owned(),
+            "--release-plan".into(),
+            release_plan_path.to_string_lossy().into_owned(),
+            "--build-bindings".into(),
+            build_bindings_path.to_string_lossy().into_owned(),
+            "--qualification-bindings".into(),
+            qual_bindings_path.to_string_lossy().into_owned(),
+            "--target".into(),
+            "x86_64-unknown-linux-gnu".into(),
+            "--candidate-dir".into(),
+            build_dir.join("candidates").to_string_lossy().into_owned(),
+            "--build-handoff".into(),
+            build_dir
+                .join("build-handoff.json")
+                .to_string_lossy()
+                .into_owned(),
+            "--output-dir".into(),
+            root.join("artifacts/missing-contract-out")
+                .to_string_lossy()
+                .into_owned(),
+        ])
+        .is_err());
+
         std::fs::remove_dir_all(root).unwrap();
     }
 }

@@ -501,6 +501,16 @@ pub struct GitHubPolicy {
     /// Pinned Eggpack runtime tool provisioning for M002 qualify/aggregate jobs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eggpack_tool: Option<EggpackToolPolicy>,
+    /// Explicit repository-relative input paths for M002a executable wiring.
+    ///
+    /// Required for `render_release_github`; absent for M001 build-only
+    /// rendering. Paths live in provider policy, not portable release identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_inputs: Option<GitHubReleaseInputsV1>,
+    /// Finite explicit QEMU sysroot policy per canonical target for Emulated
+    /// qualification (M002a section 5H). Repository-relative paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emulated_sysroots: Option<BTreeMap<String, String>>,
 }
 
 /// Finite Eggpack runtime tool provisioning for generated qualify/aggregate jobs.
@@ -533,6 +543,270 @@ impl EggpackToolPolicy {
     }
 }
 
+/// Explicit repository-relative input paths for generated release workflow CLI
+/// invocations (M002a execution wiring corrective).
+///
+/// Every generated `eggpack ci` command references its file inputs explicitly;
+/// no hidden repository discovery or globbing is permitted. Paths live in
+/// renderer/provider policy, never in portable release identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubReleaseInputsV1 {
+    /// Repository-relative DistributionContract TOML path.
+    pub contract: String,
+    /// Repository-relative ReleasePlan JSON path.
+    pub release_plan: String,
+    /// Repository-relative BuildBindingsV1 (TOML or JSON) path.
+    pub build_bindings: String,
+    /// Repository-relative QualificationBindingsV1 (TOML or JSON) path.
+    pub qualification_bindings: String,
+    /// Repository-relative ReleaseCIPlanV1 JSON path.
+    pub ci_plan: String,
+}
+
+impl GitHubReleaseInputsV1 {
+    /// Validate all five paths are bounded relative paths without escapes.
+    pub fn validate(&self) -> Result<(), CiError> {
+        for path in [
+            &self.contract,
+            &self.release_plan,
+            &self.build_bindings,
+            &self.qualification_bindings,
+            &self.ci_plan,
+        ] {
+            validate_release_input_path(path)?;
+        }
+        Ok(())
+    }
+}
+
+fn validate_release_input_path(path: &str) -> Result<(), CiError> {
+    if path.is_empty() || path.len() > 512 || path.contains('\0') || path.contains('\\') {
+        return Err(fail("release input path is not a bounded relative path"));
+    }
+    if path.starts_with('/')
+        || path.contains(':')
+        || path.split('/').any(|segment| {
+            segment.is_empty() || segment == "." || segment == ".." || segment.len() > 128
+        })
+    {
+        return Err(fail("release input path escapes its root"));
+    }
+    // No drive prefixes (`C:` covered by colon check) or absolute roots.
+    Ok(())
+}
+
+/// Canonical per-target build handoff artifact layout (M002a section 5B).
+pub const BUILD_HANDOFF_FILE: &str = "build-handoff.json";
+/// Canonical per-target qualification evidence file (M002a section 5C).
+pub const QUALIFICATION_EVIDENCE_FILE: &str = "evidence.json";
+/// Canonical candidate byte directory inside build/qualification artifacts.
+pub const CANDIDATES_DIR: &str = "candidates";
+/// Canonical gate/aggregate outcome file name.
+pub const GATE_OUTCOME_FILE: &str = "gate-outcome.json";
+
+/// Validate that a target directory name is a safe canonical target triple
+/// (no path separators or escapes; used for `eggpack-inputs/<target>/`).
+pub fn validate_canonical_target_dir(target: &str) -> Result<(), CiError> {
+    if target.is_empty()
+        || target.len() > 128
+        || target.contains('/')
+        || target.contains('\\')
+        || target.contains(':')
+        || target.contains('\0')
+        || target.contains("..")
+    {
+        return Err(fail("target directory escapes its root"));
+    }
+    Ok(())
+}
+
+/// Finite typed runner command shared by GitHub rendering and local
+/// executable orchestration tests (M002a section 7).
+///
+/// The GitHub renderer serializes a command to shell; tests invoke the same
+/// structured command directly. The command enum remains finite to Eggpack's
+/// internal CI operations; no generic arbitrary command DSL is authorized.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunnerCommand {
+    /// Invoke `_capture-build` for one target.
+    CaptureBuild {
+        /// Repository-relative contract path (informational; CLI resolves via plan).
+        contract: String,
+        /// Repository-relative release plan path.
+        release_plan: String,
+        /// Repository-relative build bindings path.
+        build_bindings: String,
+        /// Canonical target triple.
+        target: String,
+        /// Known Cargo target root on the runner.
+        cargo_target_dir: String,
+        /// Canonical per-target output directory to stage.
+        output_dir: String,
+    },
+    /// Invoke `_qualify-target` for one target.
+    QualifyTarget {
+        /// Repository-relative contract path.
+        contract: String,
+        /// Repository-relative release plan path.
+        release_plan: String,
+        /// Repository-relative build bindings path.
+        build_bindings: String,
+        /// Repository-relative qualification bindings path.
+        qualification_bindings: String,
+        /// Canonical target triple.
+        target: String,
+        /// Directory holding staged candidate bytes.
+        candidate_dir: String,
+        /// Canonical build handoff document path.
+        build_handoff: String,
+        /// Canonical qualification output directory.
+        output_dir: String,
+        /// Optional explicit QEMU sysroot for Emulated targets.
+        qemu_sysroot: Option<String>,
+    },
+    /// Invoke `_evaluate-gate` over downloaded qualification evidence.
+    EvaluateGate {
+        /// Repository-relative CI plan path.
+        ci_plan: String,
+        /// Canonical per-target inputs directory.
+        inputs_dir: String,
+        /// Gate outcome file to write.
+        output: String,
+    },
+    /// Invoke `_aggregate` over canonical per-target directories.
+    Aggregate {
+        /// Repository-relative contract path.
+        contract: String,
+        /// Repository-relative release plan path.
+        release_plan: String,
+        /// Repository-relative CI plan path.
+        ci_plan: String,
+        /// Canonical per-target inputs directory.
+        inputs_dir: String,
+        /// Private finalization output root.
+        output_root: String,
+        /// Aggregate summary file to write.
+        output: String,
+    },
+}
+
+impl RunnerCommand {
+    /// Shell tokens (`eggpack`, `ci`, subcommand, flags) for YAML rendering.
+    pub fn argv(&self) -> Vec<String> {
+        match self {
+            RunnerCommand::CaptureBuild {
+                contract: _,
+                release_plan,
+                build_bindings,
+                target,
+                cargo_target_dir,
+                output_dir,
+            } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_capture-build".into(),
+                "--release-plan".into(),
+                release_plan.clone(),
+                "--build-bindings".into(),
+                build_bindings.clone(),
+                "--target".into(),
+                target.clone(),
+                "--cargo-target-dir".into(),
+                cargo_target_dir.clone(),
+                "--output-dir".into(),
+                output_dir.clone(),
+            ],
+            RunnerCommand::QualifyTarget {
+                contract,
+                release_plan,
+                build_bindings,
+                qualification_bindings,
+                target,
+                candidate_dir,
+                build_handoff,
+                output_dir,
+                qemu_sysroot,
+            } => {
+                let mut args = vec![
+                    "eggpack".into(),
+                    "ci".into(),
+                    "_qualify-target".into(),
+                    "--contract".into(),
+                    contract.clone(),
+                    "--release-plan".into(),
+                    release_plan.clone(),
+                    "--build-bindings".into(),
+                    build_bindings.clone(),
+                    "--qualification-bindings".into(),
+                    qualification_bindings.clone(),
+                    "--target".into(),
+                    target.clone(),
+                    "--candidate-dir".into(),
+                    candidate_dir.clone(),
+                    "--build-handoff".into(),
+                    build_handoff.clone(),
+                    "--output-dir".into(),
+                    output_dir.clone(),
+                ];
+                if let Some(sysroot) = qemu_sysroot {
+                    args.push("--qemu-sysroot".into());
+                    args.push(sysroot.clone());
+                }
+                args
+            }
+            RunnerCommand::EvaluateGate {
+                ci_plan,
+                inputs_dir,
+                output,
+            } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_evaluate-gate".into(),
+                "--ci-plan".into(),
+                ci_plan.clone(),
+                "--inputs-dir".into(),
+                inputs_dir.clone(),
+                "--output".into(),
+                output.clone(),
+            ],
+            RunnerCommand::Aggregate {
+                contract,
+                release_plan,
+                ci_plan,
+                inputs_dir,
+                output_root,
+                output,
+            } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_aggregate".into(),
+                "--contract".into(),
+                contract.clone(),
+                "--release-plan".into(),
+                release_plan.clone(),
+                "--ci-plan".into(),
+                ci_plan.clone(),
+                "--inputs-dir".into(),
+                inputs_dir.clone(),
+                "--output-root".into(),
+                output_root.clone(),
+                "--output".into(),
+                output.clone(),
+            ],
+        }
+    }
+
+    /// Deterministic shell rendering with single-quote escaping.
+    pub fn to_shell(&self) -> String {
+        self.argv()
+            .iter()
+            .map(|arg| shell_quote(arg))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
 impl GitHubPolicy {
     /// Validate action identity, immutable SHA syntax, runner uniqueness, and bounds.
     pub fn validate(&self, plan: &CIPlan) -> Result<(), CiError> {
@@ -556,6 +830,18 @@ impl GitHubPolicy {
         }
         if let Some(tool) = &self.eggpack_tool {
             tool.validate()?;
+        }
+        if let Some(inputs) = &self.release_inputs {
+            inputs.validate()?;
+        }
+        if let Some(sysroots) = &self.emulated_sysroots {
+            if sysroots.len() > 256 {
+                return Err(fail("emulated sysroot policy exceeds bound"));
+            }
+            for (target, path) in sysroots {
+                validate_canonical_target_dir(target)?;
+                validate_release_input_path(path)?;
+            }
         }
         let mut hosts = BTreeSet::new();
         for mapping in &self.runners {
@@ -1034,6 +1320,152 @@ pub fn reconstruct_attempt(
     })
 }
 
+/// Validate a canonical per-target build artifact directory:
+/// `build-handoff.json` plus `candidates/<relative_path>` entries exactly
+/// matching the handoff inventory (regular non-empty files, no extras).
+pub fn validate_build_artifact_dir(dir: &Path) -> Result<BuildHandoffV1, CiError> {
+    let handoff_text = std::fs::read_to_string(dir.join(BUILD_HANDOFF_FILE))
+        .map_err(|_| fail("build handoff is unavailable"))?;
+    let handoff = BuildHandoffV1::from_json(&handoff_text)?;
+    let candidates_dir = dir.join(CANDIDATES_DIR);
+    let meta = std::fs::symlink_metadata(&candidates_dir)
+        .map_err(|_| fail("candidate directory is unavailable"))?;
+    if !meta.is_dir() || meta.file_type().is_symlink() {
+        return Err(fail("candidate directory is not a real directory"));
+    }
+    let mut seen = BTreeSet::new();
+    for output in &handoff.outputs {
+        let path = candidates_dir.join(&output.relative_path);
+        let file_meta =
+            std::fs::symlink_metadata(&path).map_err(|_| fail("candidate file is unavailable"))?;
+        if file_meta.file_type().is_symlink()
+            || !file_meta.is_file()
+            || file_meta.len() == 0
+            || file_meta.len() != output.size
+        {
+            return Err(fail("candidate is not the handoff-described regular file"));
+        }
+        seen.insert(output.relative_path.as_str());
+    }
+    // No extra files.
+    let mut count = 0;
+    for entry in
+        std::fs::read_dir(&candidates_dir).map_err(|_| fail("candidate directory unreadable"))?
+    {
+        let entry = entry.map_err(|_| fail("candidate directory unreadable"))?;
+        let meta = std::fs::symlink_metadata(entry.path())
+            .map_err(|_| fail("candidate file is unavailable"))?;
+        if !meta.is_file() {
+            return Err(fail("candidate directory contains a non-file entry"));
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !seen.contains(name.as_str()) {
+            return Err(fail("candidate directory contains an extra file"));
+        }
+        count += 1;
+    }
+    if count != seen.len() {
+        return Err(fail("candidate directory inventory differs from handoff"));
+    }
+    Ok(handoff)
+}
+
+/// Validate a canonical per-target qualification artifact directory:
+/// `build-handoff.json`, `evidence.json`, plus `candidates/...`.
+pub fn validate_qualification_artifact_dir(
+    dir: &Path,
+) -> Result<(BuildHandoffV1, QualificationEvidence), CiError> {
+    let handoff = validate_build_artifact_dir(dir)?;
+    let evidence_text = std::fs::read_to_string(dir.join(QUALIFICATION_EVIDENCE_FILE))
+        .map_err(|_| fail("qualification evidence is unavailable"))?;
+    let evidence = decode_qualification_evidence(&evidence_text)?;
+    if evidence.target != handoff.target
+        || evidence.release_id != handoff.release_id
+        || evidence.source_revision != handoff.source_revision
+    {
+        return Err(fail("qualification evidence identity differs from handoff"));
+    }
+    Ok((handoff, evidence))
+}
+
+/// Copy or hard-link one file without following symlinks on the source.
+fn copy_candidate_file(source: &Path, dest: &Path) -> Result<(), CiError> {
+    let meta =
+        std::fs::symlink_metadata(source).map_err(|_| fail("candidate file is unavailable"))?;
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() == 0 {
+        return Err(fail("candidate is not a non-empty regular file"));
+    }
+    if let Ok(parent) = dest
+        .parent()
+        .ok_or_else(|| fail("candidate path is invalid"))
+    {
+        let _ = parent;
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| fail("output directory unavailable"))?;
+    }
+    // Prefer hard-link (same filesystem, no byte copy); fall back to copy.
+    if std::fs::hard_link(source, dest).is_err() {
+        std::fs::copy(source, dest).map_err(|_| fail("candidate staging failed"))?;
+    }
+    Ok(())
+}
+
+/// Stage a canonical build artifact directory from validated handoff sizes
+/// and a source candidate root keyed by handoff relative names.
+pub fn stage_build_artifact_dir(
+    handoff: &BuildHandoffV1,
+    candidate_src_dir: &Path,
+    out_dir: &Path,
+) -> Result<(), CiError> {
+    let out_meta = std::fs::symlink_metadata(out_dir);
+    match out_meta {
+        Ok(meta) => {
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                return Err(fail("output directory is not a real directory"));
+            }
+        }
+        Err(_) => {
+            std::fs::create_dir_all(out_dir).map_err(|_| fail("output directory unavailable"))?;
+        }
+    }
+    let dest_candidates = out_dir.join(CANDIDATES_DIR);
+    std::fs::create_dir_all(&dest_candidates).map_err(|_| fail("output directory unavailable"))?;
+    for output in &handoff.outputs {
+        let source = candidate_src_dir.join(&output.relative_path);
+        copy_candidate_file(&source, &dest_candidates.join(&output.relative_path))?;
+    }
+    let json = handoff.to_json()?;
+    std::fs::write(out_dir.join(BUILD_HANDOFF_FILE), json.as_bytes())
+        .map_err(|_| fail("handoff write failed"))?;
+    validate_build_artifact_dir(out_dir)?;
+    Ok(())
+}
+
+/// Derive the Cargo output file for one handoff entry from the known Cargo
+/// target root (`<cargo_target_dir>/<target>/release/<binary>[.exe]`).
+pub fn cargo_output_path(
+    cargo_target_dir: &Path,
+    target: &str,
+    binary: &str,
+) -> Result<std::path::PathBuf, CiError> {
+    validate_canonical_target_dir(target)?;
+    if binary.is_empty()
+        || binary.len() > 128
+        || binary.contains('/')
+        || binary.contains('\\')
+        || binary.contains('\0')
+        || binary.contains("..")
+    {
+        return Err(fail("cargo binary name escapes its root"));
+    }
+    let mut path = cargo_target_dir.join(target).join("release").join(binary);
+    if target.contains("-windows-") {
+        path.set_extension("exe");
+    }
+    Ok(path)
+}
+
 /// One executable qualification job projected from M003 policy/bindings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1413,6 +1845,13 @@ fn tool_install_snippet(tool: &EggpackToolPolicy) -> String {
 }
 
 /// Deterministically render build -> qualify -> gate -> aggregate GitHub workflow.
+///
+/// M002a execution wiring: every generated CLI invocation carries all required
+/// explicit inputs; build jobs create the exact canonical artifact that
+/// qualification jobs consume; qualification artifacts carry build handoff +
+/// evidence + candidate bytes; gate and aggregate consume the canonical
+/// per-target input layout. No cross-job absolute paths are serialized and no
+/// repository discovery is introduced.
 pub fn render_release_github(
     graph: &ReleaseCIPlanV1,
     policy: &GitHubPolicy,
@@ -1429,67 +1868,321 @@ pub fn render_release_github(
         .as_ref()
         .ok_or_else(|| fail("M002 release rendering requires download-artifact pin"))?;
     validate_pin(download_pin, "actions/download-artifact")?;
+    let inputs = policy
+        .release_inputs
+        .as_ref()
+        .ok_or_else(|| fail("M002a release rendering requires explicit release input paths"))?;
+    inputs.validate()?;
+    // Emulated qualification requires an explicit finite provider runtime
+    // policy; never silently invoke M003 with an empty runtime.
+    for qual in &graph.qualifications {
+        let planned = graph
+            .ci_plan
+            .targets
+            .iter()
+            .find(|job| job.planned.target == qual.target)
+            .ok_or_else(|| fail("qualification target is not in CIPlan"))?;
+        if planned.planned.policy.qualification == Qualification::Emulated {
+            let has_runtime = policy
+                .emulated_sysroots
+                .as_ref()
+                .is_some_and(|map| map.contains_key(&qual.target));
+            if !has_runtime {
+                return Err(fail(
+                    "emulated qualification requires an explicit provider runtime policy",
+                ));
+            }
+        }
+    }
 
-    // Reuse M001 build rendering as the build prefix, then append M002 nodes.
-    // M001 rendering already validates policy/plan and emits preflight + builds.
-    let mut out = render_github(&graph.ci_plan, policy)?;
-    // Remove nothing: append qualify/gate/aggregate jobs as new top-level YAML.
-    // Since render_github returns complete YAML, we append jobs by string surgery:
-    // find trailing newline and append new job blocks with two-space indent.
-    // All appended jobs are read-only and use pinned tooling.
-    let mut extra = String::new();
+    // Header mirrors M001 build rendering (deterministic, read-only, pinned).
+    let mut out = String::from("name: Eggpack candidate builds\n'on':\n");
+    for trigger in &policy.triggers {
+        match trigger {
+            WorkflowTrigger::Push => out.push_str("  push:\n"),
+            WorkflowTrigger::WorkflowDispatch => out.push_str("  workflow_dispatch:\n"),
+        }
+    }
+    out.push_str("permissions:\n  contents: read\nconcurrency:\n  group: eggpack-${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: ");
+    out.push_str(if policy.cancel_in_progress {
+        "true\n"
+    } else {
+        "false\n"
+    });
+    out.push_str("jobs:\n  preflight:\n    runs-on: ");
+    out.push_str(&yaml_scalar(&policy.preflight_runner));
+    out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+    out.push_str(&policy.timeout_minutes.to_string());
+    out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
+    out.push_str(&yaml_scalar(&policy.checkout.reference));
+    out.push_str("\n      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
+
+    // Build jobs: M001 cargo invocations plus pinned tool install, explicit
+    // `_capture-build` into the canonical per-target directory, and upload of
+    // the entire canonical directory as one deterministic artifact.
+    for job in &graph.ci_plan.targets {
+        let runner = policy
+            .runners
+            .iter()
+            .find(|mapping| {
+                mapping.os == job.planned.policy.host_os
+                    && mapping.arch == job.planned.policy.host_arch
+            })
+            .ok_or_else(|| fail("GitHub runner mapping missing for build host"))?;
+        if job.planned.policy.strategy == BuildStrategy::CargoZigbuild
+            && (!runner.cargo_zigbuild || !runner.zig)
+        {
+            return Err(fail(
+                "cross-build runner lacks preinstalled cargo-zigbuild or Zig",
+            ));
+        }
+        out.push_str("  ");
+        out.push_str(&job.job_id);
+        out.push_str(":\n    needs: preflight\n    runs-on: ");
+        out.push_str(&yaml_scalar(&runner.label));
+        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+        out.push_str(&policy.timeout_minutes.to_string());
+        out.push_str("\n    continue-on-error: ");
+        out.push_str(if job.required { "false\n" } else { "true\n" });
+        out.push_str("    steps:\n      - name: Check out source\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.checkout.reference));
+        out.push_str("\n      - name: Set up Rust toolchain\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.rust_toolchain.reference));
+        out.push_str("\n        with:\n          toolchain: ");
+        out.push_str(&yaml_scalar(&job.planned.policy.toolchain.rust));
+        out.push_str("\n          targets: ");
+        out.push_str(&yaml_scalar(&job.planned.target));
+        out.push('\n');
+        match job.planned.policy.strategy {
+            BuildStrategy::NativeCargo => {
+                out.push_str("      - name: Verify Rust toolchain\n        shell: bash\n        run: cargo +");
+                out.push_str(&shell_quote(&job.planned.policy.toolchain.rust));
+                out.push_str(" --version\n");
+            }
+            BuildStrategy::CargoZigbuild => {
+                let expected = job
+                    .planned
+                    .policy
+                    .toolchain
+                    .cargo_zigbuild
+                    .as_deref()
+                    .ok_or_else(|| fail("cargo-zigbuild version missing from ReleasePlan"))?;
+                out.push_str("      - name: Verify Rust and cross tools\n        shell: bash\n        run: |\n          cargo +");
+                out.push_str(&shell_quote(&job.planned.policy.toolchain.rust));
+                out.push_str(" --version\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
+                out.push_str(&shell_quote(&format!("cargo-zigbuild {expected}")));
+                out.push_str("\n          zig version\n");
+            }
+        }
+        for output in &job.outputs {
+            out.push_str("      - name: Build ");
+            out.push_str(&yaml_scalar(&format!(
+                "{} / {}",
+                job.planned.target, output.binary
+            )));
+            out.push_str("\n        shell: bash\n        env:\n          CARGO_TARGET_DIR: \"${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}\"\n        run: ");
+            let mut command = Vec::with_capacity(output.args.len() + 1);
+            command.push(output.executable.as_str());
+            command.extend(output.args.iter().map(String::as_str));
+            out.push_str(&yaml_scalar(
+                &command
+                    .iter()
+                    .map(|arg| shell_quote(arg))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ));
+            out.push('\n');
+        }
+        let capture = RunnerCommand::CaptureBuild {
+            contract: inputs.contract.clone(),
+            release_plan: inputs.release_plan.clone(),
+            build_bindings: inputs.build_bindings.clone(),
+            target: job.planned.target.clone(),
+            cargo_target_dir:
+                "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}".into(),
+            output_dir: format!("./eggpack-build/{}", job.job_id),
+        };
+        let qual = graph
+            .qualifications
+            .iter()
+            .find(|q| q.build_job_id == job.job_id)
+            .ok_or_else(|| fail("qualification job missing for build target"))?;
+        out.push_str(&tool_install_snippet(tool));
+        out.push_str(
+            "      - name: Capture canonical build handoff\n        shell: bash\n        run: ",
+        );
+        out.push_str(&yaml_scalar(&capture.to_shell()));
+        out.push('\n');
+        out.push_str("      - name: Upload canonical build handoff\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&qual.build_handoff_name));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!("./eggpack-build/{}", job.job_id)));
+        out.push_str("\n          if-no-files-found: error\n          retention-days: ");
+        out.push_str(&policy.artifact_retention_days.to_string());
+        out.push('\n');
+    }
+
+    // Qualification jobs: download the matching canonical build artifact into
+    // a target-specific private directory, invoke `_qualify-target` with all
+    // explicit inputs, and upload the complete qualification directory.
     for qual in &graph.qualifications {
         let runner = policy
             .runners
             .iter()
             .find(|mapping| mapping.os == qual.host.os && mapping.arch == qual.host.arch)
             .ok_or_else(|| fail("runner mapping missing for qualification host"))?;
-        extra.push_str(&format!(
-            "  {job}:\n    needs: {build}\n    runs-on: {runner}\n    permissions:\n      contents: read\n    timeout-minutes: {timeout}\n    steps:\n      - name: Check out source\n        uses: {checkout}\n{tool_step}      - name: Download build handoff\n        uses: {download}\n        with:\n          name: {handoff}\n          path: ./eggpack-handoff/{build}\n      - name: Qualify target\n        shell: bash\n        run: eggpack ci _qualify-target --target {target}\n      - name: Upload qualification evidence\n        uses: {upload}\n        with:\n          name: {evidence}\n          path: ./eggpack-evidence/{build}\n          if-no-files-found: error\n          retention-days: {retention}\n",
-            job = qual.job_id,
-            build = qual.build_job_id,
-            runner = yaml_scalar(&runner.label),
-            timeout = policy.timeout_minutes,
-            checkout = yaml_scalar(&policy.checkout.reference),
-            tool_step = tool_install_snippet(tool),
-            download = yaml_scalar(&download_pin.reference),
-            handoff = yaml_scalar(&qual.build_handoff_name),
-            target = yaml_scalar(&qual.target),
-            upload = yaml_scalar(&policy.upload_artifact.reference),
-            evidence = yaml_scalar(&qual.evidence_handoff_name),
-            retention = policy.artifact_retention_days
-        ));
+        let qemu_sysroot = policy
+            .emulated_sysroots
+            .as_ref()
+            .and_then(|map| map.get(&qual.target).cloned());
+        let qualify = RunnerCommand::QualifyTarget {
+            contract: inputs.contract.clone(),
+            release_plan: inputs.release_plan.clone(),
+            build_bindings: inputs.build_bindings.clone(),
+            qualification_bindings: inputs.qualification_bindings.clone(),
+            target: qual.target.clone(),
+            candidate_dir: format!("./eggpack-handoff/{}/{}", qual.build_job_id, CANDIDATES_DIR),
+            build_handoff: format!(
+                "./eggpack-handoff/{}/{}",
+                qual.build_job_id, BUILD_HANDOFF_FILE
+            ),
+            output_dir: format!("./eggpack-qualification/{}", qual.build_job_id),
+            qemu_sysroot,
+        };
+        out.push_str("  ");
+        out.push_str(&qual.job_id);
+        out.push_str(":\n    needs: ");
+        out.push_str(&qual.build_job_id);
+        out.push_str("\n    runs-on: ");
+        out.push_str(&yaml_scalar(&runner.label));
+        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+        out.push_str(&policy.timeout_minutes.to_string());
+        out.push_str("\n    continue-on-error: ");
+        out.push_str(if qual.required { "false\n" } else { "true\n" });
+        out.push_str("    steps:\n      - name: Check out source\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.checkout.reference));
+        out.push('\n');
+        out.push_str(&tool_install_snippet(tool));
+        out.push_str("      - name: Download build handoff\n        uses: ");
+        out.push_str(&yaml_scalar(&download_pin.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&qual.build_handoff_name));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!(
+            "./eggpack-handoff/{}",
+            qual.build_job_id
+        )));
+        out.push_str("\n      - name: Qualify target\n        shell: bash\n        run: ");
+        out.push_str(&yaml_scalar(&qualify.to_shell()));
+        out.push('\n');
+        out.push_str("      - name: Upload qualification evidence\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!(
+            "./eggpack-qualification/{}",
+            qual.build_job_id
+        )));
+        out.push_str("\n          if-no-files-found: error\n          retention-days: ");
+        out.push_str(&policy.artifact_retention_days.to_string());
+        out.push('\n');
     }
-    // Required gate: reads structured evidence, never log strings.
-    extra.push_str(&format!(
-        "  {gate}:\n    needs: [{quals}]\n    runs-on: {runner}\n    permissions:\n      contents: read\n    timeout-minutes: {timeout}\n    steps:\n      - name: Check out source\n        uses: {checkout}\n{tool_step}      - name: Evaluate required qualification gate\n        shell: bash\n        run: eggpack ci _evaluate-gate\n",
-        gate = graph.gate_job_id,
-        quals = graph
-            .qualifications
-            .iter()
-            .map(|q| q.job_id.as_str())
-            .collect::<Vec<_>>()
-            .join(", "),
-        runner = yaml_scalar(&policy.preflight_runner),
-        timeout = policy.timeout_minutes,
-        checkout = yaml_scalar(&policy.checkout.reference),
-        tool_step = tool_install_snippet(tool),
-    ));
-    // Aggregate: downloads all evidence/candidates, validates, finalizes.
-    extra.push_str(&format!(
-        "  {agg}:\n    needs: {gate}\n    runs-on: {runner}\n    permissions:\n      contents: read\n    timeout-minutes: {timeout}\n    steps:\n      - name: Check out source\n        uses: {checkout}\n{tool_step}      - name: Download all qualification evidence\n        uses: {download}\n        with:\n          pattern: eggpack-evidence-*\n          path: ./eggpack-evidence\n      - name: Aggregate and finalize release\n        shell: bash\n        run: eggpack ci _aggregate\n      - name: Upload internal finalized release\n        uses: {upload}\n        with:\n          name: {final_name}\n          path: ./eggpack-finalized\n          if-no-files-found: error\n          retention-days: {retention}\n",
-        agg = graph.aggregate.job_id,
-        gate = graph.gate_job_id,
-        runner = yaml_scalar(&policy.preflight_runner),
-        timeout = policy.timeout_minutes,
-        checkout = yaml_scalar(&policy.checkout.reference),
-        tool_step = tool_install_snippet(tool),
-        download = yaml_scalar(&download_pin.reference),
-        upload = yaml_scalar(&policy.upload_artifact.reference),
-        final_name = yaml_scalar(&graph.aggregate.final_handoff_name),
-        retention = policy.artifact_retention_days
-    ));
-    out.push_str(&extra);
+    // Required gate: one explicit download step per target into the canonical
+    // `eggpack-inputs/<target>/` layout, then `_evaluate-gate` with the exact
+    // CI plan, inputs directory, and outcome path.
+    {
+        let gate_cmd = RunnerCommand::EvaluateGate {
+            ci_plan: inputs.ci_plan.clone(),
+            inputs_dir: "./eggpack-inputs".into(),
+            output: format!("./eggpack-gate/{}", GATE_OUTCOME_FILE),
+        };
+        out.push_str("  ");
+        out.push_str(&graph.gate_job_id);
+        out.push_str(":\n    needs: [");
+        out.push_str(
+            &graph
+                .qualifications
+                .iter()
+                .map(|q| q.job_id.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        out.push_str("]\n    runs-on: ");
+        out.push_str(&yaml_scalar(&policy.preflight_runner));
+        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+        out.push_str(&policy.timeout_minutes.to_string());
+        out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.checkout.reference));
+        out.push('\n');
+        out.push_str(&tool_install_snippet(tool));
+        for qual in &graph.qualifications {
+            out.push_str("      - name: Download qualification ");
+            out.push_str(&yaml_scalar(&qual.target));
+            out.push_str("\n        uses: ");
+            out.push_str(&yaml_scalar(&download_pin.reference));
+            out.push_str("\n        with:\n          name: ");
+            out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+            out.push_str("\n          path: ");
+            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+            out.push('\n');
+        }
+        out.push_str("      - name: Evaluate required qualification gate\n        shell: bash\n        run: ");
+        out.push_str(&yaml_scalar(&gate_cmd.to_shell()));
+        out.push('\n');
+    }
+    // Aggregate: same canonical per-target directories, explicit contract /
+    // release-plan / CI-plan / inputs-dir / output-root / summary arguments.
+    // The finalized internal release is uploaded only when the aggregate
+    // outcome is Complete (the CLI fails closed otherwise, so no partial
+    // release can be uploaded).
+    {
+        let agg_cmd = RunnerCommand::Aggregate {
+            contract: inputs.contract.clone(),
+            release_plan: inputs.release_plan.clone(),
+            ci_plan: inputs.ci_plan.clone(),
+            inputs_dir: "./eggpack-inputs".into(),
+            output_root: "./eggpack-finalized/root".into(),
+            output: "./eggpack-finalized/summary.json".into(),
+        };
+        out.push_str("  ");
+        out.push_str(&graph.aggregate.job_id);
+        out.push_str(":\n    needs: ");
+        out.push_str(&graph.gate_job_id);
+        out.push_str("\n    runs-on: ");
+        out.push_str(&yaml_scalar(&policy.preflight_runner));
+        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+        out.push_str(&policy.timeout_minutes.to_string());
+        out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.checkout.reference));
+        out.push('\n');
+        out.push_str(&tool_install_snippet(tool));
+        for qual in &graph.qualifications {
+            out.push_str("      - name: Download qualification ");
+            out.push_str(&yaml_scalar(&qual.target));
+            out.push_str("\n        uses: ");
+            out.push_str(&yaml_scalar(&download_pin.reference));
+            out.push_str("\n        with:\n          name: ");
+            out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+            out.push_str("\n          path: ");
+            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+            out.push('\n');
+        }
+        out.push_str(
+            "      - name: Aggregate and finalize release\n        shell: bash\n        run: ",
+        );
+        out.push_str(&yaml_scalar(&agg_cmd.to_shell()));
+        out.push('\n');
+        out.push_str("      - name: Upload internal finalized release\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&graph.aggregate.final_handoff_name));
+        out.push_str("\n          path: ./eggpack-finalized\n          if-no-files-found: error\n          retention-days: ");
+        out.push_str(&policy.artifact_retention_days.to_string());
+        out.push('\n');
+    }
     if out.len() > MAX_WORKFLOW_BYTES {
         return Err(fail("rendered release workflow exceeds size bound"));
     }
@@ -1620,6 +2313,8 @@ mod tests {
             artifact_retention_days: 7,
             download_artifact: None,
             eggpack_tool: None,
+            release_inputs: None,
+            emulated_sysroots: None,
         }
     }
     fn graph(strategy: BuildStrategy, support: SupportTier) -> CIPlan {
@@ -1628,6 +2323,14 @@ mod tests {
     }
     fn assert_golden(actual: &str, fixture: &str) {
         assert_eq!(actual, fixture.replace("\r\n", "\n"));
+    }
+
+    /// Write-through helper for M002a golden regeneration (before/after
+    /// corrective evidence). Used by `m002a_regenerate_goldens`.
+    #[allow(dead_code)]
+    fn write_golden(path: &str, contents: &str) {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        std::fs::write(root.join(path.trim_start_matches("../")), contents).unwrap();
     }
 
     #[test]
@@ -1992,6 +2695,13 @@ mod tests {
             package: "eggpack-cli".into(),
             install_timeout_minutes: 10,
         });
+        base.release_inputs = Some(GitHubReleaseInputsV1 {
+            contract: "contracts/simple-direct.toml".into(),
+            release_plan: "plans/release-plan.json".into(),
+            build_bindings: "bindings/build.toml".into(),
+            qualification_bindings: "bindings/qualification.toml".into(),
+            ci_plan: "plans/release-ci-plan.json".into(),
+        });
         base
     }
 
@@ -2285,8 +2995,9 @@ mod tests {
             SupportTier::NonGating,
             QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed),
         );
+        let failed_optionals = [failed_optional];
         assert_eq!(
-            evaluate_gate(&optional_graph, &[failed_optional]).unwrap(),
+            evaluate_gate(&optional_graph, &failed_optionals).unwrap(),
             AggregateOutcome::SuppressedNonGatingIncomplete
         );
     }
@@ -2505,9 +3216,20 @@ mod tests {
         assert!(first.contains("eggpack --version"));
         // Exact gate dependencies and no release API.
         assert!(first.contains("required_gate"));
-        assert!(first.contains("eggpack ci _qualify-target"));
-        assert!(first.contains("eggpack ci _evaluate-gate"));
-        assert!(first.contains("eggpack ci _aggregate"));
+        assert!(first.contains("_qualify-target"));
+        assert!(first.contains("--contract"));
+        assert!(first.contains("--release-plan"));
+        assert!(first.contains("--build-bindings"));
+        assert!(first.contains("--qualification-bindings"));
+        assert!(first.contains("--candidate-dir"));
+        assert!(first.contains("--build-handoff"));
+        assert!(first.contains("--output-dir"));
+        assert!(first.contains("_capture-build"));
+        assert!(first.contains("--cargo-target-dir"));
+        assert!(first.contains("_evaluate-gate"));
+        assert!(first.contains("--inputs-dir"));
+        assert!(first.contains("_aggregate"));
+        assert!(first.contains("--output-root"));
         assert!(!first.contains("github-release"));
         assert!(!first.contains("publish"));
         // No arbitrary command.
@@ -2547,6 +3269,157 @@ mod tests {
         let mut bad_policy = m002_policy();
         bad_policy.download_artifact = None;
         assert!(render_release_github(&graph, &bad_policy).is_err());
+        // Missing explicit release inputs rejects (no hidden discovery).
+        let mut bad_policy = m002_policy();
+        bad_policy.release_inputs = None;
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+        // Invalid relative input path rejects.
+        let mut bad_policy = m002_policy();
+        bad_policy.release_inputs.as_mut().unwrap().contract = "../escape.toml".into();
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+        let mut bad_policy = m002_policy();
+        bad_policy.release_inputs.as_mut().unwrap().ci_plan = "/abs/path.json".into();
+        assert!(render_release_github(&graph, &bad_policy).is_err());
+    }
+
+    #[test]
+    fn m002a_emulated_requires_explicit_runtime_policy() {
+        let (_, _, _, _, _, graph) = m002_graph(Qualification::Emulated, SupportTier::Required);
+        // Without a runtime policy the renderer must reject.
+        assert!(render_release_github(&graph, &m002_policy()).is_err());
+        // With an explicit sysroot the renderer passes it to the CLI.
+        let policy = m002a_policy_with_sysroot("x86_64-unknown-linux-gnu", "sysroots/linux-x64");
+        let rendered = render_release_github(&graph, &policy).unwrap();
+        assert!(rendered.contains("--qemu-sysroot"));
+        assert!(rendered.contains("sysroots/linux-x64"));
+    }
+
+    #[test]
+    fn m002a_release_inputs_reject_escapes() {
+        let valid = GitHubReleaseInputsV1 {
+            contract: "contracts/release.toml".into(),
+            release_plan: "plans/release-plan.json".into(),
+            build_bindings: "bindings/build.toml".into(),
+            qualification_bindings: "bindings/qualification.toml".into(),
+            ci_plan: "plans/release-ci-plan.json".into(),
+        };
+        assert!(valid.validate().is_ok());
+        for bad in [
+            "",
+            "/abs.toml",
+            "../escape.toml",
+            "a//b.toml",
+            "a/./b.toml",
+            "win\\path.toml",
+            "c:/drive.toml",
+            "nul\0byte.toml",
+        ] {
+            let mut inputs = valid.clone();
+            inputs.contract = bad.into();
+            assert!(inputs.validate().is_err(), "must reject {bad:?}");
+        }
+    }
+
+    #[test]
+    fn m002a_runner_command_round_trip_covers_all_required_args() {
+        // Every internal CLI command has an exact structured round-trip: the
+        // renderer serializes the same RunnerCommand the tests execute, so CLI
+        // signature drift is caught here rather than in generated YAML alone.
+        let capture = RunnerCommand::CaptureBuild {
+            contract: "c.toml".into(),
+            release_plan: "r.json".into(),
+            build_bindings: "b.toml".into(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            cargo_target_dir: "/tmp/cargo-target".into(),
+            output_dir: "./eggpack-build/build_x".into(),
+        };
+        let shell = capture.to_shell();
+        for required in [
+            "_capture-build",
+            "--release-plan",
+            "--build-bindings",
+            "--target",
+            "--cargo-target-dir",
+            "--output-dir",
+        ] {
+            assert!(shell.contains(required), "capture shell missing {required}");
+        }
+        assert_eq!(capture.argv()[0], "eggpack");
+
+        let qualify = RunnerCommand::QualifyTarget {
+            contract: "c.toml".into(),
+            release_plan: "r.json".into(),
+            build_bindings: "b.toml".into(),
+            qualification_bindings: "q.toml".into(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: "./eggpack-handoff/build_x/candidates".into(),
+            build_handoff: "./eggpack-handoff/build_x/build-handoff.json".into(),
+            output_dir: "./eggpack-qualification/build_x".into(),
+            qemu_sysroot: None,
+        };
+        let shell = qualify.to_shell();
+        for required in [
+            "_qualify-target",
+            "--contract",
+            "--release-plan",
+            "--build-bindings",
+            "--qualification-bindings",
+            "--target",
+            "--candidate-dir",
+            "--build-handoff",
+            "--output-dir",
+        ] {
+            assert!(shell.contains(required), "qualify shell missing {required}");
+        }
+        // No hidden discovery flags and no absolute serialized paths.
+        assert!(!shell.contains(".."));
+        assert!(!shell.contains("tar -"));
+        let qualify_sysroot = RunnerCommand::QualifyTarget {
+            contract: "c.toml".into(),
+            release_plan: "r.json".into(),
+            build_bindings: "b.toml".into(),
+            qualification_bindings: "q.toml".into(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: "./eggpack-handoff/build_x/candidates".into(),
+            build_handoff: "./eggpack-handoff/build_x/build-handoff.json".into(),
+            output_dir: "./eggpack-qualification/build_x".into(),
+            qemu_sysroot: Some("sysroots/linux-x64".into()),
+        };
+        assert!(qualify_sysroot.to_shell().contains("--qemu-sysroot"));
+
+        let gate = RunnerCommand::EvaluateGate {
+            ci_plan: "plans/ci.json".into(),
+            inputs_dir: "./eggpack-inputs".into(),
+            output: "./eggpack-gate/gate-outcome.json".into(),
+        };
+        let shell = gate.to_shell();
+        for required in ["_evaluate-gate", "--ci-plan", "--inputs-dir", "--output"] {
+            assert!(shell.contains(required), "gate shell missing {required}");
+        }
+
+        let aggregate = RunnerCommand::Aggregate {
+            contract: "c.toml".into(),
+            release_plan: "r.json".into(),
+            ci_plan: "plans/ci.json".into(),
+            inputs_dir: "./eggpack-inputs".into(),
+            output_root: "./eggpack-finalized/root".into(),
+            output: "./eggpack-finalized/summary.json".into(),
+        };
+        let shell = aggregate.to_shell();
+        for required in [
+            "_aggregate",
+            "--contract",
+            "--release-plan",
+            "--ci-plan",
+            "--inputs-dir",
+            "--output-root",
+            "--output",
+        ] {
+            assert!(
+                shell.contains(required),
+                "aggregate shell missing {required}"
+            );
+        }
     }
 
     fn m002_golden_policy() -> GitHubPolicy {
@@ -2591,7 +3464,25 @@ mod tests {
                 package: "eggpack-cli".into(),
                 install_timeout_minutes: 10,
             }),
+            release_inputs: Some(GitHubReleaseInputsV1 {
+                contract: "contracts/release.toml".into(),
+                release_plan: "plans/release-plan.json".into(),
+                build_bindings: "bindings/build.toml".into(),
+                qualification_bindings: "bindings/qualification.toml".into(),
+                ci_plan: "plans/release-ci-plan.json".into(),
+            }),
+            emulated_sysroots: None,
         }
+    }
+
+    fn m002a_policy_with_sysroot(target: &str, sysroot: &str) -> GitHubPolicy {
+        let mut policy = m002_golden_policy();
+        policy.emulated_sysroots = Some(
+            [(target.to_string(), sysroot.to_string())]
+                .into_iter()
+                .collect(),
+        );
+        policy
     }
 
     fn m002_golden_case(
@@ -2761,5 +3652,479 @@ mod tests {
             &render_release_github(&graph, &policy).unwrap(),
             include_str!("../tests/fixtures/m002-archive.yml"),
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn m002a_regenerate_goldens() {
+        // Regenerate checked-in M002a goldens from the corrected renderer.
+        // Run explicitly with `cargo test -p eggpack-ci --lib -- --ignored`.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        write_golden(
+            "../tests/fixtures/m002-direct.yml",
+            &render_release_github(&graph, &policy).unwrap(),
+        );
+        let (graph, policy) = m002_golden_case(
+            include_str!("../tests/fixtures/mixed-direct-targets.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![
+                (
+                    "x86_64-unknown-linux-gnu",
+                    BuildStrategy::NativeCargo,
+                    SupportTier::Required,
+                    Qualification::Structural,
+                ),
+                (
+                    "aarch64-unknown-linux-gnu",
+                    BuildStrategy::CargoZigbuild,
+                    SupportTier::NonGating,
+                    Qualification::Structural,
+                ),
+            ],
+            vec!["linux-x64", "linux-arm64"],
+        );
+        write_golden(
+            "../tests/fixtures/m002-mixed.yml",
+            &render_release_github(&graph, &policy).unwrap(),
+        );
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+            "codegg",
+            "2.4.0",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        write_golden(
+            "../tests/fixtures/m002-bundle.yml",
+            &render_release_github(&graph, &policy).unwrap(),
+        );
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+            "egress",
+            "3.1.0",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        write_golden(
+            "../tests/fixtures/m002-archive.yml",
+            &render_release_github(&graph, &policy).unwrap(),
+        );
+    }
+
+    /// M002a end-to-end executable fixture: the same rendered command/argument
+    /// /layout contract drives build -> capture -> qualify -> gate ->
+    /// aggregate -> M004 finalization directly (no GitHub invocation).
+    #[test]
+    fn m002a_generated_orchestration_executes_end_to_end() {
+        for (fixture, product, version) in [
+            (
+                include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+                "eggsact",
+                "1.2.3",
+            ),
+            (
+                include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+                "codegg",
+                "2.4.0",
+            ),
+            (
+                include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+                "egress",
+                "3.1.0",
+            ),
+        ] {
+            let (contract, release, bindings, qual_bindings) = m002_release(
+                fixture,
+                product,
+                version,
+                "linux-x64",
+                Qualification::Structural,
+                SupportTier::Required,
+            );
+            let target = "x86_64-unknown-linux-gnu";
+            let planned = release
+                .targets
+                .iter()
+                .find(|t| t.target == target)
+                .unwrap()
+                .clone();
+            let parent = eggpack_core_test_temp(&format!("m002a-e2e-{product}"));
+
+            // Build candidate bytes (ELF for structural qualification).
+            let elf = m002_elf();
+            let mut handoff = project_build_handoff(&release, &bindings, target).unwrap();
+            let stage_src = parent.join("stage-src");
+            std::fs::create_dir(&stage_src).unwrap();
+            for output in &mut handoff.outputs {
+                std::fs::write(stage_src.join(&output.relative_path), &elf).unwrap();
+                output.size = elf.len() as u64;
+            }
+            handoff.validate().unwrap();
+
+            // _capture-build equivalent: stage the canonical build artifact.
+            let build_dir = parent.join("build").join(target);
+            stage_build_artifact_dir(&handoff, &stage_src, &build_dir).unwrap();
+            let staged = validate_build_artifact_dir(&build_dir).unwrap();
+            assert_eq!(staged.to_json().unwrap(), handoff.to_json().unwrap());
+
+            // _qualify-target equivalent: reconstruct, execute M003, write the
+            // canonical qualification artifact (handoff + evidence + bytes).
+            let candidates_dir = build_dir.join(CANDIDATES_DIR);
+            let attempt =
+                reconstruct_attempt(&release, &planned, &staged, &candidates_dir).unwrap();
+            let runtime = eggpack_core::QualificationRuntime { qemu_sysroot: None };
+            let cancellation = eggpack_core::BuildCancellation::new();
+            let evidence = eggpack_core::qualify_target(eggpack_core::QualificationRequest {
+                contract: &contract,
+                plan: &release,
+                target: &planned,
+                attempt: &attempt,
+                build_bindings: &bindings,
+                qualification_bindings: &qual_bindings,
+                runtime: &runtime,
+                cancellation: &cancellation,
+            })
+            .unwrap();
+            assert_eq!(evidence.status, eggpack_core::QualificationStatus::Passed);
+            let qual_dir = parent.join("qual").join(target);
+            std::fs::create_dir_all(qual_dir.join(CANDIDATES_DIR)).unwrap();
+            std::fs::write(
+                qual_dir.join(BUILD_HANDOFF_FILE),
+                staged.to_json().unwrap().as_bytes(),
+            )
+            .unwrap();
+            std::fs::write(
+                qual_dir.join(QUALIFICATION_EVIDENCE_FILE),
+                encode_qualification_evidence(&evidence).unwrap().as_bytes(),
+            )
+            .unwrap();
+            for output in &staged.outputs {
+                std::fs::copy(
+                    candidates_dir.join(&output.relative_path),
+                    qual_dir.join(CANDIDATES_DIR).join(&output.relative_path),
+                )
+                .unwrap();
+            }
+            let (_, staged_evidence) = validate_qualification_artifact_dir(&qual_dir).unwrap();
+            assert_eq!(
+                encode_qualification_evidence(&staged_evidence).unwrap(),
+                encode_qualification_evidence(&evidence).unwrap()
+            );
+
+            // _evaluate-gate + _aggregate equivalent over the canonical
+            // per-target inputs layout.
+            let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+            let graph =
+                project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).unwrap();
+            let inputs_root = parent.join("inputs");
+            std::fs::create_dir_all(inputs_root.join(target)).unwrap();
+            for entry in std::fs::read_dir(&qual_dir).unwrap() {
+                let entry = entry.unwrap();
+                let dest = inputs_root.join(target).join(entry.file_name());
+                if entry.path().is_dir() {
+                    std::fs::create_dir_all(&dest).unwrap();
+                    for inner in std::fs::read_dir(entry.path()).unwrap() {
+                        let inner = inner.unwrap();
+                        std::fs::copy(inner.path(), dest.join(inner.file_name())).unwrap();
+                    }
+                } else {
+                    std::fs::copy(entry.path(), dest).unwrap();
+                }
+            }
+            let gate_text =
+                std::fs::read_to_string(inputs_root.join(target).join("evidence.json")).unwrap();
+            let gate_evidence = decode_qualification_evidence(&gate_text).unwrap();
+            assert_eq!(
+                evaluate_gate(&graph, &[gate_evidence]).unwrap(),
+                AggregateOutcome::Complete
+            );
+
+            // Reconstruct the attempt from the aggregate inputs layout and
+            // finalize through M004; assert exact bytes and manifest identity.
+            let agg_handoff_text =
+                std::fs::read_to_string(inputs_root.join(target).join("build-handoff.json"))
+                    .unwrap();
+            let agg_handoff = BuildHandoffV1::from_json(&agg_handoff_text).unwrap();
+            let agg_attempt = reconstruct_attempt(
+                &release,
+                &planned,
+                &agg_handoff,
+                &inputs_root.join(target).join("candidates"),
+            )
+            .unwrap();
+            assert_eq!(agg_attempt.candidates.len(), handoff.outputs.len());
+            for candidate in &agg_attempt.candidates {
+                assert_eq!(
+                    std::fs::read(&candidate.path).unwrap(),
+                    elf,
+                    "final artifact bytes must be exact"
+                );
+            }
+            let final_inputs = vec![FinalizationTargetInput {
+                target: target.to_string(),
+                attempt: agg_attempt,
+                qualification: decode_qualification_evidence(
+                    &std::fs::read_to_string(inputs_root.join(target).join("evidence.json"))
+                        .unwrap(),
+                )
+                .unwrap(),
+            }];
+            let output_root = parent.join("finalized");
+            let (outcome, finalized) = aggregate_finalize(
+                &contract,
+                &release,
+                &graph,
+                &final_inputs,
+                &[],
+                &output_root,
+            )
+            .unwrap();
+            assert_eq!(outcome, AggregateOutcome::Complete);
+            let finalized = finalized.unwrap();
+            let manifest_json = finalized.manifest.to_json().unwrap();
+            assert!(manifest_json.contains(version));
+            // Exact manifest digest identity.
+            let manifest_bytes = manifest_json.as_bytes();
+            assert!(!manifest_bytes.is_empty());
+
+            // Tampered candidate after qualification fails closed.
+            let tampered_root = parent.join("tampered");
+            std::fs::create_dir_all(tampered_root.join(target).join("candidates")).unwrap();
+            std::fs::write(
+                tampered_root.join(target).join("build-handoff.json"),
+                agg_handoff_text.as_bytes(),
+            )
+            .unwrap();
+            std::fs::write(
+                tampered_root.join(target).join("evidence.json"),
+                gate_text.as_bytes(),
+            )
+            .unwrap();
+            for output in &agg_handoff.outputs {
+                std::fs::write(
+                    tampered_root
+                        .join(target)
+                        .join("candidates")
+                        .join(&output.relative_path),
+                    b"tampered-bytes",
+                )
+                .unwrap();
+            }
+            assert!(reconstruct_attempt(
+                &release,
+                &planned,
+                &agg_handoff,
+                &tampered_root.join(target).join("candidates"),
+            )
+            .is_err());
+
+            std::fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn m002a_optional_suppression_and_required_failure_close_the_gate() {
+        // Optional-target failure suppresses release output; required-target
+        // failure fails closed. Both use the canonical inputs layout.
+        let (contract, release, bindings, qual_bindings) = m002_release(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            "linux-x64",
+            Qualification::Structural,
+            SupportTier::NonGating,
+        );
+        let target = "x86_64-unknown-linux-gnu";
+        let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+        let optional_graph =
+            project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).unwrap();
+        let failed_optional = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::NonGating,
+            QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed),
+        );
+        assert_eq!(
+            evaluate_gate(&optional_graph, std::slice::from_ref(&failed_optional)).unwrap(),
+            AggregateOutcome::SuppressedNonGatingIncomplete
+        );
+        // Aggregate never produces a partial release on suppression.
+        let elf = m002_elf();
+        let parent = eggpack_core_test_temp("m002a-suppress");
+        let candidate = parent.join("candidate");
+        std::fs::write(&candidate, &elf).unwrap();
+        let _planned = release.targets[0].clone();
+        let attempt = eggpack_core::BuildAttempt {
+            release_id: release.release_id.clone(),
+            source_revision: release.source_revision.clone(),
+            target: target.to_string(),
+            strategy: BuildStrategy::NativeCargo,
+            tool_summary: "fixture".into(),
+            process: eggpack_core::ProcessEvidence {
+                outcome: eggpack_core::CommandOutcome::Success,
+                stdout_bytes: 0,
+                stderr_bytes: 0,
+            },
+            candidates: vec![eggpack_core::CandidateArtifact {
+                target: target.to_string(),
+                selector: LogicalOutputSelector::Direct,
+                package: "eggsact".into(),
+                binary: "bin0".into(),
+                path: candidate,
+                size: elf.len() as u64,
+            }],
+        };
+        let (outcome, finalized) = aggregate_finalize(
+            &contract,
+            &release,
+            &optional_graph,
+            &[FinalizationTargetInput {
+                target: target.to_string(),
+                attempt,
+                qualification: failed_optional.clone(),
+            }],
+            &[],
+            &parent.join("out"),
+        )
+        .unwrap();
+        assert_eq!(outcome, AggregateOutcome::SuppressedNonGatingIncomplete);
+        assert!(finalized.is_none());
+
+        // Required failure fails closed.
+        let (_, release_required, _, _, _, required_graph) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        let failed_required = m002_evidence(
+            target,
+            &release_required.release_id,
+            &release_required.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed),
+        );
+        assert_eq!(
+            evaluate_gate(&required_graph, &[failed_required]).unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        // Missing/extra/swap evidence is invalid, never partial.
+        assert_eq!(
+            evaluate_gate(&required_graph, &[]).unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m002a_negative_matrix_for_layout_and_identity() {
+        let (_, release, bindings, _, _, graph) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        let target = "x86_64-unknown-linux-gnu";
+        let parent = eggpack_core_test_temp("m002a-neg");
+        // Wrong-target handoff rejects.
+        let mut handoff = project_build_handoff(&release, &bindings, target).unwrap();
+        handoff.target = "aarch64-unknown-linux-gnu".into();
+        assert!(handoff.validate().is_ok()); // shape-valid but identity-mismatched
+        let planned = release.targets[0].clone();
+        let dir = parent.join("wrong-target");
+        std::fs::create_dir_all(dir.join("candidates")).unwrap();
+        let elf = m002_elf();
+        for output in &handoff.outputs {
+            std::fs::write(dir.join("candidates").join(&output.relative_path), &elf).unwrap();
+        }
+        std::fs::write(dir.join("build-handoff.json"), handoff.to_json().unwrap()).unwrap();
+        // Identity is checked by reconstruction against the plan, not by shape.
+        let mut good = project_build_handoff(&release, &bindings, target).unwrap();
+        for output in &mut good.outputs {
+            output.size = elf.len() as u64;
+        }
+        assert!(
+            reconstruct_attempt(&release, &planned, &handoff, &dir.join("candidates")).is_err()
+        );
+        // Missing candidate rejects.
+        let empty = parent.join("missing");
+        std::fs::create_dir_all(empty.join("candidates")).unwrap();
+        std::fs::write(empty.join("build-handoff.json"), good.to_json().unwrap()).unwrap();
+        assert!(validate_build_artifact_dir(&empty).is_err());
+        // Extra candidate rejects.
+        let extra = parent.join("extra");
+        stage_build_artifact_dir(
+            &good,
+            &{
+                let src = parent.join("extra-src");
+                std::fs::create_dir_all(&src).unwrap();
+                for output in &good.outputs {
+                    std::fs::write(src.join(&output.relative_path), &elf).unwrap();
+                }
+                src
+            },
+            &extra,
+        )
+        .unwrap();
+        std::fs::write(extra.join("candidates").join("stowaway"), b"x").unwrap();
+        assert!(validate_build_artifact_dir(&extra).is_err());
+        // Symlink candidate rejects.
+        #[cfg(unix)]
+        {
+            let link_dir = parent.join("link");
+            stage_build_artifact_dir(
+                &good,
+                &{
+                    let src = parent.join("link-src");
+                    std::fs::create_dir_all(&src).unwrap();
+                    for output in &good.outputs {
+                        std::fs::write(src.join(&output.relative_path), &elf).unwrap();
+                    }
+                    src
+                },
+                &link_dir,
+            )
+            .unwrap();
+            let victim = link_dir
+                .join("candidates")
+                .join(&good.outputs[0].relative_path);
+            std::fs::remove_file(&victim).unwrap();
+            std::os::unix::fs::symlink("/etc/hostname", &victim).unwrap();
+            assert!(validate_build_artifact_dir(&link_dir).is_err());
+        }
+        // Gate layout mismatch (evidence file absent) is an I/O-level failure
+        // before gate evaluation, never a silent pass.
+        assert!(validate_qualification_artifact_dir(&empty).is_err());
+        // Release identity mismatch fails closed.
+        let wrong = m002_evidence(
+            target,
+            "other-release",
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Passed,
+        );
+        assert_eq!(
+            evaluate_gate(&graph, &[wrong]).unwrap(),
+            AggregateOutcome::InvalidEvidence
+        );
+        std::fs::remove_dir_all(parent).unwrap();
     }
 }

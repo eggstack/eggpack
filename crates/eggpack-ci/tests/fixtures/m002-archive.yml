@@ -42,23 +42,25 @@ jobs:
         env:
           CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
         run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'egress' '--bin' 'bin1'"
-      - name: Hand off internal candidate bytes
-        uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
-        with:
-          name: "eggpack-x86_64-unknown-linux-gnu-archive-9a77b92fb8db60338e4915bcdece063d90fc05d0f11d11a206dac08e637a35c2"
-          path: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}/x86_64-unknown-linux-gnu/release/bin1"
-          if-no-files-found: error
-          retention-days: 7
       - name: Build "x86_64-unknown-linux-gnu / bin0"
         shell: bash
         env:
           CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
         run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'egress' '--bin' 'bin0'"
-      - name: Hand off internal candidate bytes
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
+      - name: Capture canonical build handoff
+        shell: bash
+        run: "'eggpack' 'ci' '_capture-build' '--release-plan' 'plans/release-plan.json' '--build-bindings' 'bindings/build.toml' '--target' 'x86_64-unknown-linux-gnu' '--cargo-target-dir' '${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}' '--output-dir' './eggpack-build/build_x86_64_unknown_linux_gnu'"
+      - name: Upload canonical build handoff
         uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
-          name: "eggpack-x86_64-unknown-linux-gnu-archive-a3083687ee111912f7daf2d0bfb3647c7a4ec90a05984cbdebac4203036a9735"
-          path: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}/x86_64-unknown-linux-gnu/release/bin0"
+          name: "eggpack-build-handoff-x86_64-unknown-linux-gnu"
+          path: "./eggpack-build/build_x86_64_unknown_linux_gnu"
           if-no-files-found: error
           retention-days: 7
   qualify_build_x86_64_unknown_linux_gnu:
@@ -67,6 +69,7 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 60
+    continue-on-error: false
     steps:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
@@ -80,15 +83,15 @@ jobs:
         uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
           name: "eggpack-build-handoff-x86_64-unknown-linux-gnu"
-          path: ./eggpack-handoff/build_x86_64_unknown_linux_gnu
+          path: "./eggpack-handoff/build_x86_64_unknown_linux_gnu"
       - name: Qualify target
         shell: bash
-        run: eggpack ci _qualify-target --target "x86_64-unknown-linux-gnu"
+        run: "'eggpack' 'ci' '_qualify-target' '--contract' 'contracts/release.toml' '--release-plan' 'plans/release-plan.json' '--build-bindings' 'bindings/build.toml' '--qualification-bindings' 'bindings/qualification.toml' '--target' 'x86_64-unknown-linux-gnu' '--candidate-dir' './eggpack-handoff/build_x86_64_unknown_linux_gnu/candidates' '--build-handoff' './eggpack-handoff/build_x86_64_unknown_linux_gnu/build-handoff.json' '--output-dir' './eggpack-qualification/build_x86_64_unknown_linux_gnu'"
       - name: Upload qualification evidence
         uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
           name: "eggpack-evidence-x86_64-unknown-linux-gnu"
-          path: ./eggpack-evidence/build_x86_64_unknown_linux_gnu
+          path: "./eggpack-qualification/build_x86_64_unknown_linux_gnu"
           if-no-files-found: error
           retention-days: 7
   required_gate:
@@ -106,9 +109,14 @@ jobs:
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
+      - name: Download qualification "x86_64-unknown-linux-gnu"
+        uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-evidence-x86_64-unknown-linux-gnu"
+          path: "./eggpack-inputs/x86_64-unknown-linux-gnu"
       - name: Evaluate required qualification gate
         shell: bash
-        run: eggpack ci _evaluate-gate
+        run: "'eggpack' 'ci' '_evaluate-gate' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output' './eggpack-gate/gate-outcome.json'"
   aggregate:
     needs: required_gate
     runs-on: "ubuntu-latest"
@@ -124,14 +132,14 @@ jobs:
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
-      - name: Download all qualification evidence
+      - name: Download qualification "x86_64-unknown-linux-gnu"
         uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
-          pattern: eggpack-evidence-*
-          path: ./eggpack-evidence
+          name: "eggpack-evidence-x86_64-unknown-linux-gnu"
+          path: "./eggpack-inputs/x86_64-unknown-linux-gnu"
       - name: Aggregate and finalize release
         shell: bash
-        run: eggpack ci _aggregate
+        run: "'eggpack' 'ci' '_aggregate' '--contract' 'contracts/release.toml' '--release-plan' 'plans/release-plan.json' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output-root' './eggpack-finalized/root' '--output' './eggpack-finalized/summary.json'"
       - name: Upload internal finalized release
         uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
         with:

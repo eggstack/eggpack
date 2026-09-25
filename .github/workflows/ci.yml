@@ -66,5 +66,21 @@ jobs:
       - if: matrix.os == 'windows-latest'
         name: Windows CI crate tests
         run: cargo test -p eggpack-ci --all-targets --all-features --locked
+      - if: matrix.os == 'windows-latest'
+        name: Verify PowerShell archive prerequisites (pwsh 7 + tar.exe)
+        shell: pwsh
+        run: |
+          pwsh -Version
+          if (-not (Get-Command tar.exe -ErrorAction SilentlyContinue)) { throw 'tar.exe is required on the Windows qualification lane' }
+          tar.exe --version
+      - if: matrix.os == 'windows-latest'
+        name: Focused PowerShell archive runtime (Bootstrap M002a)
+        run: cargo test -p eggpack-bootstrap --all-targets --all-features --locked m002a_powershell_archive_runtime -- --nocapture
+      - if: matrix.os == 'windows-latest'
+        name: Focused generated-orchestration execution (CI M002a)
+        run: cargo test -p eggpack-ci --all-targets --all-features --locked m002a_generated_orchestration_executes_end_to_end -- --nocapture
+      - if: matrix.os == 'windows-latest'
+        name: Focused orchestration CLI harness (CI M002a)
+        run: cargo test -p eggpack-cli --all-targets --all-features --locked generated_orchestration_cli_executes_capture_to_aggregate -- --nocapture
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test --workspace --all-targets --all-features --locked

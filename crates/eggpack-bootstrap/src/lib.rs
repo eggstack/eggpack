@@ -1777,6 +1777,133 @@ sidecar = "{{asset}}.sha256"
         enc.finish().unwrap()
     }
 
+    /// Test-only minimal ustar writer capable of raw unsafe member names.
+    ///
+    /// The Rust `tar` builder validates paths, so traversal/absolute/backslash
+    /// fixtures that must reach the generated consumer guard are built here
+    /// byte-by-byte. Production validation is never weakened by this helper.
+    struct RawTarEntry<'a> {
+        name: &'a str,
+        kind: u8,
+        linkname: &'a str,
+        data: &'a [u8],
+    }
+
+    fn build_raw_tar_gz(entries: &[RawTarEntry<'_>]) -> Vec<u8> {
+        fn octal(value: u64, width: usize) -> Vec<u8> {
+            let text = format!("{value:0width$o}", width = width - 1);
+            let mut out = text.into_bytes();
+            out.push(0);
+            debug_assert_eq!(out.len(), width);
+            out
+        }
+        let mut raw = Vec::new();
+        for entry in entries {
+            let mut header = [0u8; 512];
+            let name = entry.name.as_bytes();
+            assert!(
+                !name.is_empty() && name.len() < 100,
+                "raw name out of bounds"
+            );
+            header[..name.len()].copy_from_slice(name);
+            header[100..108].copy_from_slice(&octal(0o755, 8));
+            header[108..116].copy_from_slice(&octal(0, 8));
+            header[116..124].copy_from_slice(&octal(0, 8));
+            let size = if entry.kind == b'5' {
+                0
+            } else {
+                entry.data.len() as u64
+            };
+            header[124..136].copy_from_slice(&octal(size, 12));
+            header[136..148].copy_from_slice(&octal(0, 12));
+            // Checksum field is spaces during computation.
+            for b in header[148..156].iter_mut() {
+                *b = b' ';
+            }
+            header[156] = entry.kind;
+            let link = entry.linkname.as_bytes();
+            assert!(link.len() < 100, "raw linkname out of bounds");
+            header[157..157 + link.len()].copy_from_slice(link);
+            header[257..262].copy_from_slice(b"ustar");
+            header[263..265].copy_from_slice(b"00");
+            let sum: u32 = header.iter().map(|b| *b as u32).sum();
+            let text = format!("{sum:06o}\0 ");
+            header[148..156].copy_from_slice(text.as_bytes());
+            raw.extend_from_slice(&header);
+            if entry.kind == b'0' {
+                raw.extend_from_slice(entry.data);
+                while raw.len() % 512 != 0 {
+                    raw.push(0);
+                }
+            }
+        }
+        raw.extend_from_slice(&[0u8; 1024]);
+        let file = Vec::new();
+        let mut enc = flate2::GzBuilder::new()
+            .mtime(0)
+            .write(file, flate2::Compression::default());
+        use std::io::Write;
+        enc.write_all(&raw).unwrap();
+        enc.finish().unwrap()
+    }
+
+    fn manifest_with_archive_bytes(manifest: &ReleaseManifest, bytes: &[u8]) -> ReleaseManifest {
+        let mut updated = manifest.clone();
+        if let ArtifactForm::Archive { artifact, .. } = &mut updated.targets[0].form {
+            artifact.size = bytes.len() as u64;
+            artifact.sha256 = sha_hex(bytes);
+        } else {
+            panic!("archive expected");
+        }
+        updated.validate().unwrap();
+        updated
+    }
+
+    fn pwsh_available() -> bool {
+        std::process::Command::new("pwsh")
+            .arg("-Version")
+            .output()
+            .is_ok()
+    }
+
+    fn tar_exe_available() -> bool {
+        #[cfg(windows)]
+        {
+            std::process::Command::new("tar.exe")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+                || std::process::Command::new("pwsh")
+                    .args([
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-Command",
+                        "(Get-Command tar.exe -ErrorAction SilentlyContinue) -ne $null",
+                    ])
+                    .output()
+                    .map(|o| {
+                        o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "True"
+                    })
+                    .unwrap_or(false)
+        }
+        #[cfg(not(windows))]
+        {
+            // PowerShell installers shell to tar.exe; on Unix lanes pwsh can still
+            // execute the script only where a tar.exe shim exists on PATH.
+            std::process::Command::new("pwsh")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-Command tar.exe -ErrorAction SilentlyContinue) -ne $null",
+                ])
+                .output()
+                .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "True")
+                .unwrap_or(false)
+        }
+    }
+
     #[allow(clippy::type_complexity)]
     fn archive_manifest_policy_and_archive() -> (
         ReleaseManifest,
@@ -2443,51 +2570,123 @@ sidecar = "{asset}.sha256"
             }
         }
 
-        // Missing / extra / traversal / absolute members reject.
-        let tampered_cases: Vec<(&str, Vec<(&str, &[u8])>)> = vec![
-            ("missing", vec![("hostbin", member_main.as_slice())]),
+        // Missing / extra / traversal / absolute / backslash / symlink / type
+        // members reject at the inner inventory/path/type defense. Every case
+        // first updates the manifest outer archive size/SHA to the exact
+        // tampered bytes so outer verification passes; the expected member
+        // records remain authoritative.
+        let tampered_cases: Vec<(&str, Vec<u8>, &str)> = vec![
+            (
+                "missing",
+                build_deterministic_tar_gz(&[("hostbin", member_main.as_slice())]),
+                "archive member inventory mismatch",
+            ),
             (
                 "extra",
-                vec![
+                build_deterministic_tar_gz(&[
                     ("hostbin", member_main.as_slice()),
                     ("bin/host-helper", member_helper.as_slice()),
                     ("extra-file", b"extra" as &[u8]),
-                ],
+                ]),
+                "archive member inventory mismatch",
             ),
             (
                 "traversal",
-                vec![
-                    ("hostbin", member_main.as_slice()),
-                    ("../evil", member_helper.as_slice()),
-                ],
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "../evil",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_helper.as_slice(),
+                    },
+                ]),
+                "unsafe archive member",
             ),
             (
                 "absolute",
-                vec![
-                    ("hostbin", member_main.as_slice()),
-                    ("/abs", member_helper.as_slice()),
-                ],
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "/abs",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_helper.as_slice(),
+                    },
+                ]),
+                "unsafe archive member",
+            ),
+            (
+                "backslash",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "bin\\evil",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_helper.as_slice(),
+                    },
+                ]),
+                "unsafe archive member",
+            ),
+            (
+                "symlink-inner",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "bin/host-helper",
+                        kind: b'2',
+                        linkname: "hostbin",
+                        data: &[],
+                    },
+                ]),
+                "symlink member rejected",
+            ),
+            (
+                "directory",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "bin/host-helper",
+                        kind: b'5',
+                        linkname: "",
+                        data: &[],
+                    },
+                ]),
+                "member is not a regular file",
             ),
         ];
-        for (label, members) in tampered_cases {
-            // Build archive bytes; traversal/absolute may fail tar builder path validation,
-            // in which case the producer archive itself is invalid and the test passes
-            // by asserting no successful install from a hand-crafted mismatch.
-            let bytes = if label == "traversal" || label == "absolute" {
-                // Craft a valid tar with safe names but serve mismatched inventory:
-                // use correct archive bytes but mutate manifest expectation via script?
-                // Instead serve an archive with wrong member names that tar accepts.
-                build_deterministic_tar_gz(&[
-                    ("hostbin", member_main.as_slice()),
-                    ("other", member_helper.as_slice()),
-                ])
-            } else {
-                build_deterministic_tar_gz(&members)
-            };
+        for (label, bytes, expected_guard) in &tampered_cases {
+            let tampered_manifest = manifest_with_archive_bytes(&manifest, bytes);
             let mut tampered_routes = HashMap::new();
             tampered_routes.insert(
                 format!("/releases/{archive_name}"),
-                (bytes, "200 OK".into()),
+                (bytes.clone(), "200 OK".into()),
             );
             let tampered_origin = serve_map(tampered_routes);
             let tampered_spec = BootstrapSpec {
@@ -2495,28 +2694,65 @@ sidecar = "{asset}.sha256"
                 fixture_http: true,
             };
             let tampered_script =
-                render_posix_with_policy(&contract, &manifest, &tampered_spec, &policy).unwrap();
+                render_posix_with_policy(&contract, &tampered_manifest, &tampered_spec, &policy)
+                    .unwrap();
             let tampered_path = root.join(format!("tampered-{label}.sh"));
             let tampered_dest = root.join(format!("tampered-{label}-dest"));
             fs::write(&tampered_path, &tampered_script).unwrap();
-            // For traversal/absolute labels, also verify the generated script contains
-            // explicit traversal guards.
-            if label == "traversal" || label == "absolute" {
-                assert!(tampered_script.contains("unsafe archive member"));
-            }
+            let output = Command::new("sh")
+                .arg(&tampered_path)
+                .arg(&tampered_dest)
+                .output()
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
             assert!(
-                !Command::new("sh")
-                    .arg(&tampered_path)
-                    .arg(&tampered_dest)
-                    .output()
-                    .unwrap()
-                    .status
-                    .success(),
+                !output.status.success(),
                 "tampered archive {label} must fail"
             );
+            // Outer archive verification must have passed: the failure is the
+            // intended inner member defense, not an outer size/SHA mismatch.
+            assert!(
+                !stderr.contains("size mismatch") && !stderr.contains("SHA-256 mismatch"),
+                "tampered archive {label} must pass outer digest, got: {stderr}"
+            );
+            assert!(
+                stderr.contains(expected_guard),
+                "tampered archive {label} must reach '{expected_guard}', got: {stderr}"
+            );
+            // No final installed files exist.
+            if tampered_dest.exists() {
+                let installed = fs::read_dir(&tampered_dest)
+                    .unwrap()
+                    .filter(|e| {
+                        let name = e
+                            .as_ref()
+                            .unwrap()
+                            .file_name()
+                            .to_string_lossy()
+                            .into_owned();
+                        !name.starts_with(".eggpack.")
+                    })
+                    .count();
+                assert_eq!(
+                    installed, 0,
+                    "tampered archive {label} must install nothing"
+                );
+            }
+            // Destination remains unchanged when it pre-exists.
+            let preserved = root.join(format!("tampered-{label}-preserved"));
+            fs::create_dir_all(&preserved).unwrap();
+            fs::write(preserved.join("hostbin"), b"sentinel").unwrap();
+            assert!(!Command::new("sh")
+                .arg(&tampered_path)
+                .arg(&preserved)
+                .output()
+                .unwrap()
+                .status
+                .success());
+            assert_eq!(fs::read(preserved.join("hostbin")).unwrap(), b"sentinel");
         }
 
-        // Symlink member rejects.
+        // Symlink member rejects at the inner type defense (outer digest valid).
         {
             let file = Vec::new();
             let enc = flate2::GzBuilder::new()
@@ -2546,6 +2782,7 @@ sidecar = "{asset}.sha256"
             archive.append(&link_header, &[][..]).unwrap();
             let enc = archive.into_inner().unwrap();
             let symlink_bytes = enc.finish().unwrap();
+            let symlink_manifest = manifest_with_archive_bytes(&manifest, &symlink_bytes);
             let mut symlink_routes = HashMap::new();
             symlink_routes.insert(
                 format!("/releases/{archive_name}"),
@@ -2557,17 +2794,97 @@ sidecar = "{asset}.sha256"
                 fixture_http: true,
             };
             let symlink_script =
-                render_posix_with_policy(&contract, &manifest, &symlink_spec, &policy).unwrap();
+                render_posix_with_policy(&contract, &symlink_manifest, &symlink_spec, &policy)
+                    .unwrap();
             let symlink_path = root.join("symlink.sh");
             let symlink_dest = root.join("symlink-dest");
             fs::write(&symlink_path, symlink_script).unwrap();
-            assert!(!Command::new("sh")
+            let output = Command::new("sh")
                 .arg(&symlink_path)
                 .arg(&symlink_dest)
                 .output()
-                .unwrap()
-                .status
-                .success());
+                .unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!output.status.success());
+            assert!(
+                !stderr.contains("size mismatch") && !stderr.contains("SHA-256 mismatch"),
+                "symlink case must pass outer digest, got: {stderr}"
+            );
+            assert!(
+                stderr.contains("symlink member rejected"),
+                "symlink case must reach type guard, got: {stderr}"
+            );
+        }
+
+        // Archive placement rollback: fault-injected ln fails on the second
+        // final move; the first invocation-created destination must be removed.
+        {
+            let fake_bin = root.join("archive-fake-bin");
+            fs::create_dir_all(&fake_bin).unwrap();
+            fs::write(
+                fake_bin.join("ln"),
+                "#!/bin/sh\ncount_file=\"$FAKE_LN_COUNT\"\ncount=$(cat \"$count_file\" 2>/dev/null || echo 0)\ncount=$((count+1))\necho \"$count\" > \"$count_file\"\nif [ \"$count\" -ge 2 ]; then echo 'injected ln failure' >&2; exit 1; fi\nexec /bin/ln \"$@\"\n",
+            )
+            .unwrap();
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = fs::metadata(fake_bin.join("ln")).unwrap().permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(fake_bin.join("ln"), perms).unwrap();
+            }
+            for tool in [
+                "curl",
+                "sha256sum",
+                "wc",
+                "cut",
+                "tr",
+                "mktemp",
+                "rm",
+                "mkdir",
+                "chmod",
+                "cmp",
+                "sort",
+                "printf",
+                "tar",
+                "uname",
+                "sh",
+            ] {
+                for prefix in ["/usr/bin", "/bin"] {
+                    let src = format!("{prefix}/{tool}");
+                    if std::path::Path::new(&src).exists() && !fake_bin.join(tool).exists() {
+                        let _ = std::os::unix::fs::symlink(&src, fake_bin.join(tool));
+                    }
+                }
+            }
+            let count_file = root.join("archive-ln-count");
+            fs::write(&count_file, b"0").unwrap();
+            // Pre-existing second install name is not owned by the installer;
+            // use a fresh dest and let the injected ln failure trigger rollback
+            // of the first placed file instead.
+            let rollback_dest = root.join("archive-rollback-dest");
+            let output = Command::new("sh")
+                .arg(&script_path)
+                .arg(&rollback_dest)
+                .env("PATH", format!("{}:/usr/bin:/bin", fake_bin.display()))
+                .env("FAKE_LN_COUNT", &count_file)
+                .output()
+                .unwrap();
+            assert!(!output.status.success());
+            if rollback_dest.exists() {
+                let count = fs::read_dir(&rollback_dest)
+                    .map(|d| {
+                        d.filter(|e| {
+                            !e.as_ref()
+                                .unwrap()
+                                .file_name()
+                                .to_string_lossy()
+                                .starts_with(".eggpack.")
+                        })
+                        .count()
+                    })
+                    .unwrap_or(0);
+                assert_eq!(count, 0, "archive rollback must remove partial placement");
+            }
         }
 
         // Unavailable tar rejects before placement.
@@ -2747,6 +3064,8 @@ sidecar = "{asset}.sha256"
         .unwrap();
         assert!(ps_archive.contains("tar.exe"));
         assert!(!ps_archive.contains("sudo"));
+        // Archive installers roll back only invocation-created files.
+        assert!(ps_archive.contains("foreach ($p in $created)"));
         if parser_available {
             let ps_path =
                 std::env::temp_dir().join(format!("eggpack-m002-arch-{}.ps1", std::process::id()));
@@ -2759,5 +3078,359 @@ sidecar = "{asset}.sha256"
                 .success());
             let _ = fs::remove_file(ps_path);
         }
+    }
+
+    #[test]
+    fn m002a_powershell_archive_runtime() {
+        use std::{fs, process::Command};
+        // Qualification lane: Windows must provide pwsh 7 + tar.exe and may not
+        // silently skip. Other platforms run when pwsh + tar.exe are present
+        // and skip otherwise (regression guard, not qualification evidence).
+        if cfg!(windows) {
+            assert!(pwsh_available(), "pwsh 7 is required on the Windows lane");
+            assert!(
+                tar_exe_available(),
+                "tar.exe is required on the Windows lane"
+            );
+        } else if !pwsh_available() || !tar_exe_available() {
+            eprintln!("skip: pwsh + tar.exe unavailable on non-Windows lane");
+            return;
+        }
+        let (contract, manifest, policy, archive_bytes, member_bodies) = host_archive_case();
+        let member_main = member_bodies[0].1.clone();
+        let member_helper = member_bodies[1].1.clone();
+        let archive_name = match &manifest.targets[0].form {
+            ArtifactForm::Archive { artifact, .. } => artifact.name.clone(),
+            _ => panic!("archive expected"),
+        };
+        let mut routes = HashMap::new();
+        routes.insert(
+            format!("/releases/{archive_name}"),
+            (archive_bytes.clone(), "200 OK".into()),
+        );
+        let origin = serve_map(routes);
+        let spec = BootstrapSpec {
+            origin,
+            fixture_http: true,
+        };
+        let script = render_powershell_with_policy(&contract, &manifest, &spec, &policy).unwrap();
+        assert_eq!(
+            script,
+            render_powershell_with_policy(&contract, &manifest, &spec, &policy).unwrap()
+        );
+        assert!(script.contains("tar.exe"));
+        assert!(!script.contains("sudo"));
+        assert!(!script.contains("Start-Process"));
+        assert!(script.contains("-MaximumRedirection 0"));
+
+        let root =
+            std::env::temp_dir().join(format!("eggpack-m002a-ps-arch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let script_path = root.join("install.ps1");
+        fs::write(&script_path, &script).unwrap();
+
+        fn pwsh_run(script: &std::path::Path, dest: &std::path::Path) -> std::process::Output {
+            Command::new("pwsh")
+                .arg("-NoProfile")
+                .arg("-NonInteractive")
+                .arg("-File")
+                .arg(script)
+                .arg(dest)
+                .output()
+                .unwrap()
+        }
+        fn combined(output: &std::process::Output) -> String {
+            format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            )
+        }
+        fn installed_files(dest: &std::path::Path) -> usize {
+            if !dest.exists() {
+                return 0;
+            }
+            fs::read_dir(dest)
+                .unwrap()
+                .filter(|e| {
+                    let name = e
+                        .as_ref()
+                        .unwrap()
+                        .file_name()
+                        .to_string_lossy()
+                        .into_owned();
+                    !name.starts_with(".eggpack-")
+                })
+                .count()
+        }
+
+        // Positive: exact bytes, nested-source flattening, no-overwrite.
+        let dest = root.join("dest-ok");
+        let ok = pwsh_run(&script_path, &dest);
+        assert!(
+            ok.status.success(),
+            "pwsh archive install failed: {}",
+            combined(&ok)
+        );
+        assert_eq!(fs::read(dest.join("hostbin")).unwrap(), member_main);
+        assert_eq!(fs::read(dest.join("host-helper")).unwrap(), member_helper);
+        assert!(!dest.join("bin").exists());
+        // Pre-existing destination preservation.
+        let repeat = pwsh_run(&script_path, &dest);
+        assert!(!repeat.status.success());
+        assert_eq!(fs::read(dest.join("hostbin")).unwrap(), member_main);
+        assert_eq!(installed_files(&dest), 2);
+
+        // Archive integrity negatives fail before member listing/extraction.
+        for (label, mut bad) in [("size", manifest.clone()), ("sha", manifest.clone())] {
+            if let ArtifactForm::Archive { artifact, .. } = &mut bad.targets[0].form {
+                if label == "size" {
+                    artifact.size += 1;
+                } else {
+                    artifact.sha256 = "00".repeat(32);
+                }
+            }
+            let bad_script =
+                render_powershell_with_policy(&contract, &bad, &spec, &policy).unwrap();
+            let bad_path = root.join(format!("bad-archive-{label}.ps1"));
+            let bad_dest = root.join(format!("bad-archive-{label}-dest"));
+            fs::write(&bad_path, &bad_script).unwrap();
+            let out = pwsh_run(&bad_path, &bad_dest);
+            assert!(!out.status.success(), "wrong archive {label} must fail");
+            assert_eq!(installed_files(&bad_dest), 0);
+        }
+
+        // Inner archive negatives: valid outer digest, intended guard rejects.
+        let inner_cases: Vec<(&str, Vec<u8>, &str)> = vec![
+            (
+                "missing",
+                build_deterministic_tar_gz(&[("hostbin", member_main.as_slice())]),
+                "archive member inventory mismatch",
+            ),
+            (
+                "extra",
+                build_deterministic_tar_gz(&[
+                    ("hostbin", member_main.as_slice()),
+                    ("bin/host-helper", member_helper.as_slice()),
+                    ("extra-file", b"extra" as &[u8]),
+                ]),
+                "archive member inventory mismatch",
+            ),
+            (
+                "traversal",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "../evil",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_helper.as_slice(),
+                    },
+                ]),
+                "unsafe archive member",
+            ),
+            (
+                "absolute",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "/abs",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_helper.as_slice(),
+                    },
+                ]),
+                "unsafe archive member",
+            ),
+            (
+                "backslash",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "bin\\evil",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_helper.as_slice(),
+                    },
+                ]),
+                "unsafe archive member",
+            ),
+            (
+                "symlink",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "bin/host-helper",
+                        kind: b'2',
+                        linkname: "hostbin",
+                        data: &[],
+                    },
+                ]),
+                "symlink member rejected",
+            ),
+            (
+                "directory",
+                build_raw_tar_gz(&[
+                    RawTarEntry {
+                        name: "hostbin",
+                        kind: b'0',
+                        linkname: "",
+                        data: member_main.as_slice(),
+                    },
+                    RawTarEntry {
+                        name: "bin/host-helper",
+                        kind: b'5',
+                        linkname: "",
+                        data: &[],
+                    },
+                ]),
+                "member is not a regular file",
+            ),
+        ];
+        for (label, bytes, expected_guard) in &inner_cases {
+            let tampered_manifest = manifest_with_archive_bytes(&manifest, bytes);
+            let mut tampered_routes = HashMap::new();
+            tampered_routes.insert(
+                format!("/releases/{archive_name}"),
+                (bytes.clone(), "200 OK".into()),
+            );
+            let tampered_origin = serve_map(tampered_routes);
+            let tampered_spec = BootstrapSpec {
+                origin: tampered_origin,
+                fixture_http: true,
+            };
+            let tampered_script = render_powershell_with_policy(
+                &contract,
+                &tampered_manifest,
+                &tampered_spec,
+                &policy,
+            )
+            .unwrap();
+            let tampered_path = root.join(format!("tampered-{label}.ps1"));
+            let tampered_dest = root.join(format!("tampered-{label}-dest"));
+            fs::write(&tampered_path, &tampered_script).unwrap();
+            let out = pwsh_run(&tampered_path, &tampered_dest);
+            let text = combined(&out);
+            assert!(!out.status.success(), "tampered archive {label} must fail");
+            assert!(
+                !text.contains("size mismatch") || text.contains(expected_guard),
+                "tampered archive {label} must pass outer digest, got: {text}"
+            );
+            assert!(
+                text.contains(expected_guard),
+                "tampered archive {label} must reach '{expected_guard}', got: {text}"
+            );
+            assert_eq!(
+                installed_files(&tampered_dest),
+                0,
+                "tampered archive {label} must install nothing"
+            );
+        }
+
+        // Member evidence negatives reach member checks after extraction.
+        for (label, mut bad) in [
+            ("member-size", manifest.clone()),
+            ("member-sha", manifest.clone()),
+        ] {
+            if let ArtifactForm::Archive { members, .. } = &mut bad.targets[0].form {
+                if label == "member-size" {
+                    members[0].bytes.size += 1;
+                } else {
+                    members[1].bytes.sha256 = "11".repeat(32);
+                }
+            }
+            let bad_script =
+                render_powershell_with_policy(&contract, &bad, &spec, &policy).unwrap();
+            let bad_path = root.join(format!("{label}.ps1"));
+            let bad_dest = root.join(format!("{label}-dest"));
+            fs::write(&bad_path, &bad_script).unwrap();
+            let out = pwsh_run(&bad_path, &bad_dest);
+            assert!(!out.status.success(), "{label} must fail");
+            assert_eq!(installed_files(&bad_dest), 0);
+        }
+
+        // Tool boundary: tar.exe unavailable fails before placement.
+        {
+            let no_tar_dest = root.join("no-tar-dest");
+            let probe = Command::new("pwsh")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &format!(
+                        "$env:PATH=''; & {} {}",
+                        script_path.to_string_lossy(),
+                        no_tar_dest.to_string_lossy()
+                    ),
+                ])
+                .output()
+                .unwrap();
+            // On lanes where PATH='' still resolves tar.exe (Windows app-alias
+            // path), fall back to asserting the static tool boundary: the
+            // generated script requires tar.exe before extraction/placement.
+            let text = combined(&probe);
+            if text.contains("tar.exe is required") {
+                assert!(!probe.status.success());
+                assert_eq!(installed_files(&no_tar_dest), 0);
+            } else {
+                assert!(script.contains("tar.exe is required"));
+            }
+        }
+
+        // Placement failure / rollback: pre-existing second install name is not
+        // owned by the installer. The first move succeeds, the second fails,
+        // and the first invocation-created destination is rolled back while the
+        // pre-existing sentinel remains untouched. This exercises the shared
+        // `$created` rollback primitive for archives without adding a test hook
+        // to generated installers.
+        {
+            let dest = root.join("rollback-dest");
+            fs::create_dir_all(&dest).unwrap();
+            fs::write(dest.join("host-helper"), b"sentinel").unwrap();
+            let out = pwsh_run(&script_path, &dest);
+            assert!(
+                !out.status.success(),
+                "archive placement conflict must fail"
+            );
+            assert_eq!(fs::read(dest.join("host-helper")).unwrap(), b"sentinel");
+            assert!(
+                !dest.join("hostbin").exists(),
+                "first archive file must be rolled back"
+            );
+        }
+
+        // Pre-existing first destination is preserved and installs nothing else.
+        {
+            let dest = root.join("preexisting");
+            fs::create_dir_all(&dest).unwrap();
+            fs::write(dest.join("hostbin"), b"sentinel").unwrap();
+            let out = pwsh_run(&script_path, &dest);
+            assert!(!out.status.success());
+            assert_eq!(fs::read(dest.join("hostbin")).unwrap(), b"sentinel");
+            assert_eq!(installed_files(&dest), 1);
+        }
+
+        fs::remove_dir_all(root).unwrap();
     }
 }
