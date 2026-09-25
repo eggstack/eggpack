@@ -123,11 +123,11 @@ Implementation plan: `plans/implementation/build-qualification/002a-windows-buil
 
 ### M003 — Qualification execution model
 
-Active implementation: `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md`. M003 binds BuildAttempt to release/source identity, validates exact qualification bindings and candidate inventory, structurally checks ELF/PE/COFF/thin Mach-O, and records bounded native/deferred/QEMU/structural evidence.
+Closed: `plans/closure/build-qualification/003-status.md`. M003 binds BuildAttempt to release/source identity, validates exact qualification bindings and candidate inventory, structurally checks ELF/PE/COFF/thin Mach-O, and records bounded native/deferred/QEMU/structural evidence.
 
 ### M004 — Finalization and local aggregation
 
-Plan: `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md`. Direct/bundle/archive, final size/hash, mixed-release guards. Blocked until M003 closure; Manifest M002 is already closed.
+Active: `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md`. Direct/bundle/archive, final size/hash, mixed-release guards. M003 and Manifest M002 dependencies are closed.
 
 ## 8. Cross-cutting requirements
 
@@ -154,5 +154,5 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | M001 PackConfig + ReleasePlan | closed | `plans/implementation/build-qualification/001-pack-config-and-release-plan.md` | `plans/closure/build-qualification/001-status.md` | implementation and hosted CI passed |
 | M002 native/cross builder seam | closed (historical) | `plans/implementation/build-qualification/002-native-cross-builder-execution-seam.md` | `plans/closure/build-qualification/002-status.md` | post-closure Windows stability finding tracked by M002a |
 | M002a Windows qualification stability corrective | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | `plans/closure/build-qualification/002a-status.md` | three repeated hosted Windows stability runs passed |
-| M003 qualification execution | active | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | pending | M002 and M002a closed; candidate evidence interface is stable |
-| M004 finalization/aggregation | blocked | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | pending | M003 closure; Manifest M002 is closed |
+| M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | `plans/closure/build-qualification/003-status.md` | local verification and hosted matrix passed |
+| M004 finalization/aggregation | active | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | pending | M003 and Manifest M002 closed |

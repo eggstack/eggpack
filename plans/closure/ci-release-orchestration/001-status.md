@@ -84,3 +84,5 @@ Build corrective M002a is registered at `plans/implementation/build-qualificatio
 This does not reopen CI M001: its deterministic CIPlan/renderer evidence remains valid. It does withdraw the historical statement that Build M003 is currently ready to plan. Build M003 is blocked until M002a closes; consequently CI M002 remains blocked as before.
 
 M002a subsequently closed with three first-attempt Windows qualification passes on one corrective SHA; see `plans/closure/build-qualification/002a-status.md`. Build M003 is again `ready to plan`. This status update does not unblock CI M002: it still requires the future Build M003/M004 qualification and finalization interfaces.
+
+Subsequent disposition: Build M003 closed with cross-platform evidence at `plans/closure/build-qualification/003-status.md`; Build M004 is now active. CI M002 remains blocked until M004 closes and supplies the finalization interface.

@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 004 — Finalization and Local Aggregation
 
-Status: blocked on Build/Qualification M003 closure
+Status: active
 
 Repository baseline: `25a6f185f865510be0ab26a51a819d949701674c`
 
@@ -18,7 +18,7 @@ Convert qualified candidate bytes into contract-named local release artifacts, c
 
 ## 2. Readiness and dependencies
 
-Release Manifest M002 is closed and exposes explicit final-file manifest construction. Build M003 is the sole remaining hard dependency and must provide qualification evidence usable by finalization gates. This plan may be activated only after M003 closure.
+Release Manifest M002 is closed and exposes explicit final-file manifest construction. Build M003 is closed at `plans/closure/build-qualification/003-status.md` and provides identity-bound qualification evidence usable by finalization gates.
 
 ## 3. Current evidence
 

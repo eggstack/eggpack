@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 003 — Qualification Execution and Evidence
 
-Status: active
+Status: closed
 
 Repository baseline: `25a6f185f865510be0ab26a51a819d949701674c`
 
@@ -140,3 +140,5 @@ Record implementation SHA, test commands/results, hosted run links, environmenta
 ## 16. Handoff
 
 On closure, M004 is eligible to proceed because Manifest M002 is already closed. Reconcile archive encoding and finalization responsibilities within the producer boundary and avoid claiming publication or consumer extraction authority.
+
+Closure: `plans/closure/build-qualification/003-status.md`.
