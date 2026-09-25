@@ -20,3 +20,7 @@ sha2 = "0.10"
 
 [dev-dependencies]
 serde_yaml = "0.9"
+eggpack-manifest = { path = "../eggpack-manifest", version = "0.1.0" }
+eggpack-bootstrap = { path = "../eggpack-bootstrap", version = "0.1.0" }
+eggpack-github = { path = "../eggpack-github", version = "0.1.0" }
+tokio = { version = "1", features = ["rt", "macros"] }

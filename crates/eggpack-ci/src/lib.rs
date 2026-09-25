@@ -511,6 +511,10 @@ pub struct GitHubPolicy {
     /// qualification (M002a section 5H). Repository-relative paths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emulated_sysroots: Option<BTreeMap<String, String>>,
+    /// Explicit staging settings, present only when the graph requests
+    /// GitHub draft staging (M003b). Absent for M002a build-only rendering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging: Option<GitHubStagingPolicyV1>,
 }
 
 /// Finite Eggpack runtime tool provisioning for generated qualify/aggregate jobs.
@@ -562,6 +566,52 @@ pub struct GitHubReleaseInputsV1 {
     pub qualification_bindings: String,
     /// Repository-relative ReleaseCIPlanV1 JSON path.
     pub ci_plan: String,
+}
+
+/// Explicit repository-relative staging input paths for the generated draft
+/// staging job (M003b). All paths are bounded relative paths resolved from the
+/// repository root after checkout; no discovery or globbing is permitted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubStagingInputsV1 {
+    /// Repository-relative DistributionContract TOML path.
+    pub contract: String,
+    /// Repository-relative BootstrapInstallPolicyV1 (TOML or JSON) path.
+    pub install_policy: String,
+    /// Repository-relative GitHubDraftPolicyV1 JSON path.
+    pub github_policy: String,
+}
+
+/// Finite staging runner label plus repository identity for the generated
+/// draft staging job (M003b). The exact tag itself lives in the checked-in
+/// GitHub draft policy file and at runtime in `github.ref_name` (tag push) or
+/// the explicit `release_tag` dispatch input; the renderer records how the tag
+/// is obtained, never a branch or `latest` mapping, and never a publish flag.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubStagingPolicyV1 {
+    /// Runner label for the staging job (finite, safe).
+    pub runner: String,
+    /// Exact repository owner.
+    pub owner: String,
+    /// Exact repository name.
+    pub repository: String,
+    /// Explicit tag source mapping.
+    pub tag_source: StagingTagSource,
+    /// Repository-relative staging input paths.
+    pub inputs: GitHubStagingInputsV1,
+    /// Staging receipt artifact retention in days, from 1 to 90.
+    pub receipt_retention_days: u8,
+}
+
+/// Explicit tag source mapping for the generated staging job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StagingTagSource {
+    /// Tag-push workflows: candidate tag from `github.ref_name` with ref type tag.
+    RefName,
+    /// Manual dispatch: explicit existing tag input (no latest/branch default).
+    DispatchInput,
 }
 
 impl GitHubReleaseInputsV1 {
@@ -689,6 +739,34 @@ pub enum RunnerCommand {
         /// Aggregate summary file to write.
         output: String,
     },
+    /// Invoke `_prepare-stage` to materialize the staging payload.
+    PrepareStage {
+        /// Repository-relative contract path.
+        contract: String,
+        /// Internal finalized `release-manifest.json` path from aggregate.
+        release_manifest: String,
+        /// Internal finalized root directory from aggregate.
+        finalized_root: String,
+        /// Repository-relative GitHub draft policy path.
+        github_policy: String,
+        /// Repository-relative install policy path.
+        install_policy: String,
+        /// Private staging output directory.
+        output_dir: String,
+        /// Staging payload JSON to write.
+        output_payload: String,
+    },
+    /// Invoke `_stage-github-draft` to reconcile the payload into a draft.
+    StageGithubDraft {
+        /// Staging payload JSON path.
+        payload: String,
+        /// Repository-relative GitHub draft policy path.
+        github_policy: String,
+        /// Private staging directory holding payload files.
+        staging_dir: String,
+        /// Staging receipt JSON to write.
+        output_receipt: String,
+    },
 }
 
 impl RunnerCommand {
@@ -794,6 +872,51 @@ impl RunnerCommand {
                 "--output".into(),
                 output.clone(),
             ],
+            RunnerCommand::PrepareStage {
+                contract,
+                release_manifest,
+                finalized_root,
+                github_policy,
+                install_policy,
+                output_dir,
+                output_payload,
+            } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_prepare-stage".into(),
+                "--contract".into(),
+                contract.clone(),
+                "--release-manifest".into(),
+                release_manifest.clone(),
+                "--finalized-root".into(),
+                finalized_root.clone(),
+                "--github-policy".into(),
+                github_policy.clone(),
+                "--install-policy".into(),
+                install_policy.clone(),
+                "--output-dir".into(),
+                output_dir.clone(),
+                "--output-payload".into(),
+                output_payload.clone(),
+            ],
+            RunnerCommand::StageGithubDraft {
+                payload,
+                github_policy,
+                staging_dir,
+                output_receipt,
+            } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_stage-github-draft".into(),
+                "--payload".into(),
+                payload.clone(),
+                "--github-policy".into(),
+                github_policy.clone(),
+                "--staging-dir".into(),
+                staging_dir.clone(),
+                "--output-receipt".into(),
+                output_receipt.clone(),
+            ],
         }
     }
 
@@ -840,6 +963,35 @@ impl GitHubPolicy {
             }
             for (target, path) in sysroots {
                 validate_canonical_target_dir(target)?;
+                validate_release_input_path(path)?;
+            }
+        }
+        if let Some(staging) = &self.staging {
+            if !safe_runner_label(&staging.runner)
+                || staging.owner.is_empty()
+                || staging.owner.len() > 64
+                || staging.repository.is_empty()
+                || staging.repository.len() > 64
+                || staging.receipt_retention_days == 0
+                || staging.receipt_retention_days > 90
+            {
+                return Err(fail("invalid GitHub staging policy"));
+            }
+            // No publish flag exists by construction; tag source is explicit by
+            // enum; owner/repository must be safe segments (no control/path).
+            for value in [&staging.owner, &staging.repository] {
+                if value.chars().any(char::is_control)
+                    || value.contains('/')
+                    || value.contains("..")
+                {
+                    return Err(fail("invalid GitHub staging repository identity"));
+                }
+            }
+            for path in [
+                &staging.inputs.contract,
+                &staging.inputs.install_policy,
+                &staging.inputs.github_policy,
+            ] {
                 validate_release_input_path(path)?;
             }
         }
@@ -1536,6 +1688,37 @@ pub enum ArchiveEncodingWrapper {
     TarGzip,
 }
 
+/// Bounded staging provider for the executable release graph (M003b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StagingProvider {
+    /// GitHub draft release via the M003a provider adapter.
+    GitHubDraft,
+}
+
+/// Bounded provider-neutral staging job descriptor (M003b).
+///
+/// Records the aggregate dependency, staging provider, deterministic internal
+/// finalized handoff name, deterministic staging receipt artifact name, and
+/// whether staging is required. No GitHub details live here; the GitHub
+/// renderer maps this intent to one least-privilege stage job.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StagingJob {
+    /// Stable staging job id, exactly `stage`.
+    pub job_id: String,
+    /// Aggregate job id it depends on, exactly `aggregate`.
+    pub aggregate_job_id: String,
+    /// Staging provider.
+    pub provider: StagingProvider,
+    /// Deterministic finalized release artifact name consumed from aggregate.
+    pub finalized_handoff_name: String,
+    /// Deterministic staging receipt artifact name uploaded by stage.
+    pub receipt_handoff_name: String,
+    /// Whether staging is required.
+    pub required: bool,
+}
+
 /// Executable provider-neutral orchestration graph layered on M001 CIPlan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1552,6 +1735,9 @@ pub struct ReleaseCIPlanV1 {
     pub aggregate: AggregateJob,
     /// Allowed finalization settings.
     pub finalization: FinalizationSettings,
+    /// Optional bounded staging intent (M003b). Absent for M002a rendering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging: Option<StagingJob>,
 }
 
 impl ReleaseCIPlanV1 {
@@ -1647,6 +1833,23 @@ impl ReleaseCIPlanV1 {
         if self.finalization.evidence_references.len() > 64 {
             return Err(fail("finalization evidence references exceed bound"));
         }
+        if let Some(staging) = &self.staging {
+            if staging.job_id != "stage"
+                || staging.aggregate_job_id != self.aggregate.job_id
+                || staging.aggregate_job_id != "aggregate"
+                || staging.finalized_handoff_name != self.aggregate.final_handoff_name
+                || staging.finalized_handoff_name.is_empty()
+                || staging.finalized_handoff_name.len() > 256
+                || staging.receipt_handoff_name.is_empty()
+                || staging.receipt_handoff_name.len() > 256
+                || staging.receipt_handoff_name == staging.finalized_handoff_name
+            {
+                return Err(fail("invalid staging job descriptor"));
+            }
+            if staging.provider != StagingProvider::GitHubDraft {
+                return Err(fail("unsupported staging provider"));
+            }
+        }
         Ok(())
     }
 }
@@ -1716,7 +1919,32 @@ pub fn project_release_plan(
             archive_encoding: needs_archive.then_some(ArchiveEncodingWrapper::TarGzip),
             evidence_references: vec![],
         },
+        staging: None,
     };
+    graph.validate()?;
+    Ok(graph)
+}
+
+/// Attach a bounded GitHub draft staging intent to an executable graph.
+///
+/// The staging job records the aggregate dependency, the GitHub draft
+/// provider, the deterministic finalized handoff consumed from aggregate, the
+/// deterministic receipt artifact uploaded by stage, and whether staging is
+/// required. M001 `CIPlan` semantics are untouched; graphs without staging
+/// serialize exactly as M002a.
+pub fn with_github_draft_staging(
+    mut graph: ReleaseCIPlanV1,
+    required: bool,
+) -> Result<ReleaseCIPlanV1, CiError> {
+    let finalized = graph.aggregate.final_handoff_name.clone();
+    graph.staging = Some(StagingJob {
+        job_id: "stage".to_owned(),
+        aggregate_job_id: graph.aggregate.job_id.clone(),
+        provider: StagingProvider::GitHubDraft,
+        finalized_handoff_name: finalized,
+        receipt_handoff_name: "eggpack-staging-receipt".to_owned(),
+        required,
+    });
     graph.validate()?;
     Ok(graph)
 }
@@ -1896,14 +2124,32 @@ pub fn render_release_github(
     }
 
     // Header mirrors M001 build rendering (deterministic, read-only, pinned).
+    // When staging is enabled, workflow_dispatch carries an explicit
+    // release_tag input (exact existing tag; no latest/branch default).
+    let staging_enabled = graph.staging.is_some();
     let mut out = String::from("name: Eggpack candidate builds\n'on':\n");
     for trigger in &policy.triggers {
         match trigger {
             WorkflowTrigger::Push => out.push_str("  push:\n"),
-            WorkflowTrigger::WorkflowDispatch => out.push_str("  workflow_dispatch:\n"),
+            WorkflowTrigger::WorkflowDispatch => {
+                out.push_str("  workflow_dispatch:\n");
+                if staging_enabled {
+                    out.push_str("    inputs:\n      release_tag:\n        description: Exact existing tag to stage\n        required: true\n        type: string\n");
+                }
+            }
         }
     }
-    out.push_str("permissions:\n  contents: read\nconcurrency:\n  group: eggpack-${{ github.workflow }}-${{ github.ref }}\n  cancel-in-progress: ");
+    out.push_str("permissions:\n  contents: read\nconcurrency:\n");
+    // Release-scoped concurrency: tag pushes serialize on their tag ref.
+    // When staging is enabled, manual dispatch also serializes on the
+    // resolved staging tag (not just the branch ref). M003a remote
+    // reconciliation remains authoritative; concurrency is best-effort.
+    if staging_enabled {
+        out.push_str("  group: eggpack-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}\n");
+    } else {
+        out.push_str("  group: eggpack-${{ github.workflow }}-${{ github.ref }}\n");
+    }
+    out.push_str("  cancel-in-progress: ");
     out.push_str(if policy.cancel_in_progress {
         "true\n"
     } else {
@@ -2183,8 +2429,100 @@ pub fn render_release_github(
         out.push_str(&policy.artifact_retention_days.to_string());
         out.push('\n');
     }
+    // Stage (M003b): exactly one least-privilege draft staging job. It runs
+    // only after aggregate, only for exact tags (tag push or explicit dispatch
+    // input), consumes the exact aggregate artifact, calls only the M003a
+    // draft-only commands, and uploads the bounded staging receipt. Every
+    // prior job remains read-only; only stage has contents:write; no job
+    // receives id-token:write; the token travels via environment only.
+    if let Some(staging) = &graph.staging {
+        let staging_policy = policy
+            .staging
+            .as_ref()
+            .ok_or_else(|| fail("staging requested but no GitHub staging policy exists"))?;
+        if staging.provider != StagingProvider::GitHubDraft {
+            return Err(fail("unsupported staging provider"));
+        }
+        if staging_policy.owner.is_empty() || staging_policy.repository.is_empty() {
+            return Err(fail("invalid GitHub staging repository identity"));
+        }
+        let prepare = RunnerCommand::PrepareStage {
+            contract: staging_policy.inputs.contract.clone(),
+            release_manifest: "./eggpack-finalized/release-manifest.json".into(),
+            finalized_root: "./eggpack-finalized/root".into(),
+            github_policy: staging_policy.inputs.github_policy.clone(),
+            install_policy: staging_policy.inputs.install_policy.clone(),
+            output_dir: "./eggpack-staging".into(),
+            output_payload: "./eggpack-staging-payload.json".into(),
+        };
+        let stage_cmd = RunnerCommand::StageGithubDraft {
+            payload: "./eggpack-staging-payload.json".into(),
+            github_policy: staging_policy.inputs.github_policy.clone(),
+            staging_dir: "./eggpack-staging".into(),
+            output_receipt: "./eggpack-staging-receipt.json".into(),
+        };
+        out.push_str("  ");
+        out.push_str(&staging.job_id);
+        out.push_str(":\n    needs: ");
+        out.push_str(&staging.aggregate_job_id);
+        out.push_str("\n    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'\n    runs-on: ");
+        out.push_str(&yaml_scalar(&staging_policy.runner));
+        out.push_str("\n    permissions:\n      contents: write\n    timeout-minutes: ");
+        out.push_str(&policy.timeout_minutes.to_string());
+        out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.checkout.reference));
+        out.push_str("\n        with:\n          ref: ");
+        out.push_str(&yaml_scalar(
+            "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}",
+        ));
+        out.push_str(
+            "\n      - name: Validate exact-tag source\n        shell: bash\n        run: ",
+        );
+        out.push_str(&yaml_scalar(
+            "test \"${{ github.event_name }}\" != \"workflow_dispatch\" || test -n \"${{ inputs.release_tag }}\"",
+        ));
+        out.push('\n');
+        out.push_str(&tool_install_snippet(tool));
+        out.push_str("      - name: Download finalized release\n        uses: ");
+        out.push_str(&yaml_scalar(&download_pin.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&staging.finalized_handoff_name));
+        out.push_str("\n          path: ./eggpack-finalized\n          if-no-files-found: error\n");
+        out.push_str("      - name: Prepare staging payload\n        shell: bash\n        run: ");
+        out.push_str(&yaml_scalar(&prepare.to_shell()));
+        out.push('\n');
+        out.push_str("      - name: Stage GitHub draft release\n        shell: bash\n        env:\n          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ");
+        out.push_str(&yaml_scalar(&stage_cmd.to_shell()));
+        out.push('\n');
+        out.push_str("      - name: Upload staging receipt\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&staging.receipt_handoff_name));
+        out.push_str("\n          path: ./eggpack-staging-receipt.json\n          if-no-files-found: error\n          retention-days: ");
+        out.push_str(&staging_policy.receipt_retention_days.to_string());
+        out.push('\n');
+    }
     if out.len() > MAX_WORKFLOW_BYTES {
         return Err(fail("rendered release workflow exceeds size bound"));
+    }
+    // Static guards: the generated workflow must never publish, clobber via
+    // release CLIs, mutate tags, or mint OIDC tokens.
+    if out.contains("id-token: write") {
+        return Err(fail("generated workflow must not request id-token write"));
+    }
+    for forbidden in [
+        "gh release",
+        "--clobber",
+        "release --publish",
+        "git tag ",
+        "git push --tags",
+        "curl ",
+    ] {
+        if out.contains(forbidden) {
+            return Err(fail(
+                "generated workflow contains a forbidden release command",
+            ));
+        }
     }
     Ok(out)
 }
@@ -2315,6 +2653,7 @@ mod tests {
             eggpack_tool: None,
             release_inputs: None,
             emulated_sysroots: None,
+            staging: None,
         }
     }
     fn graph(strategy: BuildStrategy, support: SupportTier) -> CIPlan {
@@ -3472,6 +3811,7 @@ mod tests {
                 ci_plan: "plans/release-ci-plan.json".into(),
             }),
             emulated_sysroots: None,
+            staging: None,
         }
     }
 
@@ -4126,5 +4466,837 @@ mod tests {
             AggregateOutcome::InvalidEvidence
         );
         std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // M003b — generated draft staging job and operational qualification.
+    // -----------------------------------------------------------------------
+
+    fn m003b_staging_policy() -> GitHubPolicy {
+        let mut policy = m002_golden_policy();
+        policy.staging = Some(GitHubStagingPolicyV1 {
+            runner: "ubuntu-latest".into(),
+            owner: "acme".into(),
+            repository: "widget".into(),
+            tag_source: StagingTagSource::RefName,
+            inputs: GitHubStagingInputsV1 {
+                contract: "contracts/release.toml".into(),
+                install_policy: "policies/install.toml".into(),
+                github_policy: "policies/github-draft.json".into(),
+            },
+            receipt_retention_days: 7,
+        });
+        policy
+    }
+
+    fn m003b_staging_graph(
+        fixture: &str,
+        product: &str,
+        version: &str,
+        targets: Vec<(&str, BuildStrategy, SupportTier, Qualification)>,
+        aliases: Vec<&str>,
+    ) -> (ReleaseCIPlanV1, GitHubPolicy) {
+        let (graph, _) = m002_golden_case(fixture, product, version, targets, aliases);
+        let policy = m003b_staging_policy();
+        let graph = with_github_draft_staging(graph, true).unwrap();
+        (graph, policy)
+    }
+
+    #[test]
+    fn m003b_staging_intent_is_provider_neutral_and_optional() {
+        let (graph, _) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        // Disabled graphs serialize exactly as M002a (no staging field).
+        assert!(graph.staging.is_none());
+        let json = graph.to_json().unwrap();
+        assert!(!json.contains("staging"));
+        assert_eq!(ReleaseCIPlanV1::from_json(&json).unwrap(), graph);
+        // Attaching staging is additive and validated.
+        let staged = with_github_draft_staging(graph.clone(), true).unwrap();
+        let job = staged.staging.as_ref().unwrap();
+        assert_eq!(job.job_id, "stage");
+        assert_eq!(job.aggregate_job_id, "aggregate");
+        assert_eq!(job.provider, StagingProvider::GitHubDraft);
+        assert_eq!(job.finalized_handoff_name, "eggpack-finalized-release");
+        assert_eq!(job.receipt_handoff_name, "eggpack-staging-receipt");
+        assert!(job.required);
+        // M001 CIPlan semantics untouched.
+        assert_eq!(staged.ci_plan, graph.ci_plan);
+    }
+
+    #[test]
+    fn m003b_runner_command_covers_prepare_and_stage() {
+        let prepare = RunnerCommand::PrepareStage {
+            contract: "contracts/release.toml".into(),
+            release_manifest: "./eggpack-finalized/release-manifest.json".into(),
+            finalized_root: "./eggpack-finalized/root".into(),
+            github_policy: "policies/github-draft.json".into(),
+            install_policy: "policies/install.toml".into(),
+            output_dir: "./eggpack-staging".into(),
+            output_payload: "./eggpack-staging-payload.json".into(),
+        };
+        let argv = prepare.argv();
+        assert_eq!(&argv[0..3], &["eggpack", "ci", "_prepare-stage"]);
+        for required in [
+            "--contract",
+            "--release-manifest",
+            "--finalized-root",
+            "--github-policy",
+            "--install-policy",
+            "--output-dir",
+            "--output-payload",
+        ] {
+            assert!(argv.contains(&required.to_string()), "missing {required}");
+        }
+        let stage = RunnerCommand::StageGithubDraft {
+            payload: "./eggpack-staging-payload.json".into(),
+            github_policy: "policies/github-draft.json".into(),
+            staging_dir: "./eggpack-staging".into(),
+            output_receipt: "./eggpack-staging-receipt.json".into(),
+        };
+        let argv = stage.argv();
+        assert_eq!(&argv[0..3], &["eggpack", "ci", "_stage-github-draft"]);
+        for required in [
+            "--payload",
+            "--github-policy",
+            "--staging-dir",
+            "--output-receipt",
+        ] {
+            assert!(argv.contains(&required.to_string()), "missing {required}");
+        }
+        // No publish subcommand exists.
+        assert!(!prepare.to_shell().contains("publish"));
+        assert!(!stage.to_shell().contains("publish"));
+    }
+
+    #[test]
+    fn m003b_staging_disabled_renders_byte_compatible() {
+        // M002a output without staging must be unchanged.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert!(graph.staging.is_none());
+        let rendered = render_release_github(&graph, &policy).unwrap();
+        assert_golden(&rendered, include_str!("../tests/fixtures/m002-direct.yml"));
+    }
+
+    #[test]
+    #[ignore]
+    fn m003b_regenerate_goldens() {
+        let cases = [
+            (
+                "../tests/fixtures/m003b-direct-staging.yml",
+                include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+                "eggsact",
+                "1.2.3",
+                vec![(
+                    "x86_64-unknown-linux-gnu",
+                    BuildStrategy::NativeCargo,
+                    SupportTier::Required,
+                    Qualification::Structural,
+                )],
+                vec!["linux-x64"],
+            ),
+            (
+                "../tests/fixtures/m003b-bundle-staging.yml",
+                include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+                "codegg",
+                "2.4.0",
+                vec![(
+                    "x86_64-unknown-linux-gnu",
+                    BuildStrategy::NativeCargo,
+                    SupportTier::Required,
+                    Qualification::Structural,
+                )],
+                vec!["linux-x64"],
+            ),
+            (
+                "../tests/fixtures/m003b-archive-staging.yml",
+                include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+                "egress",
+                "3.1.0",
+                vec![(
+                    "x86_64-unknown-linux-gnu",
+                    BuildStrategy::NativeCargo,
+                    SupportTier::Required,
+                    Qualification::Structural,
+                )],
+                vec!["linux-x64"],
+            ),
+        ];
+        for (path, fixture, product, version, targets, aliases) in cases {
+            let (graph, policy) = m003b_staging_graph(fixture, product, version, targets, aliases);
+            let rendered = render_release_github(&graph, &policy).unwrap();
+            let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            std::fs::write(root.join(path.trim_start_matches("../")), &rendered).unwrap();
+        }
+    }
+
+    #[test]
+    fn m003b_golden_direct_bundle_archive_with_staging() {
+        // Direct + staging.
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m003b-direct-staging.yml"),
+        );
+        // Bundle + staging.
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+            "codegg",
+            "2.4.0",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m003b-bundle-staging.yml"),
+        );
+        // Archive + staging.
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+            "egress",
+            "3.1.0",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&graph, &policy).unwrap(),
+            include_str!("../tests/fixtures/m003b-archive-staging.yml"),
+        );
+    }
+
+    #[test]
+    fn m003b_rendered_staging_is_least_privilege_and_exact() {
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        let yaml = render_release_github(&graph, &policy).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        // Top-level read-only; no id-token write anywhere.
+        assert!(!yaml.contains("id-token: write"));
+        assert!(!yaml.contains("gh release"));
+        assert!(!yaml.contains("--clobber"));
+        assert!(!yaml.contains("release --publish"));
+        assert!(!yaml.contains("publish"));
+        assert!(!yaml.contains("git tag "));
+        assert!(!yaml.contains("git push --tags"));
+        assert!(!yaml.contains("curl "));
+        // Top-level permission matrix is exactly read-only.
+        let top_permissions = parsed.get("permissions").unwrap();
+        assert_eq!(
+            top_permissions.get("contents").unwrap().as_str().unwrap(),
+            "read"
+        );
+        // Concurrency is release-scoped and tag-aware for manual dispatch.
+        let concurrency = parsed.get("concurrency").unwrap();
+        let group = concurrency.get("group").unwrap().as_str().unwrap();
+        assert!(group.contains("inputs.release_tag"));
+        assert!(group.contains("github.ref"));
+        let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+        let mut writers = Vec::new();
+        for (name, job) in jobs {
+            let name = name.as_str().unwrap();
+            let permissions = job.get("permissions").unwrap();
+            let contents = permissions.get("contents").unwrap().as_str().unwrap();
+            if contents == "write" {
+                writers.push(name.to_owned());
+            }
+            // No job may mint OIDC tokens.
+            if let Some(id_token) = permissions.get("id-token") {
+                assert_ne!(id_token.as_str().unwrap(), "write", "job {name}");
+            }
+        }
+        assert_eq!(writers, vec!["stage".to_string()], "only stage may write");
+        // Stage depends on aggregate and downloads the exact handoff.
+        let stage = jobs.get("stage").unwrap();
+        let needs = stage.get("needs").unwrap();
+        assert_eq!(needs.as_str().unwrap(), "aggregate");
+        // Stage runs only for exact tags (tag push or explicit dispatch).
+        let condition = stage.get("if").unwrap().as_str().unwrap();
+        assert!(condition.contains("github.ref_type == 'tag'"));
+        assert!(condition.contains("workflow_dispatch"));
+        // No untrusted PR trigger may reach the write job: the workflow
+        // triggers are push + workflow_dispatch only (no pull_request).
+        let triggers = parsed.get("on").unwrap().as_mapping().unwrap();
+        assert!(triggers.get("push").is_some());
+        assert!(!triggers.keys().any(|key| key
+            .as_str()
+            .is_some_and(|name| name.contains("pull_request"))));
+        let steps = stage.get("steps").unwrap().as_sequence().unwrap();
+        let text = serde_yaml::to_string(&serde_yaml::Value::Sequence(steps.clone())).unwrap();
+        assert!(text.contains("_prepare-stage"));
+        assert!(text.contains("_stage-github-draft"));
+        // Stage consumes the exact aggregate artifact, not rebuilt binaries.
+        assert!(text.contains("eggpack-finalized-release"));
+        assert!(text.contains("./eggpack-finalized/release-manifest.json"));
+        assert!(text.contains("./eggpack-finalized/root"));
+        // Prepare occurs before network staging.
+        let prepare_pos = text.find("_prepare-stage").unwrap();
+        let stage_pos = text.find("_stage-github-draft").unwrap();
+        assert!(prepare_pos < stage_pos);
+        // Token appears only as an environment reference.
+        assert!(text.contains("GITHUB_TOKEN"));
+        assert!(text.contains("secrets.GITHUB_TOKEN"));
+        assert!(!text.contains("ghp_"));
+        assert!(!text.contains("github_pat_"));
+        // Receipt uploaded as an internal artifact.
+        assert!(text.contains("eggpack-staging-receipt"));
+        // Deterministic rerender.
+        assert_eq!(render_release_github(&graph, &policy).unwrap(), yaml);
+        // ci check catches staging step/permission edits.
+        let drifted = yaml.clone();
+        let drifted = drifted.replacen("contents: write", "contents: read", 1);
+        assert!(
+            check_release_github(&graph, &policy, drifted.as_bytes()).is_err()
+                || !check_release_github(&graph, &policy, drifted.as_bytes())
+                    .map(|report| report.matches)
+                    .unwrap_or(true)
+        );
+        // ci check also catches staging step edits (e.g. command swap).
+        let drifted_steps = yaml.replacen("_prepare-stage", "_prepare-stage-tampered", 1);
+        assert!(
+            check_release_github(&graph, &policy, drifted_steps.as_bytes()).is_err()
+                || !check_release_github(&graph, &policy, drifted_steps.as_bytes())
+                    .map(|report| report.matches)
+                    .unwrap_or(true)
+        );
+    }
+
+    #[test]
+    fn m003b_staging_requires_policy_and_rejects_forbidden_commands() {
+        let (mut graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        // Graph requests staging but policy lacks staging settings.
+        let mut bare = policy.clone();
+        bare.staging = None;
+        assert!(render_release_github(&graph, &bare).is_err());
+        // Staging runner must be finite/safe; no publish flag exists by type.
+        let mut bad = policy.clone();
+        bad.staging.as_mut().unwrap().runner = "evil; rm -rf /".into();
+        assert!(render_release_github(&graph, &bad).is_err());
+        let _ = &mut graph;
+    }
+
+    #[tokio::test]
+    async fn m003b_local_orchestration_stages_through_fake_adapter() {
+        use eggpack_github::{
+            fixture_asset, fixture_release, prepare_staging_payload, stage_with_bytes,
+            FixtureGithub, GitHubDraftPolicyV1,
+        };
+        let fixture_text = include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(fixture_text).unwrap();
+        let source = "a".repeat(40);
+        // Note: simple-direct contract has two targets; use both for bootstrap.
+        let config_full = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: vec![
+                eggpack_core::TargetPolicy {
+                    target: "x86_64-unknown-linux-gnu".into(),
+                    strategy: eggpack_core::BuildStrategy::NativeCargo,
+                    host_os: eggpack_core::HostOs::Linux,
+                    host_arch: eggpack_core::HostArch::X86_64,
+                    qualification_host: None,
+                    toolchain: eggpack_core::ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: None,
+                    },
+                    floor: eggpack_core::CompatibilityFloor::None,
+                    qualification: eggpack_core::Qualification::Structural,
+                    support: eggpack_core::SupportTier::Required,
+                },
+                eggpack_core::TargetPolicy {
+                    target: "aarch64-apple-darwin".into(),
+                    strategy: eggpack_core::BuildStrategy::NativeCargo,
+                    host_os: eggpack_core::HostOs::Macos,
+                    host_arch: eggpack_core::HostArch::Aarch64,
+                    qualification_host: None,
+                    toolchain: eggpack_core::ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: None,
+                    },
+                    floor: eggpack_core::CompatibilityFloor::None,
+                    qualification: eggpack_core::Qualification::Structural,
+                    support: eggpack_core::SupportTier::Required,
+                },
+            ],
+        };
+        let release = config_full
+            .resolve(
+                &contract,
+                "1.2.6",
+                &source,
+                &["linux-x64".into(), "macos-arm64".into()],
+            )
+            .unwrap();
+        // Deterministic finalized bytes for both targets.
+        let body = b"body";
+        let parent = eggpack_core_test_temp("m003b-e2e");
+        let finalized_root = parent.join("finalized");
+        std::fs::create_dir(&finalized_root).unwrap();
+        // Manifest with exact byte facts.
+        use sha2::Digest;
+        let digest: String = sha2::Sha256::digest(body)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let manifest = eggpack_manifest::ReleaseManifest {
+            schema_version: 1,
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: source.clone(),
+            targets: vec![
+                eggpack_manifest::TargetRecord {
+                    target: "aarch64-apple-darwin".into(),
+                    form: eggpack_manifest::ArtifactForm::Direct {
+                        artifact: eggpack_manifest::ArtifactRecord {
+                            name: "eggsact-1.2.6-aarch64-apple-darwin".into(),
+                            size: body.len() as u64,
+                            sha256: digest.clone(),
+                        },
+                        install: "eggsact".into(),
+                    },
+                },
+                eggpack_manifest::TargetRecord {
+                    target: "x86_64-unknown-linux-gnu".into(),
+                    form: eggpack_manifest::ArtifactForm::Direct {
+                        artifact: eggpack_manifest::ArtifactRecord {
+                            name: "eggsact-1.2.6-x86_64-unknown-linux-gnu".into(),
+                            size: body.len() as u64,
+                            sha256: digest.clone(),
+                        },
+                        install: "eggsact".into(),
+                    },
+                },
+            ],
+            evidence_references: vec![],
+        };
+        for name in [
+            "eggsact-1.2.6-aarch64-apple-darwin",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+        ] {
+            std::fs::write(finalized_root.join(name), body).unwrap();
+            std::fs::write(
+                finalized_root.join(format!("{name}.sha256")),
+                format!("{digest}  {name}\n"),
+            )
+            .unwrap();
+        }
+        let policy = GitHubDraftPolicyV1 {
+            schema_version: 1,
+            owner: "acme".into(),
+            repository: "widget".into(),
+            tag: "v1.2.6".into(),
+            title: "widget 1.2.6".into(),
+            body: "notes".into(),
+            prerelease: false,
+            token_env: "GITHUB_TOKEN".into(),
+            request_timeout_secs: 30,
+            max_metadata_bytes: 1_000_000,
+            max_list_pages: 5,
+        };
+        let install_policy = eggpack_bootstrap::BootstrapInstallPolicyV1::empty();
+        let staging_dir = parent.join("staging");
+        let payload = prepare_staging_payload(
+            &contract,
+            &manifest,
+            &finalized_root,
+            &policy,
+            &install_policy,
+            &staging_dir,
+        )
+        .unwrap();
+        assert!(!payload.assets.is_empty());
+        // Fake adapter: create then reuse exact draft/assets. Bytes come from
+        // the materialized staging directory (panics if absent, never a
+        // redacted transport error).
+        let fixture = FixtureGithub::with_tag(&source);
+        // Provide bytes via explicit map to avoid borrowing the staging dir
+        // across awaits.
+        let mut staged_bytes = std::collections::BTreeMap::new();
+        for asset in &payload.assets {
+            staged_bytes.insert(
+                asset.name.clone(),
+                std::fs::read(staging_dir.join(&asset.name)).unwrap(),
+            );
+        }
+        let receipt = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+            Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+        })
+        .await
+        .unwrap();
+        assert!(receipt.draft && !receipt.immutable);
+        assert_eq!(receipt.uploaded as usize, payload.assets.len());
+        // Rerun reuses exact draft/assets without clobber.
+        let receipt2 = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+            Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+        })
+        .await
+        .unwrap();
+        assert!(!receipt2.created);
+        assert_eq!(receipt2.reused as usize, payload.assets.len());
+        // Tag mismatch fails closed; published refusal fails closed.
+        let bad_fixture = FixtureGithub::with_tag(&"b".repeat(40));
+        assert!(
+            stage_with_bytes(&payload, &policy, &bad_fixture, "token", |name| {
+                Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .is_err()
+        );
+        let published = FixtureGithub::with_tag(&source);
+        published.seed_release(
+            fixture_release(9, "v1.2.6", "widget 1.2.6", "notes", false, false, false),
+            Vec::new(),
+        );
+        assert!(
+            stage_with_bytes(&payload, &policy, &published, "token", |name| {
+                Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .is_err()
+        );
+        // Mismatched asset refusal.
+        let mismatch = FixtureGithub::with_tag(&source);
+        mismatch.seed_release(
+            fixture_release(10, "v1.2.6", "widget 1.2.6", "notes", false, true, false),
+            vec![fixture_asset(
+                1,
+                &payload.assets[0].name,
+                payload.assets[0].size + 1,
+                "uploaded",
+                Some(&payload.assets[0].sha256),
+            )],
+        );
+        assert!(
+            stage_with_bytes(&payload, &policy, &mismatch, "token", |name| {
+                Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .is_err()
+        );
+        let _ = release;
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn m003b_local_orchestration_covers_bundle_and_archive() {
+        use eggpack_github::{prepare_staging_payload, stage_with_bytes, FixtureGithub};
+        use sha2::Digest;
+        let sha_hex = |bytes: &[u8]| -> String {
+            sha2::Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        let body = b"body";
+        let digest = sha_hex(body);
+        // Bundle case (codegg-bundle contract, single target).
+        {
+            let contract = eggpack_contract::DistributionContract::parse_toml_str(include_str!(
+                "../../eggpack-contract/tests/fixtures/codegg-bundle.toml"
+            ))
+            .unwrap();
+            let source = "b".repeat(40);
+            let manifest = eggpack_manifest::ReleaseManifest {
+                schema_version: 1,
+                product_id: "codegg".into(),
+                release_id: "2.4.0".into(),
+                source_revision: source.clone(),
+                targets: vec![eggpack_manifest::TargetRecord {
+                    target: "x86_64-unknown-linux-gnu".into(),
+                    form: eggpack_manifest::ArtifactForm::Bundle {
+                        entries: ["codegg", "codegg-helper", "codegg-manifest"]
+                            .iter()
+                            .zip(["codegg", "codegg-helper", "codegg-manifest.json"].iter())
+                            .map(|(stem, install)| eggpack_manifest::BundleRecord {
+                                artifact: eggpack_manifest::ArtifactRecord {
+                                    name: if *stem == "codegg-manifest" {
+                                        "codegg-manifest-2.4.0.json".into()
+                                    } else {
+                                        format!("{stem}-2.4.0-x86_64-unknown-linux-gnu")
+                                    },
+                                    size: body.len() as u64,
+                                    sha256: digest.clone(),
+                                },
+                                install: (*install).into(),
+                            })
+                            .collect(),
+                    },
+                }],
+                evidence_references: vec![],
+            };
+            let parent = eggpack_core_test_temp("m003b-e2e-bundle");
+            let finalized = parent.join("finalized");
+            std::fs::create_dir(&finalized).unwrap();
+            for name in [
+                "codegg-2.4.0-x86_64-unknown-linux-gnu",
+                "codegg-helper-2.4.0-x86_64-unknown-linux-gnu",
+                "codegg-manifest-2.4.0.json",
+            ] {
+                std::fs::write(finalized.join(name), body).unwrap();
+                std::fs::write(
+                    finalized.join(format!("{name}.sha256")),
+                    format!("{digest}  {name}\n"),
+                )
+                .unwrap();
+            }
+            let policy = eggpack_github::GitHubDraftPolicyV1 {
+                schema_version: 1,
+                owner: "acme".into(),
+                repository: "widget".into(),
+                tag: "v2.4.0".into(),
+                title: "widget 2.4.0".into(),
+                body: "notes".into(),
+                prerelease: false,
+                token_env: "GITHUB_TOKEN".into(),
+                request_timeout_secs: 30,
+                max_metadata_bytes: 1_000_000,
+                max_list_pages: 5,
+            };
+            let mut modes = std::collections::BTreeMap::new();
+            modes.insert(
+                "codegg".to_owned(),
+                eggpack_bootstrap::InstallMode::Executable,
+            );
+            modes.insert(
+                "codegg-helper".to_owned(),
+                eggpack_bootstrap::InstallMode::Executable,
+            );
+            modes.insert(
+                "codegg-manifest.json".to_owned(),
+                eggpack_bootstrap::InstallMode::Data,
+            );
+            let install_policy = eggpack_bootstrap::BootstrapInstallPolicyV1 {
+                schema_version: 1,
+                targets: [(
+                    "x86_64-unknown-linux-gnu".to_owned(),
+                    eggpack_bootstrap::TargetInstallPolicy {
+                        modes,
+                        archive_encoding: None,
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            };
+            let staging = parent.join("staging");
+            let payload = prepare_staging_payload(
+                &contract,
+                &manifest,
+                &finalized,
+                &policy,
+                &install_policy,
+                &staging,
+            )
+            .unwrap();
+            assert!(!payload.assets.is_empty());
+            let fixture = FixtureGithub::with_tag(&source);
+            let mut bytes = std::collections::BTreeMap::new();
+            for asset in &payload.assets {
+                bytes.insert(
+                    asset.name.clone(),
+                    std::fs::read(staging.join(&asset.name)).unwrap(),
+                );
+            }
+            let receipt = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+                Ok(bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .unwrap();
+            assert!(receipt.draft && !receipt.immutable);
+            let rerun = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+                Ok(bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .unwrap();
+            assert!(!rerun.created);
+            std::fs::remove_dir_all(parent).unwrap();
+        }
+        // Archive case (egress-archive contract, two targets).
+        {
+            let contract = eggpack_contract::DistributionContract::parse_toml_str(include_str!(
+                "../../eggpack-contract/tests/fixtures/egress-archive.toml"
+            ))
+            .unwrap();
+            let source = "c".repeat(40);
+            let mk = |target: &str| eggpack_manifest::TargetRecord {
+                target: target.to_owned(),
+                form: eggpack_manifest::ArtifactForm::Archive {
+                    artifact: eggpack_manifest::ArtifactRecord {
+                        name: format!("egress-3.1.0-{target}.tar.gz"),
+                        size: body.len() as u64,
+                        sha256: digest.clone(),
+                    },
+                    members: vec![
+                        eggpack_manifest::ArchiveMemberRecord {
+                            source: "bin/egress-helper".into(),
+                            install: "egress-helper".into(),
+                            bytes: eggpack_manifest::ByteEvidence {
+                                size: body.len() as u64,
+                                sha256: digest.clone(),
+                            },
+                        },
+                        eggpack_manifest::ArchiveMemberRecord {
+                            source: "egress".into(),
+                            install: "egress".into(),
+                            bytes: eggpack_manifest::ByteEvidence {
+                                size: body.len() as u64,
+                                sha256: digest.clone(),
+                            },
+                        },
+                    ],
+                },
+            };
+            let manifest = eggpack_manifest::ReleaseManifest {
+                schema_version: 1,
+                product_id: "egress".into(),
+                release_id: "3.1.0".into(),
+                source_revision: source.clone(),
+                targets: vec![mk("aarch64-apple-darwin"), mk("x86_64-unknown-linux-gnu")],
+                evidence_references: vec![],
+            };
+            let parent = eggpack_core_test_temp("m003b-e2e-archive");
+            let finalized = parent.join("finalized");
+            std::fs::create_dir(&finalized).unwrap();
+            for name in [
+                "egress-3.1.0-aarch64-apple-darwin.tar.gz",
+                "egress-3.1.0-x86_64-unknown-linux-gnu.tar.gz",
+            ] {
+                std::fs::write(finalized.join(name), body).unwrap();
+                std::fs::write(
+                    finalized.join(format!("{name}.sha256")),
+                    format!("{digest}  {name}\n"),
+                )
+                .unwrap();
+            }
+            let policy = eggpack_github::GitHubDraftPolicyV1 {
+                schema_version: 1,
+                owner: "acme".into(),
+                repository: "widget".into(),
+                tag: "v3.1.0".into(),
+                title: "widget 3.1.0".into(),
+                body: "notes".into(),
+                prerelease: false,
+                token_env: "GITHUB_TOKEN".into(),
+                request_timeout_secs: 30,
+                max_metadata_bytes: 1_000_000,
+                max_list_pages: 5,
+            };
+            let mut targets = std::collections::BTreeMap::new();
+            for triple in ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"] {
+                let mut modes = std::collections::BTreeMap::new();
+                modes.insert(
+                    "egress".to_owned(),
+                    eggpack_bootstrap::InstallMode::Executable,
+                );
+                modes.insert(
+                    "egress-helper".to_owned(),
+                    eggpack_bootstrap::InstallMode::Executable,
+                );
+                targets.insert(
+                    triple.to_owned(),
+                    eggpack_bootstrap::TargetInstallPolicy {
+                        modes,
+                        archive_encoding: Some(eggpack_bootstrap::BundleArchiveEncoding::TarGzip),
+                    },
+                );
+            }
+            let install_policy = eggpack_bootstrap::BootstrapInstallPolicyV1 {
+                schema_version: 1,
+                targets,
+            };
+            let staging = parent.join("staging");
+            let payload = prepare_staging_payload(
+                &contract,
+                &manifest,
+                &finalized,
+                &policy,
+                &install_policy,
+                &staging,
+            )
+            .unwrap();
+            assert!(!payload.assets.is_empty());
+            let fixture = FixtureGithub::with_tag(&source);
+            let mut bytes = std::collections::BTreeMap::new();
+            for asset in &payload.assets {
+                bytes.insert(
+                    asset.name.clone(),
+                    std::fs::read(staging.join(&asset.name)).unwrap(),
+                );
+            }
+            let receipt = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+                Ok(bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .unwrap();
+            assert!(receipt.draft && !receipt.immutable);
+            let rerun = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+                Ok(bytes.get(name).cloned().expect("staged bytes exist"))
+            })
+            .await
+            .unwrap();
+            assert!(!rerun.created);
+            std::fs::remove_dir_all(parent).unwrap();
+        }
     }
 }

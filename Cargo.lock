@@ -180,12 +180,16 @@ dependencies = [
 name = "eggpack-ci"
 version = "0.1.0"
 dependencies = [
+ "eggpack-bootstrap",
  "eggpack-contract",
  "eggpack-core",
+ "eggpack-github",
+ "eggpack-manifest",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2",
+ "tokio",
 ]
 
 [[package]]

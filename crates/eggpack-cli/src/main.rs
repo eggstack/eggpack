@@ -755,6 +755,7 @@ mod tests {
                 ci_plan: "plans/release-ci-plan.json".into(),
             }),
             emulated_sysroots: None,
+            staging: None,
         };
         (
             graph.to_json().unwrap(),
@@ -1201,23 +1202,20 @@ mod tests {
         std::fs::write(&install_policy_path, "schema_version = 1\n").unwrap();
         let staging = root.join("staging");
         let payload_out = root.join("payload.json");
-        ci_prepare_stage(&[
-            "--contract".to_owned(),
-            contract_path.to_string_lossy().into_owned(),
-            "--release-manifest".to_owned(),
-            manifest_path.to_string_lossy().into_owned(),
-            "--finalized-root".to_owned(),
-            finalized.to_string_lossy().into_owned(),
-            "--github-policy".to_owned(),
-            policy_path.to_string_lossy().into_owned(),
-            "--install-policy".to_owned(),
-            install_policy_path.to_string_lossy().into_owned(),
-            "--output-dir".to_owned(),
-            staging.to_string_lossy().into_owned(),
-            "--output-payload".to_owned(),
-            payload_out.to_string_lossy().into_owned(),
-        ])
-        .unwrap();
+        // Drive the CLI through the same typed RunnerCommand the GitHub
+        // renderer serializes into YAML, so CLI signature drift is caught.
+        let prepare = eggpack_ci::RunnerCommand::PrepareStage {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_manifest: manifest_path.to_string_lossy().into_owned(),
+            finalized_root: finalized.to_string_lossy().into_owned(),
+            github_policy: policy_path.to_string_lossy().into_owned(),
+            install_policy: install_policy_path.to_string_lossy().into_owned(),
+            output_dir: staging.to_string_lossy().into_owned(),
+            output_payload: payload_out.to_string_lossy().into_owned(),
+        };
+        let argv = prepare.argv();
+        assert_eq!(&argv[..3], &["eggpack", "ci", "_prepare-stage"]);
+        ci_prepare_stage(&argv[3..]).unwrap();
         assert!(staging.join("release-manifest.json").exists());
         assert!(staging.join("install.sh").exists());
         assert!(staging.join("install.ps1").exists());

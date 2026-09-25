@@ -28,7 +28,9 @@ cargo package -p eggpack-bootstrap --locked --allow-dirty \
 cargo package -p eggpack-ci --locked --allow-dirty \
   --config 'patch.crates-io.eggpack-contract.path="crates/eggpack-contract"' \
   --config 'patch.crates-io.eggpack-manifest.path="crates/eggpack-manifest"' \
-  --config 'patch.crates-io.eggpack-core.path="crates/eggpack-core"'
+  --config 'patch.crates-io.eggpack-core.path="crates/eggpack-core"' \
+  --config 'patch.crates-io.eggpack-bootstrap.path="crates/eggpack-bootstrap"' \
+  --config 'patch.crates-io.eggpack-github.path="crates/eggpack-github"'
 cargo package -p eggpack-github --locked --allow-dirty \
   --config 'patch.crates-io.eggpack-contract.path="crates/eggpack-contract"' \
   --config 'patch.crates-io.eggpack-manifest.path="crates/eggpack-manifest"' \

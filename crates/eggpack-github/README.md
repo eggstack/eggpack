@@ -17,3 +17,10 @@ GitHub draft release staging adapter and local staging payload materializer (CI 
 Local payload (`prepare_staging_payload`) revalidates the finalized root against the contract and manifest, rejects missing/extra/tampered files, writes a standalone `release-manifest.json` that decodes back to the exact M004 manifest, generates deterministic `install.sh`/`install.ps1` with exact-tag origins (`https://github.com/<owner>/<repo>/releases/download/<tag>`), and emits a deterministic `StagingPayloadV1`. M004 root semantics are unchanged.
 
 See `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` and `plans/closure/ci-release-orchestration/003a-status.md`.
+
+M003b consumes this adapter from one generated `stage` job only: the workflow
+checks out the exact tag, downloads the exact aggregate artifact, runs the
+payload materializer, then reconciles the draft with environment-only
+credentials, and uploads the bounded receipt. No other job gains write
+authority; reruns reuse exact drafts/assets without clobber. Live draft
+evidence is tracked by `plans/closure/ci-release-orchestration/003b-status.md`.

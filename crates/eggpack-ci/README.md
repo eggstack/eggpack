@@ -8,6 +8,21 @@ M002 layers an executable `ReleaseCIPlanV1` on the closed M001 graph: per-target
 
 M002a makes the generated workflow executable end-to-end. Every generated CLI invocation carries all required explicit file inputs from `GitHubReleaseInputsV1` (contract, release plan, build/qualification bindings, CI plan as repository-relative policy paths; no discovery or globbing). Build jobs install the pinned tool, invoke `_capture-build` with the known Cargo target root, and upload one canonical per-target directory (`build-handoff.json` plus `candidates/<relative-path>`). Qualification jobs download the matching build directory, invoke `_qualify-target` with explicit contract/plan/bindings/target/candidate/handoff/output arguments, and upload the complete directory (`build-handoff.json`, `evidence.json`, `candidates/...`). Gate and aggregate jobs download every qualification directory into canonical `eggpack-inputs/<target>/` trees and pass `--inputs-dir` plus explicit plan/output paths. Emulated qualification requires an explicit per-target provider sysroot policy or generation is rejected. The finite `RunnerCommand` model is shared by GitHub rendering and local executable orchestration tests, so CLI signature drift is caught by round-trip tests rather than YAML inspection alone.
 
+M003b adds an optional provider-neutral staging intent (`StagingJob` with
+`StagingProvider::GitHubDraft`, attached via `with_github_draft_staging`) and a
+`GitHubStagingPolicyV1` provider policy (staging runner, exact owner/repository,
+explicit tag source, repository-relative contract/install/GitHub-policy paths,
+receipt retention). When staging is enabled, `render_release_github` emits
+exactly one `stage` job (`needs: aggregate`, `contents: write`, tag-or-dispatch
+guard, exact-tag checkout, pinned tool install, exact aggregate download,
+`_prepare-stage` before `_stage-github-draft` with `GITHUB_TOKEN` in environment
+only, staging-receipt upload). Concurrency stays release-scoped and becomes
+tag-aware for manual dispatch; M003a remote reconciliation remains
+authoritative. Static guards reject `id-token: write`, `gh release`,
+`--clobber`, publish commands, tag mutation, and raw `curl`. Graphs without
+staging serialize exactly as M002a. `ci check` detects any staging
+step/permission drift.
+
 `render_github` and `render_release_github` are pure. `check_github` and `check_release_github` compare deterministic bytes after CRLF-to-LF normalization and report drift without changing files.
 
 Runner labels and action commit pins are policy inputs rather than CIPlan data.

@@ -1,0 +1,201 @@
+name: Eggpack candidate builds
+'on':
+  push:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Exact existing tag to stage
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: eggpack-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+  cancel-in-progress: true
+jobs:
+  preflight:
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Check Cargo availability
+        shell: bash
+        run: cargo --version
+  build_x86_64_unknown_linux_gnu:
+    needs: preflight
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    continue-on-error: false
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Set up Rust toolchain
+        uses: "dtolnay/rust-toolchain@0123456789abcdef0123456789abcdef01234567"
+        with:
+          toolchain: "1.89.0"
+          targets: "x86_64-unknown-linux-gnu"
+      - name: Verify Rust toolchain
+        shell: bash
+        run: cargo +'1.89.0' --version
+      - name: Build "x86_64-unknown-linux-gnu / bin0"
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
+        run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'codegg' '--bin' 'bin0'"
+      - name: Build "x86_64-unknown-linux-gnu / bin1"
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
+        run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'codegg' '--bin' 'bin1'"
+      - name: Build "x86_64-unknown-linux-gnu / bin2"
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
+        run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'codegg' '--bin' 'bin2'"
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
+      - name: Capture canonical build handoff
+        shell: bash
+        run: "'eggpack' 'ci' '_capture-build' '--release-plan' 'plans/release-plan.json' '--build-bindings' 'bindings/build.toml' '--target' 'x86_64-unknown-linux-gnu' '--cargo-target-dir' '${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}' '--output-dir' './eggpack-build/build_x86_64_unknown_linux_gnu'"
+      - name: Upload canonical build handoff
+        uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-build-handoff-x86_64-unknown-linux-gnu"
+          path: "./eggpack-build/build_x86_64_unknown_linux_gnu"
+          if-no-files-found: error
+          retention-days: 7
+  qualify_build_x86_64_unknown_linux_gnu:
+    needs: build_x86_64_unknown_linux_gnu
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    continue-on-error: false
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
+      - name: Download build handoff
+        uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-build-handoff-x86_64-unknown-linux-gnu"
+          path: "./eggpack-handoff/build_x86_64_unknown_linux_gnu"
+      - name: Qualify target
+        shell: bash
+        run: "'eggpack' 'ci' '_qualify-target' '--contract' 'contracts/release.toml' '--release-plan' 'plans/release-plan.json' '--build-bindings' 'bindings/build.toml' '--qualification-bindings' 'bindings/qualification.toml' '--target' 'x86_64-unknown-linux-gnu' '--candidate-dir' './eggpack-handoff/build_x86_64_unknown_linux_gnu/candidates' '--build-handoff' './eggpack-handoff/build_x86_64_unknown_linux_gnu/build-handoff.json' '--output-dir' './eggpack-qualification/build_x86_64_unknown_linux_gnu'"
+      - name: Upload qualification evidence
+        uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-evidence-x86_64-unknown-linux-gnu"
+          path: "./eggpack-qualification/build_x86_64_unknown_linux_gnu"
+          if-no-files-found: error
+          retention-days: 7
+  required_gate:
+    needs: [qualify_build_x86_64_unknown_linux_gnu]
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
+      - name: Download qualification "x86_64-unknown-linux-gnu"
+        uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-evidence-x86_64-unknown-linux-gnu"
+          path: "./eggpack-inputs/x86_64-unknown-linux-gnu"
+      - name: Evaluate required qualification gate
+        shell: bash
+        run: "'eggpack' 'ci' '_evaluate-gate' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output' './eggpack-gate/gate-outcome.json'"
+  aggregate:
+    needs: required_gate
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
+      - name: Download qualification "x86_64-unknown-linux-gnu"
+        uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-evidence-x86_64-unknown-linux-gnu"
+          path: "./eggpack-inputs/x86_64-unknown-linux-gnu"
+      - name: Aggregate and finalize release
+        shell: bash
+        run: "'eggpack' 'ci' '_aggregate' '--contract' 'contracts/release.toml' '--release-plan' 'plans/release-plan.json' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output-root' './eggpack-finalized/root' '--output' './eggpack-finalized/summary.json'"
+      - name: Upload internal finalized release
+        uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-finalized-release"
+          path: ./eggpack-finalized
+          if-no-files-found: error
+          retention-days: 7
+  stage:
+    needs: aggregate
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    runs-on: "ubuntu-latest"
+    permissions:
+      contents: write
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with:
+          ref: "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}"
+      - name: Validate exact-tag source
+        shell: bash
+        run: "test \"${{ github.event_name }}\" != \"workflow_dispatch\" || test -n \"${{ inputs.release_tag }}\""
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
+      - name: Download finalized release
+        uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-finalized-release"
+          path: ./eggpack-finalized
+          if-no-files-found: error
+      - name: Prepare staging payload
+        shell: bash
+        run: "'eggpack' 'ci' '_prepare-stage' '--contract' 'contracts/release.toml' '--release-manifest' './eggpack-finalized/release-manifest.json' '--finalized-root' './eggpack-finalized/root' '--github-policy' 'policies/github-draft.json' '--install-policy' 'policies/install.toml' '--output-dir' './eggpack-staging' '--output-payload' './eggpack-staging-payload.json'"
+      - name: Stage GitHub draft release
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: "'eggpack' 'ci' '_stage-github-draft' '--payload' './eggpack-staging-payload.json' '--github-policy' 'policies/github-draft.json' '--staging-dir' './eggpack-staging' '--output-receipt' './eggpack-staging-receipt.json'"
+      - name: Upload staging receipt
+        uses: "actions/upload-artifact@0123456789abcdef0123456789abcdef01234567"
+        with:
+          name: "eggpack-staging-receipt"
+          path: ./eggpack-staging-receipt.json
+          if-no-files-found: error
+          retention-days: 7

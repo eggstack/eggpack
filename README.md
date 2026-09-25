@@ -56,8 +56,15 @@ the `eggpack` CLI with pinned tooling; completed finalized releases are uploaded
 as internal workflow artifacts only, alongside a standalone deterministic
 `release-manifest.json` that decodes back to the exact M004 manifest without
 changing the finalized root. M003a adds the local staging payload materializer
-and GitHub draft adapter (draft-only, exact existing tag, no publication);
-generated draft staging remains M003b work.
+and GitHub draft adapter (draft-only, exact existing tag, no publication).
+M003b wires that adapter into one least-privilege generated `stage` job
+(`contents: write` isolated to stage, every prior job `contents: read`, no
+`id-token: write`, token via environment only): checkout the exact tag,
+install the pinned Eggpack CLI, download the exact aggregate artifact, run
+`_prepare-stage`, then `_stage-github-draft`, and upload the bounded staging
+receipt. Reruns reconcile exact draft/asset state without clobber; public
+publication remains a separate human action. Live draft qualification remains
+outstanding (maintainer-authorized fixture required).
 
 `eggpack-cli` provides deterministic `eggpack ci generate` and `eggpack ci check`
 plus narrow internal runner commands wrapping core qualification, finalization,
