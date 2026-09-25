@@ -3,8 +3,10 @@
 //! Producer-side release planning and finalized artifact evidence.
 
 mod builder;
+mod finalization;
 mod qualification;
 pub use builder::*;
+pub use finalization::*;
 pub use qualification::*;
 
 use eggpack_contract::{
