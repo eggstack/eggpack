@@ -79,3 +79,16 @@ Root and crate READMEs document first-install-only, all-or-nothing bundle/archiv
 | Ecosystem adoption | blocked | Still requires core pieces plus real-consumer selection; M002 completion is necessary but not sufficient. |
 
 Bootstrap M003 is therefore **not ready to plan**: the bundle/archive safety precondition is now satisfied, but real two-consumer adoption evidence and receipt-handoff review are still outstanding.
+
+
+## Post-closure corrective registration
+
+Post-closure review found an archive runtime-evidence gap.
+
+The historical M002 evidence executes POSIX bundle/archive installers and PowerShell bundle installation, but PowerShell archive behavior is only rendered and parser-checked. The source plan required PowerShell archive runtime qualification for TarGzip.
+
+Several malicious-archive tests also mutate archive bytes while retaining the original outer archive digest, so those cases may reject at archive-integrity verification before exercising the intended member inventory/path/type defenses.
+
+Corrective plan: plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md.
+
+The historical implementation remains valid evidence for the generator and already-executed paths. Bootstrap M003 remains blocked on M002a closure plus its independent real-adoption evidence/candidate-review requirement.
