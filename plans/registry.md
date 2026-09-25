@@ -156,6 +156,13 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
          |                                      `--> CI M002 [CLOSED HISTORICALLY]
          |                                                    |
          |                                                    `--> CI M002a [CLOSED: IMPL 4d2270a QUALIFIED RUN 36154905956]
+         |                                                                  |
+         |                                                                  v
+         |                                                      CI M003a [READY: DRAFT ADAPTER/PAYLOAD]
+         |                                                                  |
+         |                                                                  `--> CI M003b [BLOCKED: M003a + LIVE DRAFT]
+         |                                                                               |
+         |                                                                               `--> eggsact M001 [BLOCKED: MIRRORED ADOPTION PLAN]
          `--> bootstrap installers M001 [CLOSED; direct first-install generator]
                         |
                         `--> Bootstrap M002 [CLOSED HISTORICALLY]
