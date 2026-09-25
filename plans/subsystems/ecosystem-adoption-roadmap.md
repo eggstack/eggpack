@@ -70,7 +70,7 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Simple direct adoption prerequisites are now closed: contract/conformance, manifest/finalization, direct bootstrap generation, and generated CI execution are qualified. M001 eggsact may be planned after current-repo evidence review.
+Core simple-direct producer prerequisites are closed, but the first consumer's full release-workflow parity still depends on Phase 8 draft staging. Eggsact baseline review is complete at `eggstack/eggsact@43971e7c1af7f936acfd876f9bff246e72866f2d`; implementation waits for CI M003b closure and a mirrored eggsact distribution/release plan.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -118,11 +118,29 @@ Multiple independent repos use Eggpack as producer authority with measurable red
 
 ## 12. Milestone status
 
-Core producer prerequisites for the first simple direct consumer are closed. M001 eggsact is ready for plan authoring against a reviewed eggsact baseline. Later milestones remain sequenced behind M001 closure and their consumer-specific evidence.
+Core build/finalization/bootstrap/generated-CI prerequisites are closed. M001 eggsact research is complete enough to identify the migration boundary, but implementation remains blocked on the Phase 8 staging interface and a mirrored eggsact handoff.
+
+Reviewed eggsact baseline: `eggstack/eggsact@43971e7c1af7f936acfd876f9bff246e72866f2d`.
+
+Current eggsact release authority still duplicated across:
+
+- five-target `.github/workflows/release-binaries.yml`;
+- `packaging/install.sh` / `packaging/install.ps1`;
+- `scripts/check-release-contract.py`;
+- `src/update.rs` target/asset mapping.
+
+Adoption must preserve product-owned behavior that Eggpack intentionally does not own:
+
+- crates.io-first publication and tag-after-publish ordering;
+- installer `--version` / latest selection;
+- Cargo fallback on unsupported host or exact asset 404;
+- self-update release selection/fallback and Eggup transaction semantics.
+
+The first migration should therefore replace producer target/artifact/checksum/qualification/workflow authority while composing around, not absorbing, those product policies.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 eggsact direct release adoption | ready to plan | — | — | review exact eggsact release/installer/CI baseline and register mirrored consumer-repo handoff before implementation |
+| M001 eggsact direct release adoption | blocked / research complete | — | — | CI M003b full staging closure + mirrored eggsact distribution/release adoption plan; preserve Cargo fallback/latest/update product policy |
 | M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
