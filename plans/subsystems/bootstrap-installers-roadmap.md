@@ -68,6 +68,8 @@ M001 direct generator and installer fixtures — closed. Deterministic shell/Pow
 
 M002 bundle/archive bootstrap safety.
 
+Implementation plan: `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md`.
+
 M003 two-consumer adoption and optional Eggup receipt handoff design.
 
 ## 8. Cross-cutting requirements
@@ -93,5 +95,5 @@ M001 generator model and direct installer fixtures is closed and qualified. Bund
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 direct generator + fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | `plans/closure/bootstrap-installers/001-status.md` | direct first-install semantics qualified; archive-content/finalization evidence remains later work |
-| M002 bundle/archive bootstrap safety | ready to plan | — | — | Bootstrap M001 and Build M004 closed; define safe use of finalized bundle/archive evidence within the consumer boundary |
+| M002 bundle/archive bootstrap safety | ready | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | — | Bootstrap M001 and Build M004 closed; handoff registered |
 | M003 two-consumer adoption/receipt decision | blocked | — | — | M002 + adoption evidence |
