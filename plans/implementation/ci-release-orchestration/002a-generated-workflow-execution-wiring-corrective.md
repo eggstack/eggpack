@@ -37,9 +37,9 @@ CI M003 remains blocked until M002a closes, in addition to its separate staging-
 
 At repository baseline 388a8b056b05fb324122b1ac618e20bcb2963f77:
 
-1. M001 build jobs upload candidate bytes only. They do not invoke \`eggpack ci _capture-build\`.
-2. Qualification jobs download \`eggpack-build-handoff-<target>\`, but no build job creates that artifact.
-3. Qualification jobs render only \`eggpack ci _qualify-target --target <target>\`, while the CLI requires:
+1. M001 build jobs upload candidate bytes only. They do not invoke `eggpack ci _capture-build`.
+2. Qualification jobs download `eggpack-build-handoff-<target>`, but no build job creates that artifact.
+3. Qualification jobs render only `eggpack ci _qualify-target --target <target>`, while the CLI requires:
    - contract;
    - release plan;
    - build bindings;
@@ -49,8 +49,8 @@ At repository baseline 388a8b056b05fb324122b1ac618e20bcb2963f77:
    - build-handoff document;
    - output directory.
 4. The generated qualification artifact does not contain the complete per-target input set the aggregate command expects.
-5. The required gate job does not download qualification evidence and renders \`eggpack ci _evaluate-gate\` without required CLI inputs.
-6. The aggregate job renders \`eggpack ci _aggregate\` without required CLI inputs.
+5. The required gate job does not download qualification evidence and renders `eggpack ci _evaluate-gate` without required CLI inputs.
+6. The aggregate job renders `eggpack ci _aggregate` without required CLI inputs.
 7. The aggregate job downloads only evidence artifacts, while the CLI expects per-target build handoff, evidence, and candidate bytes.
 8. Golden fixtures validate deterministic text/YAML shape but do not execute the generated build -> capture -> qualify -> gate -> aggregate path.
 
@@ -93,7 +93,7 @@ The corrective owns only the generated workflow execution contract, CLI file lay
 
 The renderer needs explicit repository-relative input paths for the CLI files it invokes.
 
-Add a bounded GitHub release-input policy/type, e.g. \`GitHubReleaseInputsV1\`, containing exact repository-relative paths for:
+Add a bounded GitHub release-input policy/type, e.g. `GitHubReleaseInputsV1`, containing exact repository-relative paths for:
 
 - DistributionContract;
 - ReleasePlan;
@@ -104,7 +104,7 @@ Add a bounded GitHub release-input policy/type, e.g. \`GitHubReleaseInputsV1\`, 
 Requirements:
 
 - relative paths only;
-- no \`..\`, empty segments, NUL, backslash ambiguity, drive prefixes, or absolute roots;
+- no `..`, empty segments, NUL, backslash ambiguity, drive prefixes, or absolute roots;
 - bounded length;
 - deterministic serialization;
 - no file discovery/globbing;
@@ -126,12 +126,12 @@ Build jobs must:
 
 1. build candidate bytes using existing M002 command semantics;
 2. install/use pinned Eggpack CLI;
-3. invoke \`_capture-build\`;
+3. invoke `_capture-build`;
 4. stage candidate bytes under the canonical relative names;
-5. write exact observed sizes into \`build-handoff.json\`;
+5. write exact observed sizes into `build-handoff.json`;
 6. upload the entire canonical directory as one deterministic artifact.
 
-Update \`_capture-build\` as needed so it can derive the actual Cargo output locations from ReleasePlan/BuildBindings and the known Cargo target root, then copy or hard-link bytes into the canonical handoff directory.
+Update `_capture-build` as needed so it can derive the actual Cargo output locations from ReleasePlan/BuildBindings and the known Cargo target root, then copy or hard-link bytes into the canonical handoff directory.
 
 Do not require generated shell to reproduce Cargo output-discovery logic.
 
@@ -158,7 +158,7 @@ candidates/
 Qualification jobs must:
 
 1. download the matching build artifact into a target-specific private directory;
-2. invoke \`_qualify-target\` with explicit contract/plan/build-bindings/qualification-bindings/target/candidate/handoff/output arguments;
+2. invoke `_qualify-target` with explicit contract/plan/build-bindings/qualification-bindings/target/candidate/handoff/output arguments;
 3. reconstruct and validate the M002 BuildAttempt;
 4. invoke M003 qualification;
 5. write evidence;
@@ -181,16 +181,16 @@ eggpack-inputs/
 
 Prefer one explicit download step per target to avoid provider-specific pattern/merge ambiguity.
 
-Update \`_evaluate-gate\` to consume either:
+Update `_evaluate-gate` to consume either:
 
-- \`--inputs-dir\` with the canonical target layout; or
+- `--inputs-dir` with the canonical target layout; or
 - another equally explicit deterministic layout.
 
-It must load each target's \`evidence.json\`, call the existing \`evaluate_gate\`, and write an exact gate outcome file.
+It must load each target's `evidence.json`, call the existing `evaluate_gate`, and write an exact gate outcome file.
 
 Generated command must pass:
 
-- \`--ci-plan <explicit path>\`;
+- `--ci-plan <explicit path>`;
 - input directory;
 - output outcome path.
 
@@ -209,11 +209,11 @@ Generated aggregate command must pass:
 - private output-root;
 - summary output path.
 
-The CLI must reconstruct BuildAttempt from each target directory and call M004 through \`aggregate_finalize\`.
+The CLI must reconstruct BuildAttempt from each target directory and call M004 through `aggregate_finalize`.
 
-Upload the finalized internal release artifact only when the aggregate outcome is \`Complete\`.
+Upload the finalized internal release artifact only when the aggregate outcome is `Complete`.
 
-If outcome is \`SuppressedNonGatingIncomplete\`, do not run/upload finalization output.
+If outcome is `SuppressedNonGatingIncomplete`, do not run/upload finalization output.
 
 ### F. Gate/aggregate job conditions
 
@@ -226,18 +226,18 @@ Required targets:
 
 Optional targets:
 
-- may use \`continue-on-error\` at the build/qualification job level;
+- may use `continue-on-error` at the build/qualification job level;
 - aggregate still must not create a partial release.
 
-Use provider \`if\` conditions only to ensure typed evidence collection/evaluation occurs; do not bypass required failures.
+Use provider `if` conditions only to ensure typed evidence collection/evaluation occurs; do not bypass required failures.
 
 Document the exact behavior in golden fixtures.
 
 ### G. Pinned CLI availability in build jobs
 
-Because build jobs now invoke \`_capture-build\`, install/verify the same pinned Eggpack CLI in build jobs as qualification/gate/aggregate jobs.
+Because build jobs now invoke `_capture-build`, install/verify the same pinned Eggpack CLI in build jobs as qualification/gate/aggregate jobs.
 
-No ambient unpinned \`eggpack\` executable.
+No ambient unpinned `eggpack` executable.
 
 ### H. Qualification runtime policy
 
@@ -369,7 +369,7 @@ Where generated jobs are host-specific, closure must show at least one real end-
 On registration:
 
 - preserve CI M002 as historical implementation/closure evidence;
-- annotate \`plans/closure/ci-release-orchestration/002-status.md\` with the post-closure executable-wiring defect;
+- annotate `plans/closure/ci-release-orchestration/002-status.md` with the post-closure executable-wiring defect;
 - mark CI M002a as the active corrective;
 - re-block CI M003 on M002a closure plus the existing explicit staging-adapter plan.
 
