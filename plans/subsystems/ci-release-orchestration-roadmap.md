@@ -104,7 +104,7 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001-M004 and CI M001/M002/M002a/M003a are closed. ADR-0003 authorizes draft staging while keeping public publication manual. M003b is now dependency-ready after M003a closure (implementation `36f1cc1`, hosted run 36180399698 green); full closure additionally requires a final-interface re-review plus a maintainer-authorized live draft fixture.
+Build/Qualification M001-M004 and CI M001/M002/M002a/M003a are closed. ADR-0003 authorizes draft staging while keeping public publication manual. M003b implementation is complete and locally/hosted qualified on fake-adapter evidence; full closure additionally requires a maintainer-authorized live draft fixture, so M003b is conditionally closed and Phase 8 exit is not yet satisfied.
 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
@@ -113,4 +113,4 @@ Build/Qualification M001-M004 and CI M001/M002/M002a/M003a are closed. ADR-0003 
 | M002 qualification/aggregation gates + drift CLI | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | `plans/closure/ci-release-orchestration/002-status.md` | Post-closure generated-workflow execution defect corrected and qualified by M002a |
 | M002a generated workflow execution wiring | closed | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | `plans/closure/ci-release-orchestration/002a-status.md` | Closed on implementation `4d2270a` + hosted run 36154905956 (attempt 1, all lanes green) via closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` |
 | M003a local staging payload + GitHub draft adapter | closed | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | `plans/closure/ci-release-orchestration/003a-status.md` | Closed on implementation `36f1cc1` + hosted run 36180399698 (attempt 1, all lanes green) |
-| M003b generated draft staging job + operational qualification | ready | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | — | M003a closure satisfies the hard dependency; full closure also needs final-interface re-review plus maintainer-authorized live draft fixture |
+| M003b generated draft staging job + operational qualification | conditionally closed | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | `plans/closure/ci-release-orchestration/003b-status.md` | Implementation complete; full closure needs maintainer-authorized live draft fixture + mirrored eggsact adoption plan before use |
