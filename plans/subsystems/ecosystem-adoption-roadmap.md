@@ -1,6 +1,6 @@
 # Ecosystem Adoption Roadmap
 
-Status: proposed
+Status: active
 
 Long-term references:
 
@@ -70,9 +70,9 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Simple adoption waits for contract/conformance + installer/CI pieces needed by the selected repo.
+Simple direct adoption prerequisites are now closed: contract/conformance, manifest/finalization, direct bootstrap generation, and generated CI execution are qualified. M001 eggsact may be planned after current-repo evidence review.
 
-Complex adoption additionally waits for build/finalization and bundle/archive proof.
+Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
 Eggup interoperability is optional per consumer and has its own gate.
 
@@ -118,4 +118,14 @@ Multiple independent repos use Eggpack as producer authority with measurable red
 
 ## 12. Milestone status
 
-All milestones blocked on core producer capabilities.
+Core producer prerequisites for the first simple direct consumer are closed. M001 eggsact is ready for plan authoring against a reviewed eggsact baseline. Later milestones remain sequenced behind M001 closure and their consumer-specific evidence.
+
+| Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
+|---|---|---|---|---|
+| M001 eggsact direct release adoption | ready to plan | — | — | review exact eggsact release/installer/CI baseline and register mirrored consumer-repo handoff before implementation |
+| M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting |
+| M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
+| M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
+| M005 CodeGG runfile bundle | blocked | — | — | prior bundle evidence + CodeGG runfile review |
+| M006 Egress archive pair | blocked | — | — | prior adoption evidence + Egress archive/Python boundary review |
+| M007 specialized wheel/package evaluation | blocked | — | — | native adoption maturity; separate package-adapter planning |
