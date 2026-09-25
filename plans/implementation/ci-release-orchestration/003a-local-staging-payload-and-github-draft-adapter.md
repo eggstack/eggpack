@@ -1,6 +1,10 @@
 # CI and Release Orchestration Milestone 003a — Local Staging Payload and GitHub Draft Adapter
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/ci-release-orchestration/003a-status.md`
+
+Closure disposition (2026-09-25): M003a is closed on implementation SHA `36f1cc1c96cf72511bbdadc2c480cdd0934a4fc9`. Hosted run 36180399698 (push, attempt 1) passed Linux stable, Linux Rust 1.89, macOS, and Windows. Complete direct/bundle/archive staging payloads are deterministic with standalone manifest plus both bootstrap installers; M004 root semantics unchanged; GitHub adapter verifies exact existing tag/source, creates/reuses exact drafts idempotently, reconciles assets exactly without clobber, applies only narrow 502 starter recovery, keeps credentials environment-only with redacted diagnostics, and exposes no publication or tag-write path. No real GitHub draft was required; live draft evidence is reserved for M003b. M003b is now dependency-ready pending final-interface re-review plus a maintainer-authorized live draft fixture for full closure.
 
 Repository baseline: `49aa849c471c6927fc5fe3c899e418779b65a40b`
 

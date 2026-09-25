@@ -1,6 +1,8 @@
 # CI and Release Orchestration Milestone 003b — Generated Draft Staging Job and Operational Qualification
 
-Status: blocked / planned
+Status: ready
+
+Unblocked by M003a closure (2026-09-25): `plans/closure/ci-release-orchestration/003a-status.md` (implementation `36f1cc1`, hosted run 36180399698 green). Final M003a CLI/provider contracts must be re-reviewed against this plan before handoff; full closure additionally requires a maintainer-authorized live draft fixture.
 
 Repository baseline: `97db44513ab7e0083fa71c5ab03aa57d63fca1be`
 

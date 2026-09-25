@@ -75,7 +75,7 @@ Distribution predecessor evidence:
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001/M002/M002a/M003/M004 closed | producer finalization interface is available |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 historical; M002a closed | M002a closed on `4d2270a` + run 36154905956; M003 blocked on adoption evidence/candidate review |
-| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001/M002a closed; M003a ready | M003a GitHub draft adapter/payload handoff registered; M003b planned but blocked on M003a closure + live draft fixture |
+| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M001/M002a/M003a closed; M003b ready | M003a closed on `36f1cc1` + run 36180399698; M003b ready pending final-interface re-review + live draft fixture |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
 | Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 research complete / blocked | eggsact baseline `43971e7`; waits on CI M003b closure + mirrored eggsact release-adoption plan; product fallback/update policy stays consumer-owned |
 
@@ -95,8 +95,8 @@ Current dependency-ready implementation work:
 | CI orchestration | M001 CIPlan/GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Closure `plans/closure/ci-release-orchestration/001-status.md`; hosted run 36040032768 passes all lanes |
 | CI orchestration | M002 qualification/aggregation gates + drift CLI | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | Historical closure retained; executable generated-workflow defect corrected and qualified by M002a (`plans/closure/ci-release-orchestration/002a-status.md`) |
 | CI orchestration | M002a generated workflow execution wiring | closed | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | Closure `plans/closure/ci-release-orchestration/002a-status.md`; implementation `4d2270a`; hosted run 36154905956 (attempt 1, all lanes green) |
-| CI orchestration | M003a local staging payload + GitHub draft adapter | ready | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | M002a + Bootstrap M002a + Build M004 closed; eggfetch-core 0.2.0 external baseline reviewed |
-| CI orchestration | M003b generated draft staging job + operational qualification | blocked / planned | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | hard dependency on M003a closure; live maintainer-authorized draft required for full closure |
+| CI orchestration | M003a local staging payload + GitHub draft adapter | closed | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | Closure `plans/closure/ci-release-orchestration/003a-status.md`; implementation `36f1cc1`; hosted run 36180399698 (attempt 1, all lanes green) |
+| CI orchestration | M003b generated draft staging job + operational qualification | ready | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | M003a closure satisfies the hard dependency; full closure additionally needs final-interface re-review + live maintainer-authorized draft |
 | Bootstrap installers | M002 bundle/archive bootstrap safety | closed historically; corrective closed | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | Historical closure retained; PowerShell archive runtime evidence gap corrected and qualified by M002a (`plans/closure/bootstrap-installers/002a-status.md`) |
 | Bootstrap installers | M002a PowerShell archive runtime evidence | closed | `plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md` | Closure `plans/closure/bootstrap-installers/002a-status.md`; implementation `4d2270a`; hosted run 36154905956 (attempt 1, all lanes green) |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |
@@ -107,7 +107,7 @@ Current dependency-ready implementation work:
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 
-| CI orchestration | M003b generated draft staging + live qualification | blocked | M003a closure + maintainer-authorized live draft fixture |
+| CI orchestration | M003b generated draft staging + live qualification | ready | final-interface re-review + maintainer-authorized live draft fixture for full closure |
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | blocked | real adoption evidence/candidate review (M002a precondition satisfied) |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
 | Eggup interoperability | M003 real-consumer adoption | ready to plan | select a real consumer currently owning duplicated manifest-to-update mapping |
@@ -115,7 +115,7 @@ Current dependency-ready implementation work:
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
-Build/Qualification M002a/M003/M004 remain closed with hosted cross-platform evidence. CI M002 and Bootstrap M002 retain their historical implementation/closure records. Both M002a correctives are now closed on implementation `4d2270afe7de10bdff92563ed0f51a41ba807a04` with hosted run 36154905956 green (attempt 1) across Linux stable, Rust 1.89, macOS, and Windows including the focused corrective tests. CI M003a is now the dependency-ready staging-adapter handoff. M003b is defined but blocked on M003a closure and live draft evidence. Bootstrap M003 remains blocked on adoption evidence/candidate review. Eggsact ecosystem M001 research is complete but implementation waits on M003b and a mirrored consumer-repo plan.
+Build/Qualification M002a/M003/M004 remain closed with hosted cross-platform evidence. CI M002 and Bootstrap M002 retain their historical implementation/closure records. Both M002a correctives are now closed on implementation `4d2270afe7de10bdff92563ed0f51a41ba807a04` with hosted run 36154905956 green (attempt 1) across Linux stable, Rust 1.89, macOS, and Windows including the focused corrective tests. CI M003a is now closed on implementation `36f1cc1c96cf72511bbdadc2c480cdd0934a4fc9` with hosted run 36180399698 green (attempt 1) across all lanes. M003b is now dependency-ready pending final-interface re-review and live draft evidence. Bootstrap M003 remains blocked on adoption evidence/candidate review. Eggsact ecosystem M001 research is complete but implementation waits on M003b and a mirrored consumer-repo plan.
 
 ## Immediate execution graph
 
@@ -158,9 +158,9 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
          |                                                    `--> CI M002a [CLOSED: IMPL 4d2270a QUALIFIED RUN 36154905956]
          |                                                                  |
          |                                                                  v
-         |                                                      CI M003a [READY: DRAFT ADAPTER/PAYLOAD]
+         |                                                      CI M003a [CLOSED: IMPL 36f1cc1 QUALIFIED RUN 36180399698]
          |                                                                  |
-         |                                                                  `--> CI M003b [BLOCKED: M003a + LIVE DRAFT]
+         |                                                                  `--> CI M003b [READY: LIVE DRAFT FIXTURE]
          |                                                                               |
          |                                                                               `--> eggsact M001 [BLOCKED: MIRRORED ADOPTION PLAN]
          `--> bootstrap installers M001 [CLOSED; direct first-install generator]
@@ -197,7 +197,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-Manifest M002, Build/Qualification M001/M002/M002a/M003/M004, CI M001/M002/M002a, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records. CI M002a and Bootstrap M002a closed on `4d2270a` (hosted run 36154905956, attempt 1, all lanes green); the coordinated closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` is itself closed. CI M003a is the active producer handoff; M003b remains blocked on M003a closure and live draft evidence. Bootstrap M003 remains blocked on real adoption evidence/candidate review. Ecosystem M001 eggsact is researched but blocked on M003b plus a mirrored eggsact plan. Eggup Interoperability M003 real-consumer adoption remains independently ready to plan.
+Manifest M002, Build/Qualification M001/M002/M002a/M003/M004, CI M001/M002/M002a/M003a, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records. CI M002a and Bootstrap M002a closed on `4d2270a` (hosted run 36154905956, attempt 1, all lanes green); the coordinated closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` is itself closed. CI M003a closed on `36f1cc1` (hosted run 36180399698, attempt 1, all lanes green); M003b is now the active producer handoff pending final-interface re-review and live draft evidence. Bootstrap M003 remains blocked on real adoption evidence/candidate review. Ecosystem M001 eggsact is researched but blocked on M003b plus a mirrored eggsact plan. Eggup Interoperability M003 real-consumer adoption remains independently ready to plan.
 
 ## Registry update rule
 
