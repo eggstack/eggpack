@@ -78,6 +78,8 @@ Implementation plan: `plans/implementation/ci-release-orchestration/001-ci-plan-
 
 M002 qualification/aggregation gates and drift check.
 
+Implementation plan: `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md`.
+
 M003 draft GitHub Release staging adapter.
 
 ## 8. Cross-cutting requirements
@@ -104,5 +106,5 @@ Build/Qualification M001 fixes the provider-neutral ReleasePlan interface. Close
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
-| M002 qualification/aggregation gates + drift CLI | ready to plan | — | — | CI M001 and Build M003/M004 closed; define hosted evidence gates and consume finalized release results |
+| M002 qualification/aggregation gates + drift CLI | ready | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | — | CI M001 and Build M003/M004 closed; handoff registered |
 | M003 draft release staging | blocked | — | — | M002 + explicit staging adapter plan |
