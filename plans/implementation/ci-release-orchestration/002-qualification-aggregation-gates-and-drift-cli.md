@@ -1,6 +1,8 @@
 # CI and Release Orchestration Milestone 002 — Qualification/Aggregation Gates and Drift CLI
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/ci-release-orchestration/002-status.md`
 
 Repository baseline: 66f818a67f8681010d07301f4a1d7ca5aadf2f5b
 

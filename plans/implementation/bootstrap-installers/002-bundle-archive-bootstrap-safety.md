@@ -1,6 +1,8 @@
 # Bootstrap Installers Milestone 002 — Bundle/Archive Bootstrap Safety
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/bootstrap-installers/002-status.md`
 
 Repository baseline: ca0537b5ec6f7996ee9f0a1eaa04256752515eaa
 
