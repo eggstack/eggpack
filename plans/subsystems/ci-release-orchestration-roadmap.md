@@ -86,6 +86,8 @@ M003a implementation plan: `plans/implementation/ci-release-orchestration/003a-l
 
 M003b implementation plan: `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md`.
 
+M003c corrective plan: `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md`.
+
 ## 8. Cross-cutting requirements
 
 Least privilege, pinned actions, explicit timeouts, concurrency controls, artifact provenance, no secret leakage in generated summaries.
@@ -104,7 +106,7 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001-M004 and CI M001/M002/M002a/M003a are closed. ADR-0003 authorizes draft staging while keeping public publication manual. M003b implementation is complete and locally/hosted qualified on fake-adapter evidence; full closure additionally requires a maintainer-authorized live draft fixture, so M003b is conditionally closed and Phase 8 exit is not yet satisfied.
+Build/Qualification M001-M004 and CI M001/M002/M002a are closed. M003a and M003b retain historical closure evidence, but post-closure audit opened M003c for exact-source enforcement, authoritative tag-source semantics, streamed uploads, complete asset pagination, and upload-origin/query hardening. Live draft qualification and Phase 8 exit are blocked on M003c closure.
 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
@@ -112,5 +114,7 @@ Build/Qualification M001-M004 and CI M001/M002/M002a/M003a are closed. ADR-0003 
 | M001 CIPlan + GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | `plans/closure/ci-release-orchestration/001-status.md` | Closed after package, local, and Linux stable/MSRV/macOS/Windows hosted checks |
 | M002 qualification/aggregation gates + drift CLI | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | `plans/closure/ci-release-orchestration/002-status.md` | Post-closure generated-workflow execution defect corrected and qualified by M002a |
 | M002a generated workflow execution wiring | closed | `plans/implementation/ci-release-orchestration/002a-generated-workflow-execution-wiring-corrective.md` | `plans/closure/ci-release-orchestration/002a-status.md` | Closed on implementation `4d2270a` + hosted run 36154905956 (attempt 1, all lanes green) via closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` |
-| M003a local staging payload + GitHub draft adapter | closed | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | `plans/closure/ci-release-orchestration/003a-status.md` | Closed on implementation `36f1cc1` + hosted run 36180399698 (attempt 1, all lanes green) |
-| M003b generated draft staging job + operational qualification | conditionally closed | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | `plans/closure/ci-release-orchestration/003b-status.md` | Implementation complete; full closure needs maintainer-authorized live draft fixture + mirrored eggsact adoption plan before use |
+| M003a local staging payload + GitHub draft adapter | closed historically / corrective active | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | `plans/closure/ci-release-orchestration/003a-status.md` | Historical closure retained; provider transfer/pagination/origin findings tracked by M003c |
+| M003b generated draft staging job + operational qualification | conditionally closed historically / corrective active | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | `plans/closure/ci-release-orchestration/003b-status.md` | Historical conditional close retained; exact-source/tag-source defects tracked by M003c; live draft remains blocked |
+
+| M003c staging source identity + bounded transfer corrective | ready | `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md` | — | active Phase-8 corrective; must close before live draft qualification or consumer adoption |
