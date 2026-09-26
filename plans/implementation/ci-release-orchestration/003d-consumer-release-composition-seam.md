@@ -26,6 +26,8 @@ Primary class: capability / consumer-composition / qualification extension / sta
 
 Add the narrow composition seams required by the first real Eggpack consumer without absorbing product-owned release/install semantics into Eggpack.
 
+M003d also separates static checked-in workflow shape from runtime release identity. The first consumer review proved that a checked-in CI graph cannot truthfully embed the Git SHA of the same revision that contains that graph.
+
 The eggsact adoption review proves two requirements not represented by the current producer model:
 
 1. eggsact publishes product-owned `install.sh` / `install.ps1` wrappers that intentionally implement latest/version selection and Cargo fallback, while Eggpack currently reserves those names for generated exact-release first-install scripts;
@@ -69,6 +71,19 @@ The script performs a bounded MCP initialize -> initialized notification -> tool
 
 The migration must preserve this exact-candidate protocol evidence.
 
+### Reusable workflow identity
+
+Current `CIPlan` / release orchestration graph copies `release_id` and `source_revision` from an exact `ReleasePlan`.
+
+That is sufficient for fixed fixtures but not a reusable repository release workflow:
+
+- the exact tag/source revision does not exist when a future workflow is generated;
+- committing a ReleasePlan containing the commit's own SHA changes the SHA, so a self-consistent checked-in exact ReleasePlan is impossible;
+- M003c now correctly compares checked-out HEAD to ReleasePlan.source_revision, making this contradiction fail rather than remain hidden;
+- `GitHubDraftPolicyV1` likewise contains an exact tag/title and therefore needs a runtime resolved instance for future tags.
+
+The first consumer must not solve this with placeholders or by disabling source verification.
+
 ## 3. Non-goals
 
 M003d does not:
@@ -85,7 +100,83 @@ M003d does not:
 - change DistributionContract, ReleaseManifest, or Eggup receipts;
 - generalize from one consumer beyond the minimum reusable seam.
 
-## 4. Installer presentation policy
+## 4. Static workflow shape vs runtime release identity
+
+Introduce an explicit separation between reusable checked-in release workflow configuration and one invocation's exact release identity.
+
+### A. Static checked-in workflow shape
+
+Add a versioned static release-workflow model containing only identity-independent information needed to render the checked-in workflow:
+
+- canonical selected target set;
+- target build/host/toolchain/floor/support policy from PackConfig;
+- build bindings;
+- core qualification bindings;
+- consumer validator configuration;
+- staging intent/provider;
+- installer-presentation mode;
+- GitHub runner/action/tool pins;
+- checked-in config paths.
+
+It MUST NOT contain release_id, source_revision, an exact future tag, a GitHub release id, or artifact digests/sizes.
+
+The exact type may be `ReleaseWorkflowPlanV2`, `ReleaseShapeV1`, or an equivalent bounded schema. Preserve historical `CIPlan` v1 / `ReleaseCIPlanV1` evidence rather than silently reinterpreting it.
+
+### B. Runtime identity resolution
+
+Add a finite internal CLI command such as `eggpack ci _resolve-release`.
+
+The command receives explicit contract, PackConfig, selected targets, exact selected tag, checked-out source revision, static GitHub draft template, and output paths.
+
+It must:
+
+1. validate the exact existing tag selected by the workflow event/input;
+2. verify/consume checked-out HEAD as source revision;
+3. resolve PackConfig against DistributionContract through existing `PackConfig::resolve`;
+4. use the exact tag as the opaque `release_id` for this first adoption rather than inferring/stripping product syntax;
+5. emit the invocation-local `ReleasePlan`;
+6. resolve the static GitHub draft template into exact `GitHubDraftPolicyV1`;
+7. write both only into invocation-private workflow storage, never back into the repository.
+
+Using the exact tag as release_id avoids implicit product-specific semver transformation. Eggsact's published asset names are versionless, so this does not alter them.
+
+### C. Static GitHub draft template
+
+Add a bounded static template for fields known before the future tag:
+
+- owner/repository;
+- fixed title prefix such as `eggsact `;
+- bounded fixed body/notes;
+- prerelease flag;
+- token environment;
+- timeout/body/page bounds.
+
+Runtime resolution appends the exact validated tag to the title prefix and sets the exact tag. Do not add arbitrary string templating.
+
+### D. Generated workflow preflight
+
+For a staging-enabled reusable workflow:
+
+1. checkout the event-selected exact tag per M003c;
+2. derive/verify HEAD commit;
+3. resolve invocation-local ReleasePlan and GitHub draft policy;
+4. upload those runtime documents as an internal preflight artifact;
+5. every build/qualify/gate/aggregate/stage job downloads and consumes those exact documents;
+6. `_verify-source` compares every source checkout against the runtime ReleasePlan.
+
+No job may consume a checked-in release-specific source SHA.
+
+### E. Deterministic drift model
+
+`eggpack ci generate/check` operates only on static workflow shape/template.
+
+Tests must prove:
+
+- the same static config renders byte-identical workflow bytes independent of future tag;
+- two runtime tags produce distinct ReleasePlan/GitHubDraftPolicy instances while using identical checked-in workflow bytes;
+- runtime source mismatch still fails M003c verification.
+
+## 5. Installer presentation policy
 
 Add a strict versioned staging installer policy owned by the provider/staging layer.
 
@@ -130,7 +221,7 @@ The product wrappers remain the public `latest/download/install.*` compatibility
 
 The generated exact installers remain available as evidence that Eggpack's qualified bootstrap projection still matches the same manifest.
 
-## 5. Product wrapper source rules
+## 6. Product wrapper source rules
 
 Wrapper source paths are explicit repository-relative paths.
 
@@ -149,7 +240,7 @@ Requirements:
 
 The stage job already verifies checked-out source identity through M003c. Product-wrapper bytes therefore come from the same exact source revision as the ReleasePlan/manifest.
 
-## 6. Staging payload/evidence model
+## 7. Staging payload/evidence model
 
 Do not weaken exact-set reconciliation.
 
@@ -178,7 +269,7 @@ Document and test the compatibility choice. Do not silently reinterpret old payl
 
 The GitHub adapter continues to reconcile the complete exact remote asset set.
 
-## 7. CLI/stage preparation changes
+## 8. CLI/stage preparation changes
 
 Extend the finite `_prepare-stage` input contract with an explicit installer-presentation policy and source root.
 
@@ -199,7 +290,7 @@ Rules:
 
 Generated CI passes the checked-out repository root explicitly.
 
-## 8. Consumer-owned exact-candidate validator
+## 9. Consumer-owned exact-candidate validator
 
 Add one narrow post-core-qualification verifier type to the executable CI graph.
 
@@ -230,7 +321,7 @@ python3 <validated-script-path> <exact-candidate-path>
 
 This is sufficient for the proven eggsact MCP smoke while remaining materially narrower than a command DSL.
 
-## 9. Validator source/security rules
+## 10. Validator source/security rules
 
 Validator script:
 
@@ -255,7 +346,7 @@ Process:
 
 If Python is unavailable on a runner, required validation fails rather than silently skipping.
 
-## 10. Consumer-validator graph semantics
+## 11. Consumer-validator graph semantics
 
 For each target with a consumer validator:
 
@@ -286,7 +377,7 @@ Add bounded `ConsumerValidationEvidenceV1` containing only:
 
 No script output contents.
 
-## 11. Local executable harness
+## 12. Local executable harness
 
 Extend the local orchestration harness so consumer validation can be executed from the same typed runner-command model used by GitHub rendering.
 
@@ -304,7 +395,7 @@ Required fixture:
 
 This proves the renderer is not the sole source of truth.
 
-## 12. eggsact proving configuration
+## 13. eggsact proving configuration
 
 After M003d implementation, the Eggpack-side eggsact adoption plan will configure:
 
@@ -330,7 +421,7 @@ The core candidate smoke remains responsible for direct candidate CLI validation
 
 The consumer validator owns only the MCP handshake.
 
-## 13. Generated workflow requirements
+## 14. Generated workflow requirements
 
 When the consumer seam is configured:
 
@@ -345,7 +436,7 @@ When the consumer seam is configured:
 
 Staging-disabled and consumer-extension-disabled workflows remain byte-compatible with current M003c goldens.
 
-## 14. Tests
+## 15. Tests
 
 ### Installer presentation
 
@@ -381,7 +472,7 @@ Staging-disabled and consumer-extension-disabled workflows remain byte-compatibl
 - no publication/tag mutation;
 - old no-extension golden workflows byte-compatible.
 
-## 15. Documentation
+## 16. Documentation
 
 Update:
 
@@ -399,7 +490,7 @@ Document the ownership boundary explicitly:
 - product wrapper = consumer-owned selection/fallback/install UX;
 - consumer validator = bounded consumer-owned release evidence, not Eggpack qualification semantics.
 
-## 16. Verification
+## 17. Verification
 
 At minimum:
 
@@ -423,10 +514,13 @@ Hosted Linux stable, Rust 1.89, macOS, and Windows must pass.
 
 No real eggsact draft is required for M003d closure. That is M003b/Ecosystem M001 operational evidence.
 
-## 17. Acceptance criteria
+## 18. Acceptance criteria
 
 M003d closes only when:
 
+- reusable checked-in workflow configuration contains no future release_id/source_revision/tag;
+- runtime preflight resolves exact ReleasePlan + GitHub draft policy from the selected tag and checked-out source;
+- the same checked-in workflow bytes work for distinct future tags while M003c exact-source verification remains enforced;
 - product-owned public wrappers can coexist with generated exact installers without filename collision;
 - wrapper bytes are exact source-revision bytes with bounded path/type/size validation;
 - exact remote staging inventory includes wrappers and generated installers;
@@ -440,10 +534,12 @@ M003d closes only when:
 
 On closure, Eggpack Ecosystem M001 and the mirrored eggsact M005 adoption plan become dependency-ready for implementation.
 
-## 18. Stop conditions
+## 19. Stop conditions
 
 Stop and re-plan if:
 
+- static/dynamic identity separation requires weakening M003c source verification;
+- reusable workflow generation still requires a checked-in future source SHA or exact tag;
 - product wrappers require arbitrary staging-directory scanning;
 - validator support requires arbitrary executables/shell/env;
 - Python-only finite validation cannot express eggsact's existing release smoke;
@@ -452,7 +548,7 @@ Stop and re-plan if:
 - consumer validation must mutate product source or candidate bytes;
 - live publication authority becomes necessary.
 
-## 19. Closure evidence
+## 20. Closure evidence
 
 Create:
 
@@ -461,6 +557,9 @@ Create:
 Record:
 
 - implementation SHA;
+- static workflow schema and compatibility decision;
+- two-tag runtime identity resolution evidence;
+- proof no checked-in release-specific source SHA/tag is required;
 - installer-presentation schema/compatibility decision;
 - eggsact wrapper fixture evidence;
 - generated exact installer names and digests;
