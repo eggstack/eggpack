@@ -555,6 +555,7 @@ mod tests {
                 toolchain: ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: CompatibilityFloor::None,
                 qualification: Qualification::Structural,

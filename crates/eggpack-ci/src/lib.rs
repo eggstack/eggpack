@@ -266,15 +266,23 @@ impl CIPlan {
         for job in &self.targets {
             let target = &job.planned;
             let policy = &target.policy;
-            let zig_version_valid = policy
+            let cargo_zigbuild_valid = policy
                 .toolchain
                 .cargo_zigbuild
                 .as_deref()
                 .is_some_and(safe_tool_version);
+            let zig_valid = policy
+                .toolchain
+                .zig
+                .as_deref()
+                .is_some_and(safe_tool_version);
             let toolchain_valid = safe_tool_version(&policy.toolchain.rust)
-                && ((policy.strategy == BuildStrategy::CargoZigbuild && zig_version_valid)
+                && ((policy.strategy == BuildStrategy::CargoZigbuild
+                    && cargo_zigbuild_valid
+                    && zig_valid)
                     || (policy.strategy == BuildStrategy::NativeCargo
-                        && policy.toolchain.cargo_zigbuild.is_none()));
+                        && policy.toolchain.cargo_zigbuild.is_none()
+                        && policy.toolchain.zig.is_none()));
             let floor_valid = match policy.floor {
                 CompatibilityFloor::None => true,
                 CompatibilityFloor::Glibc { .. } => target.target.contains("-linux-gnu"),
@@ -449,6 +457,13 @@ pub struct ActionPin {
 }
 
 /// One provider policy runner label for a provider-neutral host capability.
+///
+/// Runner labels describe host OS/architecture capability only. When explicit
+/// cross-tool provisioning (`GitHubPolicy::cross_tools`) is selected, the
+/// `cargo_zigbuild`/`zig` booleans are not the qualification authority; the
+/// provisioned exact tools are. When provisioning is absent
+/// (`PreinstalledVerified` legacy mode), both booleans must be true for
+/// CargoZigbuild hosts and both exact configured versions are still checked.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunnerMapping {
@@ -462,6 +477,240 @@ pub struct RunnerMapping {
     pub cargo_zigbuild: bool,
     /// The selected runner image has a preinstalled Zig executable.
     pub zig: bool,
+}
+
+/// SHA-256 digests for the finite set of official Zig archives (M005 §5/§7).
+///
+/// The Zig version itself comes from the resolved `TargetPolicy`, never from
+/// this provider policy. No arbitrary archive URL or mirror is representable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ZigOfficialArchiveV1 {
+    /// Exact SHA-256 of the official Linux x86-64 archive (64 lowercase hex).
+    pub linux_x86_64_sha256: String,
+    /// Exact SHA-256 of the official Linux AArch64 archive (64 lowercase hex).
+    pub linux_aarch64_sha256: String,
+}
+
+/// Finite cross-tool provisioning policy for CargoZigbuild jobs (M005 §5).
+///
+/// The provider policy controls *how* the finite approved tools are
+/// provisioned; `ToolchainRequirement` controls *which exact versions* are
+/// required. Acquisition paths are fixed: `cargo install --locked` for
+/// cargo-zigbuild and official `ziglang.org` archives for Zig. No generic
+/// package manager, arbitrary URL, or arbitrary setup command exists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CrossToolProvisioningV1 {
+    /// Bound on the `cargo install cargo-zigbuild` step, 1 to 60 minutes.
+    pub cargo_install_timeout_minutes: u16,
+    /// Bound on curl `--connect-timeout` for the Zig download, 5 to 300 secs.
+    pub zig_connect_timeout_secs: u64,
+    /// Bound on curl `--max-time` for the Zig download, 60 to 3600 secs.
+    pub zig_max_time_secs: u64,
+    /// Exact official Zig archive digests per supported host architecture.
+    pub zig: ZigOfficialArchiveV1,
+}
+
+impl ZigOfficialArchiveV1 {
+    /// Validate both digests are exact 64-character lowercase hex SHA-256.
+    pub fn validate(&self) -> Result<(), CiError> {
+        for digest in [&self.linux_x86_64_sha256, &self.linux_aarch64_sha256] {
+            if digest.len() != 64
+                || !digest
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+                || digest == &"0".repeat(64)
+            {
+                return Err(fail("invalid Zig official archive SHA-256"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Exact expected digest for a supported Linux host architecture.
+    pub fn digest_for(&self, arch: HostArch) -> Result<&str, CiError> {
+        match arch {
+            HostArch::X86_64 => Ok(&self.linux_x86_64_sha256),
+            HostArch::Aarch64 => Ok(&self.linux_aarch64_sha256),
+            HostArch::Armv7 => Err(fail("unsupported Zig provisioning host architecture")),
+        }
+    }
+}
+
+impl CrossToolProvisioningV1 {
+    /// Validate timeout bounds and both Zig digests.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.cargo_install_timeout_minutes == 0
+            || self.cargo_install_timeout_minutes > 60
+            || self.zig_connect_timeout_secs < 5
+            || self.zig_connect_timeout_secs > 300
+            || self.zig_max_time_secs < 60
+            || self.zig_max_time_secs > 3600
+        {
+            return Err(fail("invalid cross-tool provisioning timeout bound"));
+        }
+        self.zig.validate()
+    }
+}
+
+/// Official Zig archive file name for a supported Linux host (`M005 §7`).
+///
+/// Maps exactly: Linux x86-64 -> `zig-x86_64-linux-<version>.tar.xz`;
+/// Linux AArch64 -> `zig-aarch64-linux-<version>.tar.xz`. Any other host or
+/// an out-of-bounds version fails closed.
+pub fn zig_archive_name(os: HostOs, arch: HostArch, version: &str) -> Result<String, CiError> {
+    if os != HostOs::Linux || !safe_tool_version(version) {
+        return Err(fail("unsupported Zig provisioning host or version"));
+    }
+    let arch_token = match arch {
+        HostArch::X86_64 => "x86_64",
+        HostArch::Aarch64 => "aarch64",
+        HostArch::Armv7 => return Err(fail("unsupported Zig provisioning host architecture")),
+    };
+    Ok(format!("zig-{arch_token}-linux-{version}.tar.xz"))
+}
+
+/// Fixed official Zig download origin (`M005 §5/§8`).
+///
+/// Production source is fixed to `https://ziglang.org/download/<version>/...`.
+/// No caller-supplied URL, mirror, or redirect target is representable.
+pub fn zig_download_url(version: &str, arch: HostArch) -> Result<String, CiError> {
+    let name = zig_archive_name(HostOs::Linux, arch, version)?;
+    if !safe_tool_version(version) {
+        return Err(fail("invalid Zig version for download URL"));
+    }
+    Ok(format!("https://ziglang.org/download/{version}/{name}"))
+}
+
+/// Expected SHA-256 for the configured Zig version on a build host.
+///
+/// The version comes from the resolved `TargetPolicy`; the digest comes from
+/// the provider provisioning policy. The checked-in digest is the authority;
+/// no remotely fetched checksum file is trusted.
+pub fn zig_expected_digest(
+    provisioning: &CrossToolProvisioningV1,
+    host_os: HostOs,
+    host_arch: HostArch,
+) -> Result<&str, CiError> {
+    if host_os != HostOs::Linux {
+        return Err(fail("Zig provisioning requires a Linux build host"));
+    }
+    provisioning.zig.digest_for(host_arch)
+}
+
+/// Validate one hex SHA-256 digest string without trusting remote content.
+pub fn validate_sha256_hex(digest: &str) -> Result<(), CiError> {
+    if digest.len() != 64
+        || !digest
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+        || digest == "0".repeat(64)
+    {
+        return Err(fail("invalid SHA-256 digest"));
+    }
+    Ok(())
+}
+
+/// Pure archive top-level layout check for an official Zig archive listing.
+///
+/// The expected layout is exactly one top-level directory containing the `zig`
+/// executable (`<top>/zig`). Rejects empty listings, absolute entries,
+/// traversal components, more than one top-level member, a missing `zig`
+/// entry, or a top-level `zig` file without its parent directory. Symlink and
+/// traversal rejection during extraction is enforced by the rendered script
+/// and by [`validate_provisioned_zig_dir`]; this function covers the layout
+/// shape that can be checked from a file listing without network access.
+pub fn validate_zig_archive_listing(entries: &[String]) -> Result<String, CiError> {
+    if entries.is_empty() || entries.len() > 4096 {
+        return Err(fail("invalid Zig archive listing"));
+    }
+    let mut top: Option<String> = None;
+    let mut has_zig = false;
+    for entry in entries {
+        if entry.is_empty()
+            || entry.len() > 512
+            || entry.starts_with('/')
+            || entry.starts_with('\\')
+            || entry.contains('\0')
+        {
+            return Err(fail("invalid Zig archive entry"));
+        }
+        let normalized = entry.strip_suffix('/').unwrap_or(entry);
+        let mut components = normalized.split('/');
+        let first = components
+            .next()
+            .ok_or_else(|| fail("invalid Zig archive entry"))?;
+        if first.is_empty() || first == "." || first == ".." {
+            return Err(fail("invalid Zig archive top-level layout"));
+        }
+        for component in components {
+            if component.is_empty() || component == "." || component == ".." {
+                return Err(fail("invalid Zig archive entry traversal"));
+            }
+        }
+        match &top {
+            None => top = Some(first.to_owned()),
+            Some(expected) if expected == first => {}
+            Some(_) => return Err(fail("unexpected Zig archive top-level layout")),
+        }
+        if normalized == format!("{first}/zig") {
+            has_zig = true;
+        }
+    }
+    let top = top.ok_or_else(|| fail("invalid Zig archive listing"))?;
+    if !has_zig {
+        return Err(fail("Zig archive listing misses the zig executable"));
+    }
+    Ok(top)
+}
+
+/// Validate an extracted provisioned Zig directory without network access.
+///
+/// Requires `<dir>/zig` to be a regular non-symlink file (executable bit is
+/// enforced on Unix; on Windows a regular file suffices since the execute bit
+/// is not tracked). Rejects missing entries, symlinked executables,
+/// directories, empty files, and unexpected extra top-level members. The
+/// caller passes the private extraction root whose single child is the
+/// archive top-level directory.
+pub fn validate_provisioned_zig_dir(root: &Path) -> Result<std::path::PathBuf, CiError> {
+    let metadata =
+        std::fs::symlink_metadata(root).map_err(|_| fail("provisioned Zig root unavailable"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(fail("provisioned Zig root is not a private directory"));
+    }
+    let mut entries: Vec<std::path::PathBuf> = std::fs::read_dir(root)
+        .map_err(|_| fail("provisioned Zig root unreadable"))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<_, _>>()
+        .map_err(|_| fail("provisioned Zig root unreadable"))?;
+    if entries.len() != 1 {
+        return Err(fail("unexpected Zig archive top-level layout"));
+    }
+    entries.sort();
+    let top = entries
+        .into_iter()
+        .next()
+        .ok_or_else(|| fail("unexpected Zig archive top-level layout"))?;
+    let top_metadata = std::fs::symlink_metadata(&top)
+        .map_err(|_| fail("unexpected Zig archive top-level layout"))?;
+    if top_metadata.file_type().is_symlink() || !top_metadata.is_dir() {
+        return Err(fail("unexpected Zig archive top-level layout"));
+    }
+    let zig = top.join("zig");
+    let zig_metadata =
+        std::fs::symlink_metadata(&zig).map_err(|_| fail("provisioned zig executable missing"))?;
+    if zig_metadata.file_type().is_symlink() || !zig_metadata.is_file() || zig_metadata.len() == 0 {
+        return Err(fail("provisioned zig executable is not a regular file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if zig_metadata.permissions().mode() & 0o111 == 0 {
+            return Err(fail("provisioned zig executable is not executable"));
+        }
+    }
+    Ok(zig)
 }
 
 /// Finite workflow trigger supported by the M001 renderer.
@@ -516,6 +765,15 @@ pub struct GitHubPolicy {
     /// GitHub draft staging (M003b). Absent for M002a build-only rendering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staging: Option<GitHubStagingPolicyV1>,
+    /// Finite deterministic cross-tool provisioning for CargoZigbuild jobs
+    /// (M005). Absent means `PreinstalledVerified` legacy mode: both exact
+    /// configured versions are still checked but no installation occurs.
+    /// Present means `Provisioned` mode: exact cargo-zigbuild and
+    /// SHA-256-verified official Zig are installed into invocation-private
+    /// directories before any product build. Historical documents without
+    /// this field remain parseable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_tools: Option<CrossToolProvisioningV1>,
 }
 
 /// Finite Eggpack runtime tool provisioning for generated qualify/aggregate jobs.
@@ -1232,6 +1490,9 @@ impl GitHubPolicy {
                 return Err(fail("duplicate workflow trigger"));
             }
         }
+        if let Some(provisioning) = &self.cross_tools {
+            provisioning.validate()?;
+        }
         for job in &plan.targets {
             let host = &job.planned.policy;
             let mapping = self
@@ -1239,9 +1500,22 @@ impl GitHubPolicy {
                 .iter()
                 .find(|mapping| mapping.os == host.host_os && mapping.arch == host.host_arch)
                 .ok_or_else(|| fail("GitHub runner mapping missing for build host"))?;
-            if job.planned.policy.strategy == BuildStrategy::CargoZigbuild
-                && (!mapping.cargo_zigbuild || !mapping.zig)
-            {
+            if job.planned.policy.strategy != BuildStrategy::CargoZigbuild {
+                continue;
+            }
+            if self.cross_tools.is_some() {
+                // Provisioned mode: tools are installed into invocation-private
+                // directories; runner labels describe host capability only.
+                // Only the finite Linux x86-64/AArch64 provider hosts are
+                // supported for official Zig archives.
+                if host.host_os != HostOs::Linux
+                    || !matches!(host.host_arch, HostArch::X86_64 | HostArch::Aarch64)
+                {
+                    return Err(fail(
+                        "cross-tool provisioning supports only Linux x86-64/AArch64 hosts",
+                    ));
+                }
+            } else if !mapping.cargo_zigbuild || !mapping.zig {
                 return Err(fail(
                     "cross-build runner lacks preinstalled cargo-zigbuild or Zig",
                 ));
@@ -1283,6 +1557,104 @@ fn arch_code(arch: HostArch) -> u8 {
         HostArch::X86_64 => 1,
         HostArch::Aarch64 => 2,
         HostArch::Armv7 => 3,
+    }
+}
+
+/// Exact cross-tool versions required by a CargoZigbuild target policy.
+fn cross_tool_versions(planned: &PlannedTarget) -> Result<(&str, &str), CiError> {
+    let cargo_zigbuild = planned
+        .policy
+        .toolchain
+        .cargo_zigbuild
+        .as_deref()
+        .ok_or_else(|| fail("cargo-zigbuild version missing from ReleasePlan"))?;
+    let zig = planned
+        .policy
+        .toolchain
+        .zig
+        .as_deref()
+        .ok_or_else(|| fail("Zig version missing from ReleasePlan"))?;
+    Ok((cargo_zigbuild, zig))
+}
+
+/// Render the `PreinstalledVerified` cross-tool check: both exact configured
+/// versions are verified, but nothing is installed.
+fn verified_cross_tools_step(planned: &PlannedTarget) -> Result<String, CiError> {
+    let (cargo_zigbuild, zig) = cross_tool_versions(planned)?;
+    let mut step = String::from(
+        "      - name: Verify Rust and cross tools\n        shell: bash\n        run: |\n          cargo +",
+    );
+    step.push_str(&shell_quote(&planned.policy.toolchain.rust));
+    step.push_str(" --version\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
+    step.push_str(&shell_quote(&format!("cargo-zigbuild {cargo_zigbuild}")));
+    step.push_str("\n          actual_zig=\"$(zig version)\"\n          test \"$actual_zig\" = ");
+    step.push_str(&shell_quote(zig));
+    step.push('\n');
+    Ok(step)
+}
+
+/// Render deterministic `Provisioned` cross-tool setup for a CargoZigbuild job.
+///
+/// Order: install exact cargo-zigbuild into an invocation-private
+/// `CARGO_INSTALL_ROOT` (only its `bin` joins PATH, exact version required),
+/// then download the official Zig archive over HTTPS with bounded timeouts,
+/// verify the checked-in SHA-256 before extraction, validate the single
+/// top-level layout, extract into a private directory, require a regular
+/// non-symlink executable, bind it via `CARGO_ZIGBUILD_ZIG_PATH`, isolate
+/// `CARGO_ZIGBUILD_CACHE_DIR`, and require exact Zig version equality.
+/// No package manager, mirror, arbitrary URL, or arbitrary command exists.
+fn provision_cross_tools_steps(
+    provisioning: &CrossToolProvisioningV1,
+    planned: &PlannedTarget,
+) -> Result<String, CiError> {
+    let (cargo_zigbuild, zig_version) = cross_tool_versions(planned)?;
+    let host_os = planned.policy.host_os;
+    let host_arch = planned.policy.host_arch;
+    let archive = zig_archive_name(host_os, host_arch, zig_version)?;
+    let url = zig_download_url(zig_version, host_arch)?;
+    let digest = zig_expected_digest(provisioning, host_os, host_arch)?;
+    validate_sha256_hex(digest)?;
+    let mut step = String::from("      - name: Install exact cargo-zigbuild\n        shell: bash\n        timeout-minutes: ");
+    step.push_str(&provisioning.cargo_install_timeout_minutes.to_string());
+    step.push_str("\n        run: |\n          set -euo pipefail\n          install_root=\"${{ runner.temp }}/eggpack/cargo-install/${{ github.run_id }}-${{ github.run_attempt }}\"\n          mkdir -p \"$install_root\"\n          CARGO_INSTALL_ROOT=\"$install_root\" cargo install cargo-zigbuild --version ");
+    step.push_str(&shell_quote(cargo_zigbuild));
+    step.push_str(" --locked\n          echo \"CARGO_INSTALL_ROOT=$install_root\" >> \"$GITHUB_ENV\"\n          echo \"$install_root/bin\" >> \"$GITHUB_PATH\"\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
+    step.push_str(&shell_quote(&format!("cargo-zigbuild {cargo_zigbuild}")));
+    step.push_str("\n      - name: Provision verified Zig ");
+    step.push_str(zig_version);
+    step.push_str("\n        shell: bash\n        run: |\n          set -euo pipefail\n          zig_version=");
+    step.push_str(&shell_quote(zig_version));
+    step.push_str("\n          zig_archive=");
+    step.push_str(&shell_quote(&archive));
+    step.push_str("\n          zig_url=");
+    step.push_str(&shell_quote(&url));
+    step.push_str("\n          zig_sha=");
+    step.push_str(&shell_quote(digest));
+    step.push_str("\n          work=\"${{ runner.temp }}/eggpack/zig/${{ github.run_id }}-${{ github.run_attempt }}\"\n          mkdir -p \"$work\"\n          archive=\"$work/$zig_archive\"\n          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --proto-redir '=https' --connect-timeout ");
+    step.push_str(&provisioning.zig_connect_timeout_secs.to_string());
+    step.push_str(" --max-time ");
+    step.push_str(&provisioning.zig_max_time_secs.to_string());
+    step.push_str(" -o \"$archive\" \"$zig_url\"\n          printf '%s  %s\\n' \"$zig_sha\" \"$archive\" | sha256sum --check -\n          entries=\"$(tar -tf \"$archive\")\"\n          test -n \"$entries\"\n          if printf '%s\\n' \"$entries\" | grep -Eq '(^/)|(^|/)\\.\\.(/|$)'; then echo 'rejected Zig archive path' >&2; exit 1; fi\n          top=\"$(printf '%s\\n' \"$entries\" | cut -d/ -f1 | sort -u)\"\n          test -n \"$top\"\n          test \"$(printf '%s\\n' \"$top\" | wc -l)\" = \"1\"\n          printf '%s\\n' \"$entries\" | grep -Fxq \"$top/zig\"\n          rm -rf \"$work/extract\"\n          mkdir -p \"$work/extract\"\n          tar -xf \"$archive\" -C \"$work/extract\"\n          test ! -L \"$work/extract/$top/zig\"\n          test -f \"$work/extract/$top/zig\"\n          test -s \"$work/extract/$top/zig\"\n          test -x \"$work/extract/$top/zig\"\n          zig_bin=\"$work/extract/$top/zig\"\n          test \"$(\"$zig_bin\" version)\" = ");
+    step.push_str(&shell_quote(zig_version));
+    step.push_str("\n          cache=\"${{ runner.temp }}/eggpack/zigbuild-cache/${{ github.run_id }}-${{ github.run_attempt }}\"\n          mkdir -p \"$cache\"\n          echo \"CARGO_ZIGBUILD_ZIG_PATH=$zig_bin\" >> \"$GITHUB_ENV\"\n          echo \"CARGO_ZIGBUILD_CACHE_DIR=$cache\" >> \"$GITHUB_ENV\"\n          echo \"$work/extract/$top\" >> \"$GITHUB_PATH\"\n");
+    Ok(step)
+}
+
+/// Extra `env` lines binding the product build to the verified Zig path.
+///
+/// `CARGO_ZIGBUILD_ZIG_PATH` is the build authority; PATH only carries the
+/// verified directory for direct diagnostics. The cache directory is
+/// invocation-private scratch state, never a shared correctness cache.
+fn provisioned_build_env() -> &'static str {
+    "\n          CARGO_ZIGBUILD_ZIG_PATH: ${{ env.CARGO_ZIGBUILD_ZIG_PATH }}\n          CARGO_ZIGBUILD_CACHE_DIR: ${{ env.CARGO_ZIGBUILD_CACHE_DIR }}"
+}
+
+/// Render the cross-tool section for one CargoZigbuild job: either the
+/// `PreinstalledVerified` exact check or the `Provisioned` install sequence.
+fn cross_tools_section(policy: &GitHubPolicy, planned: &PlannedTarget) -> Result<String, CiError> {
+    match &policy.cross_tools {
+        None => verified_cross_tools_step(planned),
+        Some(provisioning) => provision_cross_tools_steps(provisioning, planned),
     }
 }
 
@@ -1343,27 +1715,22 @@ pub fn render_github(plan: &CIPlan, policy: &GitHubPolicy) -> Result<String, CiE
                 out.push_str(" --version\n");
             }
             BuildStrategy::CargoZigbuild => {
-                let expected = job
-                    .planned
-                    .policy
-                    .toolchain
-                    .cargo_zigbuild
-                    .as_deref()
-                    .ok_or_else(|| fail("cargo-zigbuild version missing from ReleasePlan"))?;
-                out.push_str("      - name: Verify Rust and cross tools\n        shell: bash\n        run: |\n          cargo +");
-                out.push_str(&shell_quote(&job.planned.policy.toolchain.rust));
-                out.push_str(" --version\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
-                out.push_str(&shell_quote(&format!("cargo-zigbuild {expected}")));
-                out.push_str("\n          zig version\n");
+                out.push_str(&cross_tools_section(policy, &job.planned)?);
             }
         }
+        let provisioned = policy.cross_tools.is_some()
+            && job.planned.policy.strategy == BuildStrategy::CargoZigbuild;
         for output in &job.outputs {
             out.push_str("      - name: Build ");
             out.push_str(&yaml_scalar(&format!(
                 "{} / {}",
                 job.planned.target, output.binary
             )));
-            out.push_str("\n        shell: bash\n        env:\n          CARGO_TARGET_DIR: \"${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}\"\n        run: ");
+            out.push_str("\n        shell: bash\n        env:\n          CARGO_TARGET_DIR: \"${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}\"");
+            if provisioned {
+                out.push_str(provisioned_build_env());
+            }
+            out.push_str("\n        run: ");
             let mut command = Vec::with_capacity(output.args.len() + 1);
             command.push(output.executable.as_str());
             command.extend(output.args.iter().map(String::as_str));
@@ -2842,12 +3209,24 @@ fn render_release_github_inner(
                     && mapping.arch == job.planned.policy.host_arch
             })
             .ok_or_else(|| fail("GitHub runner mapping missing for build host"))?;
-        if job.planned.policy.strategy == BuildStrategy::CargoZigbuild
-            && (!runner.cargo_zigbuild || !runner.zig)
-        {
-            return Err(fail(
-                "cross-build runner lacks preinstalled cargo-zigbuild or Zig",
-            ));
+        if job.planned.policy.strategy == BuildStrategy::CargoZigbuild {
+            if let Some(provisioning) = &policy.cross_tools {
+                provisioning.validate()?;
+                if job.planned.policy.host_os != HostOs::Linux
+                    || !matches!(
+                        job.planned.policy.host_arch,
+                        HostArch::X86_64 | HostArch::Aarch64
+                    )
+                {
+                    return Err(fail(
+                        "cross-tool provisioning supports only Linux x86-64/AArch64 hosts",
+                    ));
+                }
+            } else if !runner.cargo_zigbuild || !runner.zig {
+                return Err(fail(
+                    "cross-build runner lacks preinstalled cargo-zigbuild or Zig",
+                ));
+            }
         }
         out.push_str("  ");
         out.push_str(&job.job_id);
@@ -2881,27 +3260,22 @@ fn render_release_github_inner(
                 out.push_str(" --version\n");
             }
             BuildStrategy::CargoZigbuild => {
-                let expected = job
-                    .planned
-                    .policy
-                    .toolchain
-                    .cargo_zigbuild
-                    .as_deref()
-                    .ok_or_else(|| fail("cargo-zigbuild version missing from ReleasePlan"))?;
-                out.push_str("      - name: Verify Rust and cross tools\n        shell: bash\n        run: |\n          cargo +");
-                out.push_str(&shell_quote(&job.planned.policy.toolchain.rust));
-                out.push_str(" --version\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
-                out.push_str(&shell_quote(&format!("cargo-zigbuild {expected}")));
-                out.push_str("\n          zig version\n");
+                out.push_str(&cross_tools_section(policy, &job.planned)?);
             }
         }
+        let provisioned = policy.cross_tools.is_some()
+            && job.planned.policy.strategy == BuildStrategy::CargoZigbuild;
         for output in &job.outputs {
             out.push_str("      - name: Build ");
             out.push_str(&yaml_scalar(&format!(
                 "{} / {}",
                 job.planned.target, output.binary
             )));
-            out.push_str("\n        shell: bash\n        env:\n          CARGO_TARGET_DIR: \"${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}\"\n        run: ");
+            out.push_str("\n        shell: bash\n        env:\n          CARGO_TARGET_DIR: \"${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}\"");
+            if provisioned {
+                out.push_str(provisioned_build_env());
+            }
+            out.push_str("\n        run: ");
             let mut command = Vec::with_capacity(output.args.len() + 1);
             command.push(output.executable.as_str());
             command.extend(output.args.iter().map(String::as_str));
@@ -3320,7 +3694,12 @@ fn render_release_github_inner(
         return Err(fail("rendered release workflow exceeds size bound"));
     }
     // Static guards: the generated workflow must never publish, clobber via
-    // release CLIs, mutate tags, or mint OIDC tokens.
+    // release CLIs, mutate tags, or mint OIDC tokens. The only permitted
+    // network acquisition is the finite M005 build-tool bootstrap: a `curl`
+    // line is allowed only when it carries the HTTPS-only flags, bounded
+    // timeouts, and the renderer-owned `$zig_url` variable that is assigned
+    // the fixed `ziglang.org/download/` origin two lines above (M005 §8).
+    // Any other `curl` invocation still fails closed.
     if out.contains("id-token: write") {
         return Err(fail("generated workflow must not request id-token write"));
     }
@@ -3330,13 +3709,31 @@ fn render_release_github_inner(
         "release --publish",
         "git tag ",
         "git push --tags",
-        "curl ",
     ] {
         if out.contains(forbidden) {
             return Err(fail(
                 "generated workflow contains a forbidden release command",
             ));
         }
+    }
+    for line in out.lines() {
+        if line.contains("curl ")
+            && !(line.contains("curl --proto '=https'")
+                && line.contains("--tlsv1.2")
+                && line.contains("--proto-redir '=https'")
+                && line.contains("--connect-timeout")
+                && line.contains("--max-time")
+                && line.contains("\"$zig_url\""))
+        {
+            return Err(fail(
+                "generated workflow contains a forbidden curl invocation",
+            ));
+        }
+    }
+    if out.contains("curl --proto '=https'") && !out.contains("https://ziglang.org/download/") {
+        return Err(fail(
+            "generated workflow bootstrap curl lacks the fixed Zig origin",
+        ));
     }
     Ok(out)
 }
@@ -4233,6 +4630,7 @@ mod tests {
             toolchain: ToolchainRequirement {
                 rust: "1.89.0".into(),
                 cargo_zigbuild: (strategy == BuildStrategy::CargoZigbuild).then(|| "0.20.0".into()),
+                zig: (strategy == BuildStrategy::CargoZigbuild).then(|| "0.14.1".into()),
             },
             floor: CompatibilityFloor::Glibc {
                 major: 2,
@@ -4300,6 +4698,7 @@ mod tests {
             release_inputs: None,
             emulated_sysroots: None,
             staging: None,
+            cross_tools: None,
         }
     }
     fn graph(strategy: BuildStrategy, support: SupportTier) -> CIPlan {
@@ -4481,6 +4880,7 @@ mod tests {
                     toolchain: ToolchainRequirement {
                         rust: "stable".into(),
                         cargo_zigbuild: None,
+                        zig: None,
                     },
                     floor: CompatibilityFloor::None,
                     qualification: Qualification::DeferredNative,
@@ -4495,6 +4895,7 @@ mod tests {
                     toolchain: ToolchainRequirement {
                         rust: "1.89.0".into(),
                         cargo_zigbuild: Some("0.20.0".into()),
+                        zig: Some("0.14.1".into()),
                     },
                     floor: CompatibilityFloor::Glibc {
                         major: 2,
@@ -4607,6 +5008,7 @@ mod tests {
                     toolchain: ToolchainRequirement {
                         rust: "stable".into(),
                         cargo_zigbuild: None,
+                        zig: None,
                     },
                     floor: CompatibilityFloor::None,
                     qualification: Qualification::DeferredNative,
@@ -4739,6 +5141,7 @@ mod tests {
                 toolchain: ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: CompatibilityFloor::None,
                 qualification,
@@ -5470,6 +5873,7 @@ mod tests {
             }),
             emulated_sysroots: None,
             staging: None,
+            cross_tools: None,
         }
     }
 
@@ -5509,6 +5913,11 @@ mod tests {
                         rust: "1.89.0".into(),
                         cargo_zigbuild: if *strategy == BuildStrategy::CargoZigbuild {
                             Some("0.20.0".into())
+                        } else {
+                            None
+                        },
+                        zig: if *strategy == BuildStrategy::CargoZigbuild {
+                            Some("0.14.1".into())
                         } else {
                             None
                         },
@@ -6587,6 +6996,7 @@ mod tests {
                     toolchain: eggpack_core::ToolchainRequirement {
                         rust: "1.89.0".into(),
                         cargo_zigbuild: None,
+                        zig: None,
                     },
                     floor: eggpack_core::CompatibilityFloor::None,
                     qualification: eggpack_core::Qualification::Structural,
@@ -6601,6 +7011,7 @@ mod tests {
                     toolchain: eggpack_core::ToolchainRequirement {
                         rust: "1.89.0".into(),
                         cargo_zigbuild: None,
+                        zig: None,
                     },
                     floor: eggpack_core::CompatibilityFloor::None,
                     qualification: eggpack_core::Qualification::Structural,
@@ -8116,5 +8527,712 @@ mod tests {
         let mut skewed = policy.clone();
         skewed.staging.as_mut().unwrap().tag_source = StagingTagSource::DispatchInput;
         assert!(render_reusable_release_github(&contract, &shape, &skewed).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // M005 deterministic cross-tool provisioning.
+    // -----------------------------------------------------------------------
+
+    const M005_ZIG_VERSION: &str = "0.14.1";
+    const M005_CARGO_ZIGBUILD_VERSION: &str = "0.23.3";
+    const M005_X86_64_SHA: &str =
+        "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c";
+    const M005_AARCH64_SHA: &str =
+        "f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b";
+
+    fn m005_provisioning() -> CrossToolProvisioningV1 {
+        CrossToolProvisioningV1 {
+            cargo_install_timeout_minutes: 10,
+            zig_connect_timeout_secs: 30,
+            zig_max_time_secs: 600,
+            zig: ZigOfficialArchiveV1 {
+                linux_x86_64_sha256: M005_X86_64_SHA.into(),
+                linux_aarch64_sha256: M005_AARCH64_SHA.into(),
+            },
+        }
+    }
+
+    fn m005_cross_policy(
+        host_arch: HostArch,
+        zig_version: &str,
+        cargo_zigbuild_version: &str,
+    ) -> TargetPolicy {
+        TargetPolicy {
+            target: "x86_64-unknown-linux-gnu".into(),
+            strategy: BuildStrategy::CargoZigbuild,
+            host_os: HostOs::Linux,
+            host_arch,
+            qualification_host: None,
+            toolchain: ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some(cargo_zigbuild_version.into()),
+                zig: Some(zig_version.into()),
+            },
+            floor: CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17,
+            },
+            qualification: Qualification::Structural,
+            support: SupportTier::Required,
+        }
+    }
+
+    fn m005_cross_graph(
+        host_arch: HostArch,
+        zig_version: &str,
+        cargo_zigbuild_version: &str,
+    ) -> (CIPlan, GitHubPolicy) {
+        let contract = contract();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![m005_cross_policy(
+                host_arch,
+                zig_version,
+                cargo_zigbuild_version,
+            )],
+        };
+        let release = config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into()],
+            )
+            .unwrap();
+        let graph = project_ci_plan(&contract, &release, &bindings(&release)).unwrap();
+        let mut policy = self::policy();
+        policy.runners = vec![RunnerMapping {
+            os: HostOs::Linux,
+            arch: host_arch,
+            label: "ubuntu-latest".into(),
+            cargo_zigbuild: false,
+            zig: false,
+        }];
+        (graph, policy)
+    }
+
+    #[test]
+    fn m005_zig_archive_mapping_is_finite_and_official() {
+        assert_eq!(
+            zig_archive_name(HostOs::Linux, HostArch::X86_64, M005_ZIG_VERSION).unwrap(),
+            format!("zig-x86_64-linux-{M005_ZIG_VERSION}.tar.xz")
+        );
+        assert_eq!(
+            zig_archive_name(HostOs::Linux, HostArch::Aarch64, M005_ZIG_VERSION).unwrap(),
+            format!("zig-aarch64-linux-{M005_ZIG_VERSION}.tar.xz")
+        );
+        assert_eq!(
+            zig_download_url(M005_ZIG_VERSION, HostArch::X86_64).unwrap(),
+            format!(
+                "https://ziglang.org/download/{M005_ZIG_VERSION}/zig-x86_64-linux-{M005_ZIG_VERSION}.tar.xz"
+            )
+        );
+        assert_eq!(
+            zig_download_url(M005_ZIG_VERSION, HostArch::Aarch64).unwrap(),
+            format!(
+                "https://ziglang.org/download/{M005_ZIG_VERSION}/zig-aarch64-linux-{M005_ZIG_VERSION}.tar.xz"
+            )
+        );
+        // Unsupported hosts, bad OS, and out-of-bounds versions fail closed.
+        assert!(zig_archive_name(HostOs::Linux, HostArch::Armv7, M005_ZIG_VERSION).is_err());
+        assert!(zig_archive_name(HostOs::Macos, HostArch::X86_64, M005_ZIG_VERSION).is_err());
+        assert!(zig_archive_name(HostOs::Windows, HostArch::X86_64, M005_ZIG_VERSION).is_err());
+        assert!(zig_archive_name(HostOs::Linux, HostArch::X86_64, "").is_err());
+        assert!(zig_archive_name(HostOs::Linux, HostArch::X86_64, "0.14.1/../../evil").is_err());
+        assert!(zig_download_url("", HostArch::X86_64).is_err());
+    }
+
+    #[test]
+    fn m005_provisioning_policy_rejects_bad_digests_and_bounds() {
+        m005_provisioning().validate().unwrap();
+        validate_sha256_hex(M005_X86_64_SHA).unwrap();
+        for bad in [
+            "",
+            "abc",
+            "0".repeat(64).as_str(),
+            "24AEEEC8AF16C381934A6CD7D95C807A8CB2CF7DF9FA40D359AA884195C4716C",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        ] {
+            assert!(validate_sha256_hex(bad).is_err(), "digest accepted: {bad}");
+            let mut policy = m005_provisioning();
+            policy.zig.linux_x86_64_sha256 = bad.into();
+            assert!(policy.validate().is_err());
+        }
+        let mut policy = m005_provisioning();
+        policy.zig.linux_aarch64_sha256 = String::new();
+        assert!(policy.validate().is_err());
+        for (connect, max, install) in [(0, 600, 10), (30, 30, 10), (30, 600, 0), (30, 600, 61)] {
+            let mut policy = m005_provisioning();
+            policy.zig_connect_timeout_secs = connect;
+            policy.zig_max_time_secs = max;
+            policy.cargo_install_timeout_minutes = install;
+            assert!(policy.validate().is_err());
+        }
+        // Digest selection follows the build host architecture.
+        let provisioning = m005_provisioning();
+        assert_eq!(
+            zig_expected_digest(&provisioning, HostOs::Linux, HostArch::X86_64).unwrap(),
+            M005_X86_64_SHA
+        );
+        assert_eq!(
+            zig_expected_digest(&provisioning, HostOs::Linux, HostArch::Aarch64).unwrap(),
+            M005_AARCH64_SHA
+        );
+        assert!(zig_expected_digest(&provisioning, HostOs::Linux, HostArch::Armv7).is_err());
+        assert!(zig_expected_digest(&provisioning, HostOs::Macos, HostArch::X86_64).is_err());
+    }
+
+    #[test]
+    fn m005_preinstalled_mode_checks_both_exact_versions_without_install() {
+        let (graph, policy) = m005_cross_graph(
+            HostArch::X86_64,
+            M005_ZIG_VERSION,
+            M005_CARGO_ZIGBUILD_VERSION,
+        );
+        // Legacy booleans off means legacy mode still fails closed.
+        assert!(policy.validate(&graph).is_err());
+        let mut legacy = policy.clone();
+        legacy.runners[0].cargo_zigbuild = true;
+        legacy.runners[0].zig = true;
+        legacy.validate(&graph).unwrap();
+        let output = render_github(&graph, &legacy).unwrap();
+        assert!(output.contains("cargo-zigbuild 0.23.3"));
+        assert!(output.contains("actual_zig=\"$(zig version)\""));
+        assert!(output.contains("test \"$actual_zig\" = '0.14.1'"));
+        // No provisioning: no install, no download, no package manager.
+        assert!(!output.contains("cargo install cargo-zigbuild"));
+        assert!(!output.contains("ziglang.org"));
+        assert!(!output.contains("curl "));
+        assert!(!output.contains("apt-get"));
+        assert!(!output.contains("brew "));
+        assert!(!output.contains("choco"));
+        assert!(output.contains("x86_64-unknown-linux-gnu.2.17"));
+    }
+
+    #[test]
+    fn m005_provisioned_render_pins_exact_tools_without_ambient_dependency() {
+        let (graph, mut policy) = m005_cross_graph(
+            HostArch::X86_64,
+            M005_ZIG_VERSION,
+            M005_CARGO_ZIGBUILD_VERSION,
+        );
+        policy.cross_tools = Some(m005_provisioning());
+        // Runner booleans stay false: no ambient tool is assumed.
+        assert!(!policy.runners[0].cargo_zigbuild);
+        assert!(!policy.runners[0].zig);
+        policy.validate(&graph).unwrap();
+        let output = render_github(&graph, &policy).unwrap();
+        // Deterministic render.
+        assert_eq!(output, render_github(&graph, &policy).unwrap());
+        assert!(
+            check_github(&graph, &policy, output.as_bytes())
+                .unwrap()
+                .matches
+        );
+        // cargo-zigbuild exact install path, private root, exact comparison.
+        assert!(output.contains(
+            "CARGO_INSTALL_ROOT=\"$install_root\" cargo install cargo-zigbuild --version '0.23.3' --locked"
+        ));
+        assert!(output.contains("cargo-install/${{ github.run_id }}-${{ github.run_attempt }}"));
+        assert!(output.contains("test \"$actual\" = 'cargo-zigbuild 0.23.3'"));
+        // Zig official archive, digest, bounded HTTPS-only curl.
+        assert!(output.contains("zig-x86_64-linux-0.14.1.tar.xz"));
+        assert!(
+            output.contains("https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz")
+        );
+        assert!(output.contains(M005_X86_64_SHA));
+        assert!(output.contains("curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --proto-redir '=https'"));
+        assert!(output.contains("--connect-timeout 30 --max-time 600"));
+        assert!(output.contains("sha256sum --check -"));
+        // Verified executable binding, exact version check, private cache.
+        assert!(output.contains("CARGO_ZIGBUILD_ZIG_PATH"));
+        assert!(output.contains("test \"$(\"$zig_bin\" version)\" = '0.14.1'"));
+        assert!(output.contains("zigbuild-cache/${{ github.run_id }}-${{ github.run_attempt }}"));
+        assert!(output.contains("CARGO_ZIGBUILD_CACHE_DIR"));
+        // Layout/executable guards rendered.
+        assert!(output.contains("grep -Fxq \"$top/zig\""));
+        assert!(output.contains("test ! -L \"$work/extract/$top/zig\""));
+        // glibc floor command unchanged.
+        assert!(output.contains("x86_64-unknown-linux-gnu.2.17"));
+        // Least privilege preserved.
+        assert!(output.contains("permissions:\n  contents: read"));
+        assert!(!output.contains("contents: write"));
+        assert!(!output.contains("id-token: write"));
+        // No generic package manager, no 0.23.4 upgrade, no prebuilt binaries.
+        for forbidden in [
+            "apt-get",
+            "apt install",
+            "brew ",
+            "choco",
+            "scoop",
+            "cargo-zigbuild 0.23.4",
+            "cargo-zigbuild-x86_64",
+            "releases/download",
+        ] {
+            assert!(!output.contains(forbidden), "rendered {forbidden}");
+        }
+    }
+
+    #[test]
+    fn m005_provisioned_aarch64_uses_arch_digest_and_name() {
+        let contract = contract();
+        let mut cross = m005_cross_policy(
+            HostArch::Aarch64,
+            M005_ZIG_VERSION,
+            M005_CARGO_ZIGBUILD_VERSION,
+        );
+        cross.target = "aarch64-unknown-linux-gnu".into();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![cross],
+        };
+        let release = config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into()],
+            )
+            .is_err();
+        // The simple-direct fixture has no AArch64 alias; build the plan
+        // directly through the mixed fixture instead.
+        assert!(release);
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../tests/fixtures/mixed-direct-targets.toml"
+        ))
+        .unwrap();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![
+                TargetPolicy {
+                    target: "x86_64-unknown-linux-gnu".into(),
+                    strategy: BuildStrategy::CargoZigbuild,
+                    host_os: HostOs::Linux,
+                    host_arch: HostArch::X86_64,
+                    qualification_host: None,
+                    toolchain: ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: Some(M005_CARGO_ZIGBUILD_VERSION.into()),
+                        zig: Some(M005_ZIG_VERSION.into()),
+                    },
+                    floor: CompatibilityFloor::Glibc {
+                        major: 2,
+                        minor: 17,
+                    },
+                    qualification: Qualification::Structural,
+                    support: SupportTier::Required,
+                },
+                TargetPolicy {
+                    target: "aarch64-unknown-linux-gnu".into(),
+                    strategy: BuildStrategy::CargoZigbuild,
+                    host_os: HostOs::Linux,
+                    host_arch: HostArch::Aarch64,
+                    qualification_host: None,
+                    toolchain: ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: Some(M005_CARGO_ZIGBUILD_VERSION.into()),
+                        zig: Some(M005_ZIG_VERSION.into()),
+                    },
+                    floor: CompatibilityFloor::Glibc {
+                        major: 2,
+                        minor: 17,
+                    },
+                    qualification: Qualification::Structural,
+                    support: SupportTier::Required,
+                },
+            ],
+        };
+        let release = config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into(), "linux-arm64".into()],
+            )
+            .unwrap();
+        let mut binding_map = std::collections::BTreeMap::new();
+        for target in &release.targets {
+            binding_map.insert(
+                target.target.clone(),
+                vec![eggpack_core::BuildBinding {
+                    selector: LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "eggsact".into(),
+                }],
+            );
+        }
+        let bindings = BuildBindingsV1 {
+            schema_version: 1,
+            targets: binding_map,
+        };
+        let graph = project_ci_plan(&contract, &release, &bindings).unwrap();
+        let mut policy = self::policy();
+        policy.runners = vec![
+            RunnerMapping {
+                os: HostOs::Linux,
+                arch: HostArch::X86_64,
+                label: "ubuntu-latest".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+            RunnerMapping {
+                os: HostOs::Linux,
+                arch: HostArch::Aarch64,
+                label: "ubuntu-24.04-arm".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+        ];
+        policy.cross_tools = Some(m005_provisioning());
+        policy.validate(&graph).unwrap();
+        let output = render_github(&graph, &policy).unwrap();
+        assert!(output.contains("zig-x86_64-linux-0.14.1.tar.xz"));
+        assert!(output.contains("zig-aarch64-linux-0.14.1.tar.xz"));
+        assert!(output.contains(M005_X86_64_SHA));
+        assert!(output.contains(M005_AARCH64_SHA));
+        assert!(output.contains("aarch64-unknown-linux-gnu.2.17"));
+        assert!(output.contains("x86_64-unknown-linux-gnu.2.17"));
+    }
+
+    #[test]
+    fn m005_native_cargo_renders_no_cross_tool_provisioning() {
+        let graph = graph(BuildStrategy::NativeCargo, SupportTier::Required);
+        let mut policy = self::policy();
+        policy.cross_tools = Some(m005_provisioning());
+        policy.validate(&graph).unwrap();
+        let output = render_github(&graph, &policy).unwrap();
+        assert!(!output.contains("cargo-zigbuild"));
+        assert!(!output.contains("ziglang.org"));
+        assert!(!output.contains("CARGO_ZIGBUILD_ZIG_PATH"));
+        assert!(!output.contains("CARGO_ZIGBUILD_CACHE_DIR"));
+        assert!(!output.contains("curl "));
+    }
+
+    #[test]
+    fn m005_missing_tool_version_fails_closed_never_ambient() {
+        let contract = contract();
+        // Historical schema-v1 input without Zig parses but fails resolution.
+        let historical = r#"schema_version=1
+[[targets]]
+target="x86_64-unknown-linux-gnu"
+strategy="cargo_zigbuild"
+host_os="linux"
+host_arch="x86_64"
+toolchain={rust="1.89.0", cargo_zigbuild="0.23.3"}
+floor={kind="glibc", major=2, minor=17}
+qualification="structural"
+support="required"
+"#;
+        let parsed = PackConfig::from_toml(historical).unwrap();
+        assert!(parsed.targets[0].toolchain.zig.is_none());
+        assert!(parsed
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into()]
+            )
+            .is_err());
+        // Missing cargo-zigbuild with Zig present also fails.
+        let mut policy = m005_cross_policy(HostArch::X86_64, M005_ZIG_VERSION, "0.23.3");
+        policy.toolchain.cargo_zigbuild = None;
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![policy],
+        };
+        assert!(config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into()]
+            )
+            .is_err());
+        // NativeCargo with either cross-tool version fails.
+        let mut native = m005_cross_policy(HostArch::X86_64, M005_ZIG_VERSION, "0.23.3");
+        native.strategy = BuildStrategy::NativeCargo;
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![native],
+        };
+        assert!(config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into()]
+            )
+            .is_err());
+        // Rendering a Zig-less CargoZigbuild graph fails instead of ambient.
+        let (graph, _) = m005_cross_graph(
+            HostArch::X86_64,
+            M005_ZIG_VERSION,
+            M005_CARGO_ZIGBUILD_VERSION,
+        );
+        let mut zigless = graph.clone();
+        zigless.targets[0].planned.policy.toolchain.zig = None;
+        assert!(zigless.validate().is_err());
+        // Bad provisioning digest fails at policy validation/render time.
+        let (graph, mut policy) = m005_cross_graph(
+            HostArch::X86_64,
+            M005_ZIG_VERSION,
+            M005_CARGO_ZIGBUILD_VERSION,
+        );
+        policy.cross_tools = Some(CrossToolProvisioningV1 {
+            cargo_install_timeout_minutes: 10,
+            zig_connect_timeout_secs: 30,
+            zig_max_time_secs: 600,
+            zig: ZigOfficialArchiveV1 {
+                linux_x86_64_sha256: String::new(),
+                linux_aarch64_sha256: M005_AARCH64_SHA.into(),
+            },
+        });
+        assert!(policy.validate(&graph).is_err());
+        assert!(render_github(&graph, &policy).is_err());
+        // Unsupported provisioning host fails closed.
+        let mut bad_host = m005_cross_policy(HostArch::X86_64, M005_ZIG_VERSION, "0.23.3");
+        bad_host.host_arch = HostArch::Armv7;
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![bad_host],
+        };
+        let release = config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-x64".into()],
+            )
+            .unwrap();
+        let bad_graph = project_ci_plan(&contract, &release, &bindings(&release)).unwrap();
+        let mut bad_policy = self::policy();
+        bad_policy.runners = vec![RunnerMapping {
+            os: HostOs::Linux,
+            arch: HostArch::Armv7,
+            label: "ubuntu-latest".into(),
+            cargo_zigbuild: false,
+            zig: false,
+        }];
+        bad_policy.cross_tools = Some(m005_provisioning());
+        assert!(bad_policy.validate(&bad_graph).is_err());
+    }
+
+    #[test]
+    fn m005_release_renderer_provisions_before_build_with_private_cache() {
+        let (contract, release, bindings, qual_bindings) = m002_release(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            "linux-x64",
+            Qualification::Structural,
+            SupportTier::Required,
+        );
+        // Rebuild the release as CargoZigbuild with exact M005 versions.
+        let mut policies: Vec<TargetPolicy> =
+            release.targets.iter().map(|t| t.policy.clone()).collect();
+        policies[0].strategy = BuildStrategy::CargoZigbuild;
+        policies[0].host_os = HostOs::Linux;
+        policies[0].host_arch = HostArch::X86_64;
+        policies[0].toolchain.cargo_zigbuild = Some(M005_CARGO_ZIGBUILD_VERSION.into());
+        policies[0].toolchain.zig = Some(M005_ZIG_VERSION.into());
+        policies[0].floor = CompatibilityFloor::Glibc {
+            major: 2,
+            minor: 17,
+        };
+        let config = PackConfig {
+            schema_version: 1,
+            targets: policies,
+        };
+        let release = config
+            .resolve(&contract, "1.2.3", &"a".repeat(40), &["linux-x64".into()])
+            .unwrap();
+        let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+        let graph = project_release_plan(&ci_plan, &qual_bindings, &bindings, &release).unwrap();
+        let mut policy = m002_policy();
+        policy.runners = vec![RunnerMapping {
+            os: HostOs::Linux,
+            arch: HostArch::X86_64,
+            label: "ubuntu-latest".into(),
+            cargo_zigbuild: false,
+            zig: false,
+        }];
+        policy.cross_tools = Some(m005_provisioning());
+        let yaml = render_release_github(&graph, &policy).unwrap();
+        assert_eq!(yaml, render_release_github(&graph, &policy).unwrap());
+        // Provisioning precedes the product build and the handoff capture.
+        let install = yaml.find("Install exact cargo-zigbuild").unwrap();
+        let provision = yaml.find("Provision verified Zig 0.14.1").unwrap();
+        let build = yaml.find("cargo' '+1.89.0' 'zigbuild'").unwrap();
+        let capture = yaml.find("Capture canonical build handoff").unwrap();
+        assert!(install < provision && provision < build && build < capture);
+        assert!(yaml.contains("CARGO_ZIGBUILD_ZIG_PATH: ${{ env.CARGO_ZIGBUILD_ZIG_PATH }}"));
+        assert!(yaml.contains("CARGO_ZIGBUILD_CACHE_DIR: ${{ env.CARGO_ZIGBUILD_CACHE_DIR }}"));
+        assert!(yaml.contains("zigbuild-cache/${{ github.run_id }}-${{ github.run_attempt }}"));
+        assert!(!yaml.contains("~/.cargo"));
+        assert!(!yaml.contains("$HOME/.cargo"));
+        assert!(!yaml.contains("contents: write"));
+        // The release guard still rejects non-bootstrap curl only.
+        assert!(
+            check_release_github(&graph, &policy, yaml.as_bytes())
+                .unwrap()
+                .matches
+        );
+    }
+
+    #[test]
+    fn m005_zig_archive_listing_validation_without_network() {
+        let top = format!("zig-x86_64-linux-{M005_ZIG_VERSION}");
+        let good = vec![
+            format!("{top}/"),
+            format!("{top}/zig"),
+            format!("{top}/doc/README.md"),
+            format!("{top}/lib/libc.a"),
+        ];
+        assert_eq!(validate_zig_archive_listing(&good).unwrap(), top);
+        // Extra top-level member fails.
+        let mut extra = good.clone();
+        extra.push("other-dir/file".into());
+        assert!(validate_zig_archive_listing(&extra).is_err());
+        // Missing zig executable fails.
+        assert!(
+            validate_zig_archive_listing(&[format!("{top}/"), format!("{top}/doc/x")]).is_err()
+        );
+        // Traversal, absolute, and empty entries fail.
+        assert!(
+            validate_zig_archive_listing(&[format!("{top}/../evil"), format!("{top}/zig")])
+                .is_err()
+        );
+        assert!(
+            validate_zig_archive_listing(&["/absolute/zig".into(), format!("{top}/zig")]).is_err()
+        );
+        assert!(validate_zig_archive_listing(&[]).is_err());
+        // A bare top-level zig file without its directory fails the layout.
+        assert!(validate_zig_archive_listing(&["zig".into()]).is_err());
+    }
+
+    #[test]
+    fn m005_provisioned_zig_dir_checks_without_network() {
+        let root = std::env::temp_dir().join(format!(
+            "eggpack-m005-zigdir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let top = root.join(format!("zig-x86_64-linux-{M005_ZIG_VERSION}"));
+        std::fs::create_dir_all(&top).unwrap();
+        let zig = top.join("zig");
+        std::fs::write(&zig, b"fake-zig-bytes").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&zig, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert_eq!(validate_provisioned_zig_dir(&root).unwrap(), zig);
+            // Symlinked executable is rejected.
+            let link_root = root.join("link-root");
+            std::fs::create_dir_all(&link_root).unwrap();
+            let link_top = link_root.join("top");
+            std::fs::create_dir_all(&link_top).unwrap();
+            std::os::unix::fs::symlink(&zig, link_top.join("zig")).unwrap();
+            assert!(validate_provisioned_zig_dir(&link_root).is_err());
+            // Non-executable bit is rejected.
+            std::fs::set_permissions(&zig, std::fs::Permissions::from_mode(0o644)).unwrap();
+            assert!(validate_provisioned_zig_dir(&root).is_err());
+            std::fs::set_permissions(&zig, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(not(unix))]
+        {
+            assert_eq!(validate_provisioned_zig_dir(&root).unwrap(), zig);
+        }
+        // Extra top-level member is rejected.
+        std::fs::create_dir_all(root.join("unexpected")).unwrap();
+        assert!(validate_provisioned_zig_dir(&root).is_err());
+        std::fs::remove_dir_all(root.join("unexpected")).unwrap();
+        // Empty executable is rejected.
+        std::fs::write(&zig, b"").unwrap();
+        assert!(validate_provisioned_zig_dir(&root).is_err());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn m005_regenerate_m001_multitarget_golden() {
+        // Regenerate the M001 multitarget golden after the M005 exact-Zig
+        // check. Run explicitly with `cargo test -p eggpack-ci --lib -- --ignored`.
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../tests/fixtures/mixed-direct-targets.toml"
+        ))
+        .unwrap();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![
+                TargetPolicy {
+                    target: "x86_64-unknown-linux-gnu".into(),
+                    strategy: BuildStrategy::NativeCargo,
+                    host_os: HostOs::Linux,
+                    host_arch: HostArch::X86_64,
+                    qualification_host: Some(HostRequirement {
+                        os: HostOs::Macos,
+                        arch: HostArch::Aarch64,
+                    }),
+                    toolchain: ToolchainRequirement {
+                        rust: "stable".into(),
+                        cargo_zigbuild: None,
+                        zig: None,
+                    },
+                    floor: CompatibilityFloor::None,
+                    qualification: Qualification::DeferredNative,
+                    support: SupportTier::Required,
+                },
+                TargetPolicy {
+                    target: "aarch64-unknown-linux-gnu".into(),
+                    strategy: BuildStrategy::CargoZigbuild,
+                    host_os: HostOs::Linux,
+                    host_arch: HostArch::X86_64,
+                    qualification_host: None,
+                    toolchain: ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: Some("0.20.0".into()),
+                        zig: Some("0.14.1".into()),
+                    },
+                    floor: CompatibilityFloor::Glibc {
+                        major: 2,
+                        minor: 17,
+                    },
+                    qualification: Qualification::Structural,
+                    support: SupportTier::NonGating,
+                },
+            ],
+        };
+        let release = config
+            .resolve(
+                &contract,
+                "1.2.3",
+                "0123456789abcdef",
+                &["linux-arm64".into(), "linux-x64".into()],
+            )
+            .unwrap();
+        let mut binding_map = std::collections::BTreeMap::new();
+        for target in &release.targets {
+            binding_map.insert(
+                target.target.clone(),
+                vec![eggpack_core::BuildBinding {
+                    selector: LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "eggsact".into(),
+                }],
+            );
+        }
+        let bindings = BuildBindingsV1 {
+            schema_version: 1,
+            targets: binding_map,
+        };
+        let graph = project_ci_plan(&contract, &release, &bindings).unwrap();
+        write_golden(
+            "../tests/fixtures/native-direct-multitarget.yml",
+            &render_github(&graph, &policy()).unwrap(),
+        );
     }
 }

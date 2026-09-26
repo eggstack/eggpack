@@ -596,6 +596,12 @@ fn preflight(
             .cargo_zigbuild
             .as_deref()
             .ok_or_else(|| build_err("cargo-zigbuild version missing"))?;
+        let expected_zig = target
+            .policy
+            .toolchain
+            .zig
+            .as_deref()
+            .ok_or_else(|| build_err("Zig version missing"))?;
         let actual = run_bounded_cancellable(
             &CommandSpec {
                 executable: "cargo".into(),
@@ -621,12 +627,12 @@ fn preflight(
                 timeout: Duration::from_secs(10),
                 stdout_limit: 1024,
                 stderr_limit: 1024,
-                expected_stdout: None,
+                expected_stdout: Some(expected_zig.to_owned()),
             },
             cancellation,
         )?;
         if zig.outcome != CommandOutcome::Success {
-            return Err(build_err("Zig preflight failed"));
+            return Err(build_err("Zig version mismatch"));
         }
     }
     Ok(())
@@ -723,7 +729,7 @@ pub fn execute_target_cancellable(
         target: target.target.clone(),
         strategy: target.policy.strategy,
         tool_summary: format!(
-            "rust {}{}",
+            "rust {}{}{}",
             target.policy.toolchain.rust,
             target
                 .policy
@@ -731,6 +737,13 @@ pub fn execute_target_cancellable(
                 .cargo_zigbuild
                 .as_ref()
                 .map(|v| format!(" cargo-zigbuild {v}"))
+                .unwrap_or_default(),
+            target
+                .policy
+                .toolchain
+                .zig
+                .as_ref()
+                .map(|v| format!(" zig {v}"))
                 .unwrap_or_default()
         ),
         process: last,
@@ -855,6 +868,7 @@ mod tests {
                 toolchain: ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: CompatibilityFloor::None,
                 qualification: Qualification::Native,
@@ -904,6 +918,7 @@ mod tests {
         let mut t = target();
         t.policy.strategy = BuildStrategy::CargoZigbuild;
         t.policy.toolchain.cargo_zigbuild = Some("0.19.8".into());
+        t.policy.toolchain.zig = Some("0.14.1".into());
         t.policy.floor = CompatibilityFloor::Glibc {
             major: 2,
             minor: 17,

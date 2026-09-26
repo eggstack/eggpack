@@ -94,6 +94,14 @@ fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
     };
     arch && os
 }
+fn valid_tool_version(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
+}
+
 fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
     if policy.toolchain.rust.is_empty()
         || policy.toolchain.rust.len() > 64
@@ -102,22 +110,34 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
             .rust
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
-        || policy.toolchain.cargo_zigbuild.as_ref().is_some_and(|v| {
-            v.is_empty()
-                || v.len() > 64
-                || !v
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
-        })
+        || policy
+            .toolchain
+            .cargo_zigbuild
+            .as_ref()
+            .is_some_and(|v| !valid_tool_version(v))
+        || policy
+            .toolchain
+            .zig
+            .as_ref()
+            .is_some_and(|v| !valid_tool_version(v))
     {
         return Err(err("toolchain requirement is empty or overlong"));
     }
-    if (policy.strategy == BuildStrategy::CargoZigbuild)
-        != policy.toolchain.cargo_zigbuild.is_some()
-    {
-        return Err(err(
-            "cargo-zigbuild strategy requires an explicit tool version",
-        ));
+    match policy.strategy {
+        BuildStrategy::NativeCargo => {
+            if policy.toolchain.cargo_zigbuild.is_some() || policy.toolchain.zig.is_some() {
+                return Err(err(
+                    "native Cargo strategy must not declare cross-build tool versions",
+                ));
+            }
+        }
+        BuildStrategy::CargoZigbuild => {
+            if policy.toolchain.cargo_zigbuild.is_none() || policy.toolchain.zig.is_none() {
+                return Err(err(
+                    "cargo-zigbuild strategy requires explicit cargo-zigbuild and Zig versions",
+                ));
+            }
+        }
     }
     match policy.floor {
         CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-gnu") => {
@@ -347,6 +367,12 @@ pub struct HostRequirement {
     pub arch: HostArch,
 }
 /// Explicit compiler/toolchain requirements; no version is inferred from the host.
+///
+/// Schema version 1 is preserved: `zig` is an additive optional field so
+/// historical documents without Zig remain parseable. Current
+/// `CargoZigbuild` resolution fails closed when either cross-tool version is
+/// absent and never falls back to an ambient Zig; `NativeCargo` requires both
+/// cross-tool fields to be absent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolchainRequirement {
@@ -355,6 +381,9 @@ pub struct ToolchainRequirement {
     /// Optional exact cargo-zigbuild version when that strategy is selected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cargo_zigbuild: Option<String>,
+    /// Optional exact Zig version when the cargo-zigbuild strategy is selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zig: Option<String>,
 }
 /// Explicit compatibility floor for produced binaries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -464,6 +493,11 @@ impl PackConfig {
             return Err(err("invalid PackConfig version or empty targets"));
         }
         let mut seen = std::collections::HashSet::new();
+        // Parse stays lenient about the additive Zig field so historical
+        // schema-v1 documents without Zig remain parseable; strict
+        // presence rules (CargoZigbuild requires both versions, NativeCargo
+        // requires neither) are enforced by resolution/validation, which
+        // fails closed rather than selecting an ambient Zig.
         if c.targets.iter().any(|p| {
             p.target.is_empty()
                 || !seen.insert(&p.target)
@@ -573,6 +607,7 @@ mod tests {
                 toolchain: ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: CompatibilityFloor::None,
                 qualification: Qualification::Native,
@@ -622,6 +657,112 @@ support="required"
         assert!(
             PackConfig::from_toml(&source.replace("schema_version=1", "schema_version=2")).is_err()
         );
+    }
+    #[test]
+    fn zig_version_is_required_for_zigbuild_and_forbidden_for_native() {
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let selected = vec!["linux-x64".into()];
+        let base = TargetPolicy {
+            target: "x86_64-unknown-linux-gnu".into(),
+            strategy: BuildStrategy::CargoZigbuild,
+            host_os: HostOs::Linux,
+            host_arch: HostArch::X86_64,
+            qualification_host: None,
+            toolchain: ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some("0.23.3".into()),
+                zig: Some("0.14.1".into()),
+            },
+            floor: CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17,
+            },
+            qualification: Qualification::Structural,
+            support: SupportTier::Required,
+        };
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![base.clone()],
+        };
+        assert!(config.resolve(&contract, "1.2.6", "abc", &selected).is_ok());
+        // Historical schema-v1 input without Zig parses but fails resolution
+        // rather than selecting an ambient Zig.
+        let historical = r#"schema_version=1
+[[targets]]
+target="x86_64-unknown-linux-gnu"
+strategy="cargo_zigbuild"
+host_os="linux"
+host_arch="x86_64"
+toolchain={rust="1.89.0", cargo_zigbuild="0.23.3"}
+floor={kind="glibc", major=2, minor=17}
+qualification="structural"
+support="required"
+"#;
+        let parsed = PackConfig::from_toml(historical).unwrap();
+        assert!(parsed.targets[0].toolchain.zig.is_none());
+        assert!(parsed
+            .resolve(&contract, "1.2.6", "abc", &selected)
+            .is_err());
+        // Missing cargo-zigbuild with Zig present also fails closed.
+        let mut missing_zigbuild = base.clone();
+        missing_zigbuild.toolchain.cargo_zigbuild = None;
+        assert!(PackConfig {
+            schema_version: 1,
+            targets: vec![missing_zigbuild],
+        }
+        .resolve(&contract, "1.2.6", "abc", &selected)
+        .is_err());
+        // Missing Zig with cargo-zigbuild present fails closed.
+        let mut missing_zig = base.clone();
+        missing_zig.toolchain.zig = None;
+        assert!(PackConfig {
+            schema_version: 1,
+            targets: vec![missing_zig],
+        }
+        .resolve(&contract, "1.2.6", "abc", &selected)
+        .is_err());
+        // Either cross-tool version on NativeCargo fails.
+        for toolchain in [
+            ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some("0.23.3".into()),
+                zig: None,
+            },
+            ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: None,
+                zig: Some("0.14.1".into()),
+            },
+            ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some("0.23.3".into()),
+                zig: Some("0.14.1".into()),
+            },
+        ] {
+            let mut native = base.clone();
+            native.strategy = BuildStrategy::NativeCargo;
+            native.floor = CompatibilityFloor::None;
+            native.qualification = Qualification::Native;
+            native.toolchain = toolchain;
+            assert!(PackConfig {
+                schema_version: 1,
+                targets: vec![native],
+            }
+            .resolve(&contract, "1.2.6", "abc", &selected)
+            .is_err());
+        }
+        // Out-of-grammar Zig versions fail.
+        let mut bad_grammar = base;
+        bad_grammar.toolchain.zig = Some("0.14.1/../../evil".into());
+        assert!(PackConfig {
+            schema_version: 1,
+            targets: vec![bad_grammar],
+        }
+        .resolve(&contract, "1.2.6", "abc", &selected)
+        .is_err());
     }
     #[test]
     fn manifest_builder_hashes_only_explicit_contract_paths() {

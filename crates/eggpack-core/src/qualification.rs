@@ -1328,6 +1328,7 @@ mod tests {
                 toolchain: ToolchainRequirement {
                     rust: "stable".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: crate::CompatibilityFloor::None,
                 qualification: classification,
@@ -1947,6 +1948,7 @@ stderr_limit = 1024
                 toolchain: ToolchainRequirement {
                     rust: "stable".into(),
                     cargo_zigbuild: Some("0.20.0".into()),
+                    zig: Some("0.14.1".into()),
                 },
                 floor: crate::CompatibilityFloor::None,
                 qualification: Qualification::Emulated,
@@ -2373,6 +2375,7 @@ stderr_limit = 1024
                     toolchain: ToolchainRequirement {
                         rust: "stable".into(),
                         cargo_zigbuild: None,
+                        zig: None,
                     },
                     floor: crate::CompatibilityFloor::None,
                     qualification: Qualification::Structural,

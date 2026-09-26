@@ -40,7 +40,8 @@ jobs:
           cargo +'1.89.0' --version
           actual="$(cargo zigbuild --version)"
           test "$actual" = 'cargo-zigbuild 0.20.0'
-          zig version
+          actual_zig="$(zig version)"
+          test "$actual_zig" = '0.14.1'
       - name: Build "aarch64-unknown-linux-gnu / bin0"
         shell: bash
         env:

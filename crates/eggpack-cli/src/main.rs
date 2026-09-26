@@ -1180,6 +1180,7 @@ mod tests {
                 toolchain: eggpack_core::ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: eggpack_core::CompatibilityFloor::None,
                 qualification: eggpack_core::Qualification::Structural,
@@ -1262,6 +1263,7 @@ mod tests {
             }),
             emulated_sysroots: None,
             staging: None,
+            cross_tools: None,
         };
         (
             graph.to_json().unwrap(),
@@ -1408,6 +1410,7 @@ mod tests {
                 toolchain: eggpack_core::ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: eggpack_core::CompatibilityFloor::None,
                 qualification: eggpack_core::Qualification::Structural,
@@ -1778,6 +1781,7 @@ mod tests {
                 toolchain: eggpack_core::ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: eggpack_core::CompatibilityFloor::None,
                 qualification: eggpack_core::Qualification::Structural,
@@ -1915,6 +1919,7 @@ mod tests {
                 toolchain: eggpack_core::ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: eggpack_core::CompatibilityFloor::None,
                 qualification: eggpack_core::Qualification::Structural,
@@ -2214,6 +2219,7 @@ mod tests {
                 toolchain: eggpack_core::ToolchainRequirement {
                     rust: "1.89.0".into(),
                     cargo_zigbuild: None,
+                    zig: None,
                 },
                 floor: eggpack_core::CompatibilityFloor::None,
                 qualification: eggpack_core::Qualification::Structural,
@@ -2333,6 +2339,7 @@ mod tests {
                 },
                 receipt_retention_days: 7,
             }),
+            cross_tools: None,
         };
         let policy_path = root.join("policy.json");
         std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
