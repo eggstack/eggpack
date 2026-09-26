@@ -122,3 +122,17 @@ M003b implementation is complete, but Phase 8 is NOT satisfied and no dependent 
 ## Registry updates
 
 `plans/registry.md` reconciled: CI M003b moved to conditionally closed with this closure path and implementation/run evidence; narrative, execution graph, and next-handoff paragraphs updated to the post-conditional-close state. CI roadmap `plans/subsystems/ci-release-orchestration-roadmap.md` updated to match.
+
+
+## Post-closure corrective registration — M003c
+
+A later generated-workflow audit found a high-severity exact-source defect and a medium-severity policy defect:
+
+- on `workflow_dispatch`, only the final stage job checks out `inputs.release_tag`; preflight/build/qualification/gate/aggregate continue from the dispatch ref, so bytes can be built from a branch revision while staging against another tag;
+- `GitHubStagingPolicyV1.tag_source` is not authoritative in rendering; `RefName` and `DispatchInput` currently do not produce distinct trigger/checkout/stage semantics.
+
+The historical implementation/run remain valid evidence for permissions, deterministic rendering, fake-provider reconciliation, and other tested behavior, but the statement that live draft evidence was the only remaining condition is withdrawn.
+
+Corrective plan: `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md`.
+
+M003b remains historical conditional-close evidence with M003c active. Live draft qualification, Phase 8 exit, and eggsact adoption remain blocked until M003c closes.
