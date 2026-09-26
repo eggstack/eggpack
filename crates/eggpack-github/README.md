@@ -27,3 +27,25 @@ payload materializer, then reconciles the draft with environment-only
 credentials, and uploads the bounded receipt. No other job gains write
 authority; reruns reuse exact drafts/assets without clobber. Live draft
 evidence is tracked by `plans/closure/ci-release-orchestration/003b-status.md`.
+
+M003d adds the staging-owned installer presentation policy
+(`InstallerPresentationV1`) and the static draft template
+(`GitHubDraftTemplateV1`). `GeneratedDefault` preserves the behavior above
+byte-for-byte. `ProductWrappers` stages four installer assets: consumer-owned
+wrapper bytes copied exactly from the verified source tree as the public
+`install.sh`/`install.ps1` (new `product_posix_wrapper` /
+`product_powershell_wrapper` kinds), plus the Eggpack-generated exact
+installers under configured non-colliding names as qualified-bootstrap
+evidence. Wrapper sources are explicit repository-relative paths (regular
+non-symlink files, 1 MiB bound each, no traversal or interpolation, no
+execution during staging). The template carries only owner, repository, fixed
+title prefix, body, prerelease flag, and transport bounds; `resolve(tag)`
+appends the exact validated tag with no templating language. The staging
+payload schema stays v1: default payloads parse on existing readers unchanged,
+while wrapper payloads fail closed on readers that do not know the new kinds.
+Ownership boundary: generated exact installers are Eggpack first-install
+evidence; product wrappers are consumer-owned selection/fallback/install UX
+and are only ever copied as bytes, never executed by staging.
+
+See `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md`
+and `plans/closure/ci-release-orchestration/003d-status.md`.

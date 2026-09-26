@@ -1,6 +1,6 @@
 # eggpack-bootstrap
 
-Generates exact-release POSIX and PowerShell first-install scripts from a matching DistributionContract and ReleaseManifest. Generation is pure. Scripts verify size and SHA-256 before creating a missing destination. They do not select releases, overwrite existing files, elevate privileges, or update installed applications. SHA-256 is integrity evidence, not authenticity.
+Generates exact-release POSIX and PowerShell first-install scripts from a matching DistributionContract and ReleaseManifest. Generation is pure. Scripts verify size and SHA-256 before creating a missing destination. They do not select releases, overwrite existing files, elevate privileges, or update installed applications. SHA-256 is integrity evidence, not authenticity. Bootstrap renders only Eggpack-owned exact-release installers; product-owned public wrappers (`install.sh`/`install.ps1` with version selection and fallback) are never generated here and, under CI M003d product-wrapper staging, the generated scripts are staged alongside them under distinct exact-installer names as qualified-bootstrap evidence.
 
 M002 adds transactional bundle/archive first-install safety behind `BootstrapInstallPolicyV1`:
 

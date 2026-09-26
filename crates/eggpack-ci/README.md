@@ -32,6 +32,31 @@ checkouts, and authorizes staging only for dispatches. Each job verifies
 `HEAD^{commit}` against the checked-in `ReleasePlan.source_revision` before
 release work; `ci check` compares the complete deterministic workflow.
 
+M003d adds the consumer release composition seam without absorbing
+product-owned release semantics. Static checked-in workflow shape
+(`ReleaseWorkflowShapeV1`: canonical targets, build/core-qualification
+bindings, consumer validator configuration, staging intent) carries no
+release id, source revision, future tag, or digest. The `resolve` job checks
+out the event-selected exact tag, derives HEAD, runs `_resolve-release`
+(contract, PackConfig, selected aliases, exact tag, HEAD, draft template),
+and uploads the invocation-local ReleasePlan/ReleaseCIPlan/GitHubDraftPolicy
+as an internal preflight artifact that every later job downloads before its
+`_verify-source` step. `eggpack ci generate/check` operate on static shape in
+`--workflow-shape` mode; the same checked-in bytes serve distinct future tags
+while exact-source verification stays enforced.
+
+M003d also adds one narrow post-core-qualification verifier per target
+(`ConsumerValidatorV1`, finite `Python3` interpreter mapped to `python3` on
+Linux/macOS and `python` with a `--version` preflight on Windows, fixed
+`interpreter script candidate` argv, no shell/env/argv DSL). Validation runs
+after core qualification and before the gate against exact handoff bytes;
+required failure blocks aggregation and non-gating failure suppresses the
+release. `ConsumerValidationEvidenceV1` carries only identity plus a bounded
+outcome; no script output is recorded. Product-wrapper staging is explicit in
+the stage job (`--installer-presentation` plus `--source-root` from staging
+inputs; absent for M003c-compatible staging). Graphs without validators or
+wrappers render byte-identical to M003c.
+
 Runner labels and action commit pins are policy inputs rather than CIPlan data.
 Cross-build runners must declare preinstalled cargo-zigbuild and Zig; generated
 build jobs check the configured cargo-zigbuild version and never install tools.

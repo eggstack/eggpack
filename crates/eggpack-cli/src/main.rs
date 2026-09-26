@@ -20,28 +20,30 @@ fn run(args: Vec<String>) -> i32 {
 
 fn dispatch(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
-        return Err("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     if args[0] == "--version" || args[0] == "-V" {
         println!("eggpack {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args[0] == "--help" || args[0] == "-h" {
-        println!("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]");
+        println!("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]");
         return Ok(());
     }
     if args[0] != "ci" {
-        return Err("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     if args.len() < 2 {
-        return Err("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     match args[1].as_str() {
         "_verify-source" => ci_verify_source(&args[2..]),
+        "_resolve-release" => ci_resolve_release(&args[2..]),
         "generate" => ci_generate(&args[2..]),
         "check" => ci_check(&args[2..]),
         "_capture-build" => ci_capture_build(&args[2..]),
         "_qualify-target" => ci_qualify_target(&args[2..]),
+        "_validate-consumer" => ci_validate_consumer(&args[2..]),
         "_evaluate-gate" => ci_evaluate_gate(&args[2..]),
         "_aggregate" => ci_aggregate(&args[2..]),
         "_prepare-stage" => ci_prepare_stage(&args[2..]),
@@ -90,6 +92,119 @@ fn verify_source_revision(expected: &str, cwd: Option<&Path>) -> Result<(), Stri
         return Err("checked-out source does not match release plan".to_owned());
     }
     println!("checked-out source matches release plan");
+    Ok(())
+}
+
+/// Resolve invocation-local release identity for reusable workflows.
+///
+/// Validates the exact event-selected tag, verifies checked-out HEAD equals
+/// the given source revision, resolves PackConfig through
+/// `PackConfig::resolve` using the exact tag as release_id, resolves the
+/// static draft template for the same tag, and writes the three
+/// invocation-local documents into workflow-private storage only.
+#[allow(clippy::too_many_lines)]
+fn ci_resolve_release(args: &[String]) -> Result<(), String> {
+    let contract_path = PathBuf::from(get_flag(args, "contract")?);
+    let pack_config_path = PathBuf::from(get_flag(args, "pack-config")?);
+    let build_bindings_path = PathBuf::from(get_flag(args, "build-bindings")?);
+    let qual_bindings_path = PathBuf::from(get_flag(args, "qualification-bindings")?);
+    let validators_path = get_flag_optional(args, "consumer-validators").map(PathBuf::from);
+    let selected_raw = get_flag(args, "selected")?;
+    let tag = get_flag(args, "tag")?;
+    let source_revision = get_flag(args, "source-revision")?;
+    let template_path = PathBuf::from(get_flag(args, "template")?);
+    let source_root = PathBuf::from(get_flag(args, "source-root")?);
+    let output_plan = PathBuf::from(get_flag(args, "output-plan")?);
+    let output_ci_plan = PathBuf::from(get_flag(args, "output-ci-plan")?);
+    let output_github_policy = PathBuf::from(get_flag(args, "output-github-policy")?);
+    if args.len() > 28 {
+        return Err("too many arguments for ci _resolve-release".to_owned());
+    }
+    // Checked-out HEAD is consumed as the source revision: the given
+    // revision must equal HEAD in the explicit source root or resolution
+    // fails closed.
+    verify_source_revision(&source_revision, Some(&source_root))?;
+    let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
+    let contract = eggpack_contract::DistributionContract::parse_toml_str(&contract_text)
+        .map_err(|_| "invalid contract".to_owned())?;
+    let pack_text = read_bounded(&pack_config_path, 1_000_000, "pack config")?;
+    let pack_config: eggpack_core::PackConfig = toml::from_str(&pack_text)
+        .map_err(|_| "invalid pack config".to_owned())
+        .or_else(|_: String| {
+            serde_json::from_str(&pack_text).map_err(|_| "invalid pack config".to_owned())
+        })?;
+    let selected: Vec<String> = selected_raw.split(',').map(str::to_owned).collect();
+    if selected.is_empty() {
+        return Err("selected targets must not be empty".to_owned());
+    }
+    let plan = eggpack_ci::resolve_runtime_release_plan(
+        &contract,
+        &pack_config,
+        &selected,
+        &tag,
+        &source_revision,
+    )
+    .map_err(|_| "runtime release resolution failed".to_owned())?;
+    let template_text = read_bounded(&template_path, 64 * 1024, "draft template")?;
+    let template: eggpack_github::GitHubDraftTemplateV1 = toml::from_str(&template_text)
+        .map_err(|_| "invalid draft template".to_owned())
+        .or_else(|_: String| {
+            eggpack_github::GitHubDraftTemplateV1::from_json(&template_text)
+                .map_err(|_| "invalid draft template".to_owned())
+        })?;
+    let draft_policy = template
+        .resolve(&tag)
+        .map_err(|_| "draft template resolution failed".to_owned())?;
+    if draft_policy.tag != plan.release_id || draft_policy.title.is_empty() {
+        return Err("resolved draft policy differs from release identity".to_owned());
+    }
+    let bindings_text = read_bounded(&build_bindings_path, 1_000_000, "build bindings")?;
+    let bindings: eggpack_core::BuildBindingsV1 = toml::from_str(&bindings_text)
+        .map_err(|_| "invalid build bindings".to_owned())
+        .or_else(|_: String| {
+            serde_json::from_str(&bindings_text).map_err(|_| "invalid build bindings".to_owned())
+        })?;
+    let qual_text = read_bounded(&qual_bindings_path, 1_000_000, "qualification bindings")?;
+    let qual_bindings: eggpack_core::QualificationBindingsV1 = toml::from_str(&qual_text)
+        .map_err(|_| "invalid qualification bindings".to_owned())
+        .or_else(|_: String| {
+            serde_json::from_str(&qual_text)
+                .map_err(|_| "invalid qualification bindings".to_owned())
+        })?;
+    let ci_plan = eggpack_ci::project_ci_plan(&contract, &plan, &bindings)
+        .map_err(|_| "ci projection failed".to_owned())?;
+    let graph = match validators_path {
+        None => eggpack_ci::project_release_plan(&ci_plan, &qual_bindings, &bindings, &plan)
+            .map_err(|_| "release graph projection failed".to_owned())?,
+        Some(path) => {
+            let map_text = read_bounded(&path, 64 * 1024, "consumer validators")?;
+            let map: std::collections::BTreeMap<String, eggpack_ci::ConsumerValidatorV1> =
+                serde_json::from_str(&map_text)
+                    .map_err(|_| "invalid consumer validators".to_owned())?;
+            eggpack_ci::project_release_plan_with_consumer(
+                &ci_plan,
+                &qual_bindings,
+                &bindings,
+                &plan,
+                map,
+            )
+            .map_err(|_| "consumer release graph projection failed".to_owned())?
+        }
+    };
+    // Runtime documents land only in invocation-private workflow storage;
+    // they are never written back into the repository by this command.
+    let plan_json =
+        serde_json::to_string(&plan).map_err(|_| "release plan encode failed".to_owned())?;
+    let graph_json = graph
+        .to_json()
+        .map_err(|_| "release graph encode failed".to_owned())?;
+    let policy_json = draft_policy
+        .to_json()
+        .map_err(|_| "draft policy encode failed".to_owned())?;
+    atomic_write(&output_plan, plan_json.as_bytes())?;
+    atomic_write(&output_ci_plan, graph_json.as_bytes())?;
+    atomic_write(&output_github_policy, policy_json.as_bytes())?;
+    println!("resolved runtime release identity for tag {tag}");
     Ok(())
 }
 
@@ -184,9 +299,42 @@ fn atomic_write(output: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn ci_generate(args: &[String]) -> Result<(), String> {
-    let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
     let policy_path = PathBuf::from(get_flag(args, "github-policy")?);
     let output_path = PathBuf::from(get_flag(args, "output")?);
+    // Reusable mode operates only on static workflow shape/template inputs;
+    // exact mode operates on a checked-in ReleaseCIPlanV1. The modes are
+    // mutually exclusive.
+    if get_flag_optional(args, "workflow-shape").is_some() {
+        if get_flag_optional(args, "ci-plan").is_some() {
+            return Err(
+                "ci generate accepts either --workflow-shape or --ci-plan, not both".to_owned(),
+            );
+        }
+        let shape_path = PathBuf::from(get_flag(args, "workflow-shape")?);
+        let contract_path = PathBuf::from(get_flag(args, "contract")?);
+        if args.len() > 8 {
+            return Err("too many arguments for ci generate".to_owned());
+        }
+        let shape_text = read_bounded(&shape_path, 1_000_000, "workflow shape")?;
+        let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
+        let policy_text = read_bounded(&policy_path, 1_000_000, "github policy")?;
+        let shape = eggpack_ci::ReleaseWorkflowShapeV1::from_json(&shape_text)
+            .map_err(|_| "invalid workflow shape".to_owned())?;
+        let contract = eggpack_contract::DistributionContract::parse_toml_str(&contract_text)
+            .map_err(|_| "invalid contract".to_owned())?;
+        let policy: eggpack_ci::GitHubPolicy =
+            serde_json::from_str(&policy_text).map_err(|_| "invalid github policy".to_owned())?;
+        let rendered = eggpack_ci::render_reusable_release_github(&contract, &shape, &policy)
+            .map_err(|_| "reusable release rendering failed".to_owned())?;
+        atomic_write(&output_path, rendered.as_bytes())?;
+        println!(
+            "generated {} bytes to {}",
+            rendered.len(),
+            output_path.display()
+        );
+        return Ok(());
+    }
+    let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
     if args.len() > 6 {
         return Err("too many arguments for ci generate".to_owned());
     }
@@ -208,33 +356,72 @@ fn ci_generate(args: &[String]) -> Result<(), String> {
 }
 
 fn ci_check(args: &[String]) -> Result<(), String> {
-    let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
     let policy_path = PathBuf::from(get_flag(args, "github-policy")?);
     let workflow_path = PathBuf::from(get_flag(args, "workflow")?);
-    if args.len() > 6 {
-        return Err("too many arguments for ci check".to_owned());
-    }
-    let ci_text = read_bounded(&ci_plan_path, 1_000_000, "ci plan")?;
-    let policy_text = read_bounded(&policy_path, 1_000_000, "github policy")?;
-    let existing =
-        std::fs::read(&workflow_path).map_err(|_| "workflow is unavailable".to_owned())?;
-    if existing.len() > 8_000_000 {
-        return Err("workflow exceeds size bound".to_owned());
-    }
-    let graph: eggpack_ci::ReleaseCIPlanV1 = eggpack_ci::ReleaseCIPlanV1::from_json(&ci_text)
-        .map_err(|_| "invalid ci plan".to_owned())?;
-    let policy: eggpack_ci::GitHubPolicy =
-        serde_json::from_str(&policy_text).map_err(|_| "invalid github policy".to_owned())?;
-    let report = eggpack_ci::check_release_github(&graph, &policy, &existing)
-        .map_err(|_| "release drift check failed".to_owned())?;
-    if report.matches {
-        println!("ci check: match ({} bytes)", report.expected_bytes);
-        Ok(())
+    if get_flag_optional(args, "workflow-shape").is_some() {
+        if get_flag_optional(args, "ci-plan").is_some() {
+            return Err(
+                "ci check accepts either --workflow-shape or --ci-plan, not both".to_owned(),
+            );
+        }
+        let shape_path = PathBuf::from(get_flag(args, "workflow-shape")?);
+        let contract_path = PathBuf::from(get_flag(args, "contract")?);
+        if args.len() > 8 {
+            return Err("too many arguments for ci check".to_owned());
+        }
+        let shape_text = read_bounded(&shape_path, 1_000_000, "workflow shape")?;
+        let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
+        let policy_text = read_bounded(&policy_path, 1_000_000, "github policy")?;
+        let existing =
+            std::fs::read(&workflow_path).map_err(|_| "workflow is unavailable".to_owned())?;
+        if existing.len() > 8_000_000 {
+            return Err("workflow exceeds size bound".to_owned());
+        }
+        let shape = eggpack_ci::ReleaseWorkflowShapeV1::from_json(&shape_text)
+            .map_err(|_| "invalid workflow shape".to_owned())?;
+        let contract = eggpack_contract::DistributionContract::parse_toml_str(&contract_text)
+            .map_err(|_| "invalid contract".to_owned())?;
+        let policy: eggpack_ci::GitHubPolicy =
+            serde_json::from_str(&policy_text).map_err(|_| "invalid github policy".to_owned())?;
+        let report =
+            eggpack_ci::check_reusable_release_github(&contract, &shape, &policy, &existing)
+                .map_err(|_| "reusable drift check failed".to_owned())?;
+        if report.matches {
+            println!("ci check: match ({} bytes)", report.expected_bytes);
+            Ok(())
+        } else {
+            Err(format!(
+                "ci check: drift detected (expected {} bytes, found {} bytes, first difference at {:?})",
+                report.expected_bytes, report.actual_bytes, report.first_difference
+            ))
+        }
     } else {
-        Err(format!(
-            "ci check: drift detected (expected {} bytes, found {} bytes, first difference at {:?})",
-            report.expected_bytes, report.actual_bytes, report.first_difference
-        ))
+        let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
+        if args.len() > 6 {
+            return Err("too many arguments for ci check".to_owned());
+        }
+        let ci_text = read_bounded(&ci_plan_path, 1_000_000, "ci plan")?;
+        let policy_text = read_bounded(&policy_path, 1_000_000, "github policy")?;
+        let existing =
+            std::fs::read(&workflow_path).map_err(|_| "workflow is unavailable".to_owned())?;
+        if existing.len() > 8_000_000 {
+            return Err("workflow exceeds size bound".to_owned());
+        }
+        let graph: eggpack_ci::ReleaseCIPlanV1 = eggpack_ci::ReleaseCIPlanV1::from_json(&ci_text)
+            .map_err(|_| "invalid ci plan".to_owned())?;
+        let policy: eggpack_ci::GitHubPolicy =
+            serde_json::from_str(&policy_text).map_err(|_| "invalid github policy".to_owned())?;
+        let report = eggpack_ci::check_release_github(&graph, &policy, &existing)
+            .map_err(|_| "release drift check failed".to_owned())?;
+        if report.matches {
+            println!("ci check: match ({} bytes)", report.expected_bytes);
+            Ok(())
+        } else {
+            Err(format!(
+                "ci check: drift detected (expected {} bytes, found {} bytes, first difference at {:?})",
+                report.expected_bytes, report.actual_bytes, report.first_difference
+            ))
+        }
     }
 }
 
@@ -439,6 +626,138 @@ fn ci_qualify_target(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+fn absolute_under_root(root: &Path, relative: &str) -> Result<PathBuf, String> {
+    let root_meta =
+        std::fs::symlink_metadata(root).map_err(|_| "source root is unavailable".to_owned())?;
+    if !root_meta.is_dir() || root_meta.file_type().is_symlink() {
+        return Err("source root is not a real directory".to_owned());
+    }
+    // The validator script path was already validated as a bounded relative
+    // path without escapes; joining keeps it beneath the verified root.
+    let mut absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|_| "working directory is unavailable".to_owned())?
+            .join(root)
+    };
+    for segment in relative.split('/') {
+        if segment.is_empty() || segment == "." || segment == ".." {
+            return Err("validator script escapes its root".to_owned());
+        }
+        absolute.push(segment);
+    }
+    Ok(absolute)
+}
+
+fn absolute_path(path: &Path) -> Result<PathBuf, String> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+    std::env::current_dir()
+        .map(|cwd| cwd.join(path))
+        .map_err(|_| "working directory is unavailable".to_owned())
+}
+
+/// Validate one exact candidate with its consumer-owned script.
+///
+/// Consumes the canonical qualification handoff (exact candidate bytes
+/// already validated by Eggpack) plus qualification evidence for exact
+/// size/SHA identity. Never rebuilds the binary. Non-zero/timeout/
+/// output-limit/interpreter/candidate failures fail the command so the
+/// required gate blocks aggregation.
+#[allow(clippy::too_many_lines)]
+fn ci_validate_consumer(args: &[String]) -> Result<(), String> {
+    let validators_path = PathBuf::from(get_flag(args, "consumer-validators")?);
+    let target = get_flag(args, "target")?;
+    let candidate_dir = PathBuf::from(get_flag(args, "candidate-dir")?);
+    let handoff_path = PathBuf::from(get_flag(args, "build-handoff")?);
+    let evidence_path = PathBuf::from(get_flag(args, "evidence")?);
+    let source_root = PathBuf::from(get_flag(args, "source-root")?);
+    let output_path = PathBuf::from(get_flag(args, "output")?);
+    if args.len() > 14 {
+        return Err("too many arguments for ci _validate-consumer".to_owned());
+    }
+    let map_text = read_bounded(&validators_path, 64 * 1024, "consumer validators")?;
+    let map: std::collections::BTreeMap<String, eggpack_ci::ConsumerValidatorV1> =
+        serde_json::from_str(&map_text).map_err(|_| "invalid consumer validators".to_owned())?;
+    let validator = map
+        .get(&target)
+        .ok_or_else(|| "target has no consumer validator".to_owned())?;
+    let handoff_text = read_bounded(&handoff_path, 1_000_000, "build handoff")?;
+    let handoff: eggpack_ci::BuildHandoffV1 = eggpack_ci::BuildHandoffV1::from_json(&handoff_text)
+        .map_err(|_| "invalid handoff".to_owned())?;
+    if handoff.target != target {
+        return Err("handoff target mismatch".to_owned());
+    }
+    let evidence_text = read_bounded(&evidence_path, 1_000_000, "qualification evidence")?;
+    let evidence = eggpack_ci::decode_qualification_evidence(&evidence_text)
+        .map_err(|_| "invalid evidence".to_owned())?;
+    if evidence.target != target
+        || evidence.release_id != handoff.release_id
+        || evidence.source_revision != handoff.source_revision
+    {
+        return Err("evidence identity differs from handoff".to_owned());
+    }
+    let handoff_output = handoff
+        .outputs
+        .iter()
+        .find(|output| output.selector == validator.selector)
+        .ok_or_else(|| "validator selector is not a handoff output".to_owned())?;
+    let qualified = evidence
+        .candidates
+        .iter()
+        .find(|candidate| {
+            candidate.selector == validator.selector
+                && candidate.package == handoff_output.package
+                && candidate.binary == handoff_output.binary
+        })
+        .ok_or_else(|| "validator selector has no qualified candidate".to_owned())?;
+    let candidates_src = {
+        let nested = candidate_dir.join("candidates");
+        if nested.exists() {
+            nested
+        } else {
+            candidate_dir.clone()
+        }
+    };
+    let candidate_path = absolute_path(&candidates_src.join(&handoff_output.relative_path))?;
+    let script_path = absolute_under_root(&source_root, &validator.script)?;
+    let work_dir = absolute_path(Path::new("."))?;
+    let request = eggpack_ci::ConsumerValidationRequest {
+        validator,
+        script_path: &script_path,
+        candidate_path: &candidate_path,
+        expected_size: qualified.size,
+        expected_sha256: &qualified.sha256,
+        work_dir: &work_dir,
+        release_id: &handoff.release_id,
+        source_revision: &handoff.source_revision,
+        target: &target,
+        cancelled: None,
+        path_dirs: None,
+    };
+    let validation = eggpack_ci::run_consumer_validator(&request)
+        .map_err(|_| "consumer validation failed".to_owned())?;
+    let json = validation
+        .to_json()
+        .map_err(|_| "consumer evidence encode failed".to_owned())?;
+    // Durable evidence never carries script output contents by type.
+    if json.contains("stdout") || json.contains("stderr") {
+        return Err("consumer evidence carries output contents".to_owned());
+    }
+    atomic_write(&output_path, json.as_bytes())?;
+    match validation.outcome {
+        eggpack_ci::ConsumerValidationOutcome::Passed => {
+            println!("consumer validation passed for {target}");
+            Ok(())
+        }
+        eggpack_ci::ConsumerValidationOutcome::Failed(_) => {
+            Err(format!("consumer validation failed for {target}"))
+        }
+    }
+}
+
 fn ci_evaluate_gate(args: &[String]) -> Result<(), String> {
     let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
     let evidence_dir = get_flag_optional(args, "evidence-dir").map(PathBuf::from);
@@ -465,8 +784,36 @@ fn ci_evaluate_gate(args: &[String]) -> Result<(), String> {
             .map_err(|_| "invalid evidence".to_owned())?;
         evidences.push(evidence);
     }
-    let outcome = eggpack_ci::evaluate_gate(&graph, &evidences)
-        .map_err(|_| "gate evaluation failed".to_owned())?;
+    let outcome = if graph.consumer_validators.is_empty() {
+        // Stray consumer evidence without a configured validator fails
+        // closed so validation can never be silently bypassed.
+        if let Some(dir) = &inputs_dir {
+            for qual in &graph.qualifications {
+                let stray = dir.join(&qual.target).join("consumer-evidence.json");
+                if stray.exists() {
+                    return Err(
+                        "consumer evidence present without a configured validator".to_owned()
+                    );
+                }
+            }
+        }
+        eggpack_ci::evaluate_gate(&graph, &evidences)
+            .map_err(|_| "gate evaluation failed".to_owned())?
+    } else {
+        let inputs = inputs_dir
+            .as_ref()
+            .ok_or_else(|| "consumer gate requires --inputs-dir".to_owned())?;
+        let mut consumer_evidences = Vec::new();
+        for target in graph.consumer_validators.keys() {
+            let path = inputs.join(target).join("consumer-evidence.json");
+            let text = read_bounded(&path, 64 * 1024, "consumer evidence")?;
+            let evidence = eggpack_ci::decode_consumer_evidence(&text)
+                .map_err(|_| "invalid consumer evidence".to_owned())?;
+            consumer_evidences.push(evidence);
+        }
+        eggpack_ci::evaluate_gate_with_consumer(&graph, &evidences, &consumer_evidences)
+            .map_err(|_| "consumer gate evaluation failed".to_owned())?
+    };
     let outcome_json =
         serde_json::to_string(&outcome).map_err(|_| "outcome encode failed".to_owned())?;
     atomic_write(&output_path, outcome_json.as_bytes())?;
@@ -529,15 +876,44 @@ fn ci_aggregate(args: &[String]) -> Result<(), String> {
             qualification: evidence,
         });
     }
-    let (outcome, finalized) = eggpack_ci::aggregate_finalize(
-        &contract,
-        &plan,
-        &graph,
-        &final_inputs,
-        &graph.finalization.evidence_references,
-        &output_root,
-    )
-    .map_err(|_| "aggregation failed".to_owned())?;
+    let (outcome, finalized) = if graph.consumer_validators.is_empty() {
+        // Stray consumer evidence without a configured validator fails
+        // closed so validation can never be silently bypassed.
+        for qual in &graph.qualifications {
+            let stray = inputs_dir.join(&qual.target).join("consumer-evidence.json");
+            if stray.exists() {
+                return Err("consumer evidence present without a configured validator".to_owned());
+            }
+        }
+        eggpack_ci::aggregate_finalize(
+            &contract,
+            &plan,
+            &graph,
+            &final_inputs,
+            &graph.finalization.evidence_references,
+            &output_root,
+        )
+        .map_err(|_| "aggregation failed".to_owned())?
+    } else {
+        let mut consumer_evidences = Vec::new();
+        for target in graph.consumer_validators.keys() {
+            let path = inputs_dir.join(target).join("consumer-evidence.json");
+            let text = read_bounded(&path, 64 * 1024, "consumer evidence")?;
+            let evidence = eggpack_ci::decode_consumer_evidence(&text)
+                .map_err(|_| "invalid consumer evidence".to_owned())?;
+            consumer_evidences.push(evidence);
+        }
+        eggpack_ci::aggregate_finalize_with_consumer(
+            &contract,
+            &plan,
+            &graph,
+            &final_inputs,
+            &consumer_evidences,
+            &graph.finalization.evidence_references,
+            &output_root,
+        )
+        .map_err(|_| "consumer aggregation failed".to_owned())?
+    };
     // Additive staging handoff: alongside summary.json, write a standalone
     // deterministic release-manifest.json that decodes back to the exact M004
     // manifest. This file lives beside the finalized root, never inside it,
@@ -588,6 +964,21 @@ fn read_install_policy(path: &Path) -> Result<eggpack_bootstrap::BootstrapInstal
         .map_err(|_| "invalid install policy".to_owned())
 }
 
+fn read_installer_presentation(
+    path: &Path,
+) -> Result<eggpack_github::InstallerPresentationV1, String> {
+    let text = read_bounded(path, 64 * 1024, "installer presentation")?;
+    // Accept TOML first (checked-in policy files are TOML), then JSON.
+    if let Ok(presentation) = toml::from_str::<eggpack_github::InstallerPresentationV1>(&text) {
+        presentation
+            .validate()
+            .map_err(|_| "invalid installer presentation".to_owned())?;
+        return Ok(presentation);
+    }
+    eggpack_github::InstallerPresentationV1::from_json(&text)
+        .map_err(|_| "invalid installer presentation".to_owned())
+}
+
 fn ci_prepare_stage(args: &[String]) -> Result<(), String> {
     let contract_path = PathBuf::from(get_flag(args, "contract")?);
     let manifest_path = PathBuf::from(get_flag(args, "release-manifest")?);
@@ -596,8 +987,18 @@ fn ci_prepare_stage(args: &[String]) -> Result<(), String> {
     let install_policy_path = PathBuf::from(get_flag(args, "install-policy")?);
     let output_dir = PathBuf::from(get_flag(args, "output-dir")?);
     let output_payload = PathBuf::from(get_flag(args, "output-payload")?);
-    if args.len() > 14 {
+    let presentation_path = get_flag_optional(args, "installer-presentation").map(PathBuf::from);
+    let source_root = get_flag_optional(args, "source-root").map(PathBuf::from);
+    if args.len() > 18 {
         return Err("too many arguments for ci _prepare-stage".to_owned());
+    }
+    // Installer presentation and source root are paired: product wrappers
+    // require both, GeneratedDefault uses neither.
+    if presentation_path.is_some() != source_root.is_some() {
+        return Err(
+            "installer presentation requires both --installer-presentation and --source-root"
+                .to_owned(),
+        );
     }
     let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
     let manifest_text = read_bounded(&manifest_path, 1_048_576, "release manifest")?;
@@ -609,15 +1010,32 @@ fn ci_prepare_stage(args: &[String]) -> Result<(), String> {
     let policy = eggpack_github::GitHubDraftPolicyV1::from_json(&policy_text)
         .map_err(|_| "invalid github draft policy".to_owned())?;
     let install_policy = read_install_policy(&install_policy_path)?;
-    let payload = eggpack_github::prepare_staging_payload(
-        &contract,
-        &manifest,
-        &finalized_root,
-        &policy,
-        &install_policy,
-        &output_dir,
-    )
-    .map_err(|_| "stage preparation failed".to_owned())?;
+    let payload = match (presentation_path, source_root) {
+        (Some(presentation_path), Some(source_root)) => {
+            let presentation = read_installer_presentation(&presentation_path)?;
+            eggpack_github::prepare_staging_payload_with_presentation(
+                &contract,
+                &manifest,
+                &finalized_root,
+                &policy,
+                &install_policy,
+                &presentation,
+                &source_root,
+                &output_dir,
+            )
+            .map_err(|_| "stage preparation failed".to_owned())?
+        }
+        (None, None) => eggpack_github::prepare_staging_payload(
+            &contract,
+            &manifest,
+            &finalized_root,
+            &policy,
+            &install_policy,
+            &output_dir,
+        )
+        .map_err(|_| "stage preparation failed".to_owned())?,
+        _ => unreachable!("paired flags checked above"),
+    };
     let payload_json = payload
         .to_json()
         .map_err(|_| "payload encode failed".to_owned())?;
@@ -837,6 +1255,10 @@ mod tests {
                 build_bindings: "bindings/build.toml".into(),
                 qualification_bindings: "bindings/qualification.toml".into(),
                 ci_plan: "plans/release-ci-plan.json".into(),
+                pack_config: None,
+                draft_template: None,
+                installer_presentation: None,
+                consumer_validators: None,
             }),
             emulated_sysroots: None,
             staging: None,
@@ -1296,6 +1718,8 @@ mod tests {
             install_policy: install_policy_path.to_string_lossy().into_owned(),
             output_dir: staging.to_string_lossy().into_owned(),
             output_payload: payload_out.to_string_lossy().into_owned(),
+            installer_presentation: None,
+            source_root: None,
         };
         let argv = prepare.argv();
         assert_eq!(&argv[..3], &["eggpack", "ci", "_prepare-stage"]);
@@ -1309,6 +1733,663 @@ mod tests {
         .unwrap();
         assert_eq!(payload.assets.len(), 7);
         let _ = contract;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    fn init_git_repo(root: &Path) -> String {
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .env("GIT_AUTHOR_NAME", "Eggpack test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+                .env("GIT_COMMITTER_NAME", "Eggpack test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+                .status()
+                .unwrap();
+            assert!(status.success(), "git command failed: {args:?}");
+        };
+        run(&["init", "-q"]);
+        std::fs::write(root.join("source.txt"), "revision").unwrap();
+        run(&["add", "source.txt"]);
+        run(&["commit", "-q", "-m", "revision"]);
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD^{commit}"])
+            .current_dir(root)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    fn m003d_cli_config(root: &Path) -> (PathBuf, PathBuf, PathBuf, PathBuf, PathBuf) {
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract_path = root.join("contract.toml");
+        std::fs::write(&contract_path, contract_text).unwrap();
+        let pack_config = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: vec![eggpack_core::TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: eggpack_core::BuildStrategy::NativeCargo,
+                host_os: eggpack_core::HostOs::Linux,
+                host_arch: eggpack_core::HostArch::X86_64,
+                qualification_host: None,
+                toolchain: eggpack_core::ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                },
+                floor: eggpack_core::CompatibilityFloor::None,
+                qualification: eggpack_core::Qualification::Structural,
+                support: eggpack_core::SupportTier::Required,
+            }],
+        };
+        let pack_path = root.join("pack.toml");
+        std::fs::write(&pack_path, toml::to_string(&pack_config).unwrap()).unwrap();
+        let bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                vec![eggpack_core::BuildBinding {
+                    selector: eggpack_core::LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "bin0".into(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let bindings_path = root.join("build.toml");
+        std::fs::write(&bindings_path, toml::to_string(&bindings).unwrap()).unwrap();
+        let qual_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                eggpack_core::TargetQualificationBinding { smoke: None },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qual_path = root.join("qualification.toml");
+        std::fs::write(&qual_path, toml::to_string(&qual_bindings).unwrap()).unwrap();
+        let template = eggpack_github::GitHubDraftTemplateV1 {
+            schema_version: 1,
+            owner: "acme".into(),
+            repository: "widget".into(),
+            title_prefix: "widget ".into(),
+            body: "notes".into(),
+            prerelease: false,
+            token_env: "GITHUB_TOKEN".into(),
+            request_timeout_secs: 30,
+            max_metadata_bytes: 1_000_000,
+            max_list_pages: 5,
+        };
+        let template_path = root.join("template.json");
+        std::fs::write(&template_path, template.to_json().unwrap()).unwrap();
+        (
+            contract_path,
+            pack_path,
+            bindings_path,
+            qual_path,
+            template_path,
+        )
+    }
+
+    fn resolve_argv(root: &Path, tag: &str, revision: &str, out: &str) -> Vec<String> {
+        let (contract, pack, bindings, qual, template) = m003d_cli_config(root);
+        let command = eggpack_ci::RunnerCommand::ResolveRelease {
+            contract: contract.to_string_lossy().into_owned(),
+            pack_config: pack.to_string_lossy().into_owned(),
+            build_bindings: bindings.to_string_lossy().into_owned(),
+            qualification_bindings: qual.to_string_lossy().into_owned(),
+            consumer_validators: None,
+            selected: "linux-x64".into(),
+            tag: tag.into(),
+            source_revision: revision.into(),
+            template: template.to_string_lossy().into_owned(),
+            source_root: root.to_string_lossy().into_owned(),
+            output_plan: root
+                .join(format!("{out}-plan.json"))
+                .to_string_lossy()
+                .into_owned(),
+            output_ci_plan: root
+                .join(format!("{out}-ci-plan.json"))
+                .to_string_lossy()
+                .into_owned(),
+            output_github_policy: root
+                .join(format!("{out}-github.json"))
+                .to_string_lossy()
+                .into_owned(),
+        };
+        let argv = command.argv();
+        assert_eq!(&argv[..3], &["eggpack", "ci", "_resolve-release"]);
+        argv[3..].to_vec()
+    }
+
+    #[test]
+    fn resolve_release_emits_distinct_runtime_identity_per_tag() {
+        let root = temp_root("resolve-release");
+        let revision = init_git_repo(&root);
+        // Two runtime tags resolve distinct ReleasePlan/GitHubDraftPolicy
+        // documents from identical checked-in files.
+        ci_resolve_release(&resolve_argv(&root, "v1.2.4", &revision, "first")).unwrap();
+        ci_resolve_release(&resolve_argv(&root, "v1.2.5", &revision, "second")).unwrap();
+        let first_plan = std::fs::read_to_string(root.join("first-plan.json")).unwrap();
+        let second_plan = std::fs::read_to_string(root.join("second-plan.json")).unwrap();
+        assert_ne!(first_plan, second_plan);
+        assert!(first_plan.contains("\"release_id\":\"v1.2.4\""));
+        assert!(second_plan.contains("\"release_id\":\"v1.2.5\""));
+        assert!(first_plan.contains(&revision));
+        let first_policy = std::fs::read_to_string(root.join("first-github.json")).unwrap();
+        let second_policy = std::fs::read_to_string(root.join("second-github.json")).unwrap();
+        assert_ne!(first_policy, second_policy);
+        assert!(first_policy.contains("\"tag\":\"v1.2.4\""));
+        assert!(first_policy.contains("\"title\":\"widget v1.2.4\""));
+        // The runtime CI plan carries the same identity for gate/aggregate.
+        let first_graph = std::fs::read_to_string(root.join("first-ci-plan.json")).unwrap();
+        assert!(first_graph.contains("\"release_id\":\"v1.2.4\""));
+        // Runtime source mismatch still fails verification.
+        let other = "b".repeat(40);
+        assert!(ci_resolve_release(&resolve_argv(&root, "v1.2.4", &other, "bad")).is_err());
+        // Injection tags fail before any output is written.
+        assert!(ci_resolve_release(&resolve_argv(&root, "v?x", &revision, "evil")).is_err());
+        assert!(!root.join("evil-plan.json").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn validate_consumer_executes_typed_command_end_to_end() {
+        let root = temp_root("validate-consumer");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        let config = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: vec![eggpack_core::TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: eggpack_core::BuildStrategy::NativeCargo,
+                host_os: eggpack_core::HostOs::Linux,
+                host_arch: eggpack_core::HostArch::X86_64,
+                qualification_host: None,
+                toolchain: eggpack_core::ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                },
+                floor: eggpack_core::CompatibilityFloor::None,
+                qualification: eggpack_core::Qualification::Structural,
+                support: eggpack_core::SupportTier::Required,
+            }],
+        };
+        let release = config
+            .resolve(&contract, "1.2.3", &"a".repeat(40), &["linux-x64".into()])
+            .unwrap();
+        let bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                vec![eggpack_core::BuildBinding {
+                    selector: eggpack_core::LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "bin0".into(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qual_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                eggpack_core::TargetQualificationBinding { smoke: None },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let contract_path = root.join("contract.toml");
+        let release_plan_path = root.join("release-plan.json");
+        let build_bindings_path = root.join("build.toml");
+        let qual_bindings_path = root.join("qualification.toml");
+        write_text(&contract_path, contract_text);
+        write_text(
+            &release_plan_path,
+            &serde_json::to_string(&release).unwrap(),
+        );
+        write_text(&build_bindings_path, &toml::to_string(&bindings).unwrap());
+        write_text(
+            &qual_bindings_path,
+            &toml::to_string(&qual_bindings).unwrap(),
+        );
+        // Capture + qualify through the renderer-derived commands.
+        let cargo_root = root.join("cargo-target");
+        let cargo_bin_dir = cargo_root.join("x86_64-unknown-linux-gnu/release");
+        std::fs::create_dir_all(&cargo_bin_dir).unwrap();
+        std::fs::write(cargo_bin_dir.join("bin0"), fixture_elf()).unwrap();
+        let capture = eggpack_ci::RunnerCommand::CaptureBuild {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            build_bindings: build_bindings_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            cargo_target_dir: cargo_root.to_string_lossy().into_owned(),
+            output_dir: root
+                .join("artifacts/build/x86_64-unknown-linux-gnu")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        ci_capture_build(&capture.argv()[3..]).unwrap();
+        let build_dir = root.join("artifacts/build/x86_64-unknown-linux-gnu");
+        let qualify = eggpack_ci::RunnerCommand::QualifyTarget {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            build_bindings: build_bindings_path.to_string_lossy().into_owned(),
+            qualification_bindings: qual_bindings_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: build_dir.join("candidates").to_string_lossy().into_owned(),
+            build_handoff: build_dir
+                .join("build-handoff.json")
+                .to_string_lossy()
+                .into_owned(),
+            output_dir: root
+                .join("artifacts/qual/x86_64-unknown-linux-gnu")
+                .to_string_lossy()
+                .into_owned(),
+            qemu_sysroot: None,
+        };
+        ci_qualify_target(&qualify.argv()[3..]).unwrap();
+        let qual_dir = root.join("artifacts/qual/x86_64-unknown-linux-gnu");
+        // Consumer validator script + map, resolved against a source root.
+        let source_root = root.join("checkout");
+        std::fs::create_dir_all(source_root.join("scripts")).unwrap();
+        std::fs::write(
+            source_root.join("scripts/smoke.py"),
+            "import sys\nopen(sys.argv[1], 'rb').read()\n",
+        )
+        .unwrap();
+        let validator = eggpack_ci::ConsumerValidatorV1 {
+            schema_version: 1,
+            selector: eggpack_core::LogicalOutputSelector::Direct,
+            interpreter: eggpack_ci::ValidatorInterpreterV1::Python3,
+            script: "scripts/smoke.py".into(),
+            timeout_ms: 20_000,
+            stdout_limit: 65_536,
+            stderr_limit: 65_536,
+        };
+        let map: std::collections::BTreeMap<String, eggpack_ci::ConsumerValidatorV1> =
+            [("x86_64-unknown-linux-gnu".to_owned(), validator)]
+                .into_iter()
+                .collect();
+        let map_path = root.join("consumer-validators.json");
+        std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
+        // The renderer-derived validate command drives the real CLI.
+        let validate = eggpack_ci::RunnerCommand::ValidateConsumer {
+            consumer_validators: map_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: qual_dir.join("candidates").to_string_lossy().into_owned(),
+            build_handoff: qual_dir
+                .join("build-handoff.json")
+                .to_string_lossy()
+                .into_owned(),
+            evidence: qual_dir
+                .join("evidence.json")
+                .to_string_lossy()
+                .into_owned(),
+            source_root: source_root.to_string_lossy().into_owned(),
+            output: root
+                .join("consumer-evidence.json")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        let argv = validate.argv();
+        assert_eq!(&argv[..3], &["eggpack", "ci", "_validate-consumer"]);
+        ci_validate_consumer(&argv[3..]).unwrap();
+        let evidence = eggpack_ci::decode_consumer_evidence(
+            &std::fs::read_to_string(root.join("consumer-evidence.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            eggpack_ci::ConsumerValidationOutcome::Passed
+        );
+        // Failing script fails the command (required gate blocks).
+        std::fs::write(
+            source_root.join("scripts/smoke.py"),
+            "import sys\nsys.exit(1)\n",
+        )
+        .unwrap();
+        assert!(ci_validate_consumer(&argv[3..]).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn prepare_stage_with_product_wrappers_materializes_four_installers() {
+        use sha2::Digest;
+        let root = temp_root("prepare-stage-wrappers");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract_path = root.join("contract.toml");
+        std::fs::write(&contract_path, contract_text).unwrap();
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        let body = b"body";
+        let digest: String = sha2::Sha256::digest(body)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let manifest = eggpack_manifest::ReleaseManifest {
+            schema_version: 1,
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![
+                eggpack_manifest::TargetRecord {
+                    target: "aarch64-apple-darwin".into(),
+                    form: eggpack_manifest::ArtifactForm::Direct {
+                        artifact: eggpack_manifest::ArtifactRecord {
+                            name: "eggsact-1.2.6-aarch64-apple-darwin".into(),
+                            size: body.len() as u64,
+                            sha256: digest.clone(),
+                        },
+                        install: "eggsact".into(),
+                    },
+                },
+                eggpack_manifest::TargetRecord {
+                    target: "x86_64-unknown-linux-gnu".into(),
+                    form: eggpack_manifest::ArtifactForm::Direct {
+                        artifact: eggpack_manifest::ArtifactRecord {
+                            name: "eggsact-1.2.6-x86_64-unknown-linux-gnu".into(),
+                            size: body.len() as u64,
+                            sha256: digest.clone(),
+                        },
+                        install: "eggsact".into(),
+                    },
+                },
+            ],
+            evidence_references: vec![],
+        };
+        let manifest_path = root.join("release-manifest.json");
+        std::fs::write(&manifest_path, manifest.to_json().unwrap()).unwrap();
+        let finalized = root.join("finalized");
+        std::fs::create_dir(&finalized).unwrap();
+        for name in [
+            "eggsact-1.2.6-aarch64-apple-darwin",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+        ] {
+            std::fs::write(finalized.join(name), body).unwrap();
+            std::fs::write(
+                finalized.join(format!("{name}.sha256")),
+                format!("{digest}  {name}\n"),
+            )
+            .unwrap();
+        }
+        let policy = eggpack_github::GitHubDraftPolicyV1 {
+            schema_version: 1,
+            owner: "acme".into(),
+            repository: "widget".into(),
+            tag: "v1.2.6".into(),
+            title: "widget 1.2.6".into(),
+            body: "notes".into(),
+            prerelease: false,
+            token_env: "GITHUB_TOKEN".into(),
+            request_timeout_secs: 30,
+            max_metadata_bytes: 1_000_000,
+            max_list_pages: 5,
+        };
+        let policy_path = root.join("github-policy.json");
+        std::fs::write(&policy_path, policy.to_json().unwrap()).unwrap();
+        let install_policy_path = root.join("install-policy.toml");
+        std::fs::write(&install_policy_path, "schema_version = 1\n").unwrap();
+        // Product wrapper sources plus presentation policy (TOML accepted).
+        let source_root = root.join("consumer");
+        std::fs::create_dir_all(source_root.join("packaging")).unwrap();
+        std::fs::write(source_root.join("packaging/install.sh"), b"#!/bin/sh\n").unwrap();
+        std::fs::write(source_root.join("packaging/install.ps1"), b"# ps1\n").unwrap();
+        let presentation_path = root.join("installer-presentation.toml");
+        std::fs::write(
+            &presentation_path,
+            "schema_version = 1\n[mode.product_wrappers]\nposix_source = \"packaging/install.sh\"\npowershell_source = \"packaging/install.ps1\"\ngenerated_posix_name = \"install-exact.sh\"\ngenerated_powershell_name = \"install-exact.ps1\"\n",
+        )
+        .unwrap();
+        let staging = root.join("staging");
+        let payload_out = root.join("payload.json");
+        let prepare = eggpack_ci::RunnerCommand::PrepareStage {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_manifest: manifest_path.to_string_lossy().into_owned(),
+            finalized_root: finalized.to_string_lossy().into_owned(),
+            github_policy: policy_path.to_string_lossy().into_owned(),
+            install_policy: install_policy_path.to_string_lossy().into_owned(),
+            output_dir: staging.to_string_lossy().into_owned(),
+            output_payload: payload_out.to_string_lossy().into_owned(),
+            installer_presentation: Some(presentation_path.to_string_lossy().into_owned()),
+            source_root: Some(source_root.to_string_lossy().into_owned()),
+        };
+        let argv = prepare.argv();
+        assert!(argv.contains(&"--installer-presentation".to_string()));
+        assert!(argv.contains(&"--source-root".to_string()));
+        ci_prepare_stage(&argv[3..]).unwrap();
+        let payload = eggpack_github::StagingPayloadV1::from_json(
+            &std::fs::read_to_string(&payload_out).unwrap(),
+        )
+        .unwrap();
+        let installers: Vec<&str> = payload
+            .assets
+            .iter()
+            .filter(|asset| {
+                asset.name == "install.sh"
+                    || asset.name == "install.ps1"
+                    || asset.name == "install-exact.sh"
+                    || asset.name == "install-exact.ps1"
+            })
+            .map(|asset| asset.name.as_str())
+            .collect();
+        assert_eq!(installers.len(), 4);
+        assert_eq!(
+            std::fs::read(staging.join("install.sh")).unwrap(),
+            b"#!/bin/sh\n"
+        );
+        // Paired flags: presentation without source root fails.
+        let mut partial = argv[3..].to_vec();
+        partial.retain(|arg| arg != "--source-root" && !arg.contains("consumer"));
+        assert!(ci_prepare_stage(&partial).is_err());
+        let _ = contract;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn shape_generate_check_round_trip_and_drift() {
+        let root = temp_root("shape-generate");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract_path = root.join("contract.toml");
+        std::fs::write(&contract_path, contract_text).unwrap();
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        let config = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: vec![eggpack_core::TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: eggpack_core::BuildStrategy::NativeCargo,
+                host_os: eggpack_core::HostOs::Linux,
+                host_arch: eggpack_core::HostArch::X86_64,
+                qualification_host: None,
+                toolchain: eggpack_core::ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                },
+                floor: eggpack_core::CompatibilityFloor::None,
+                qualification: eggpack_core::Qualification::Structural,
+                support: eggpack_core::SupportTier::Required,
+            }],
+        };
+        let release = config
+            .resolve(&contract, "1.2.3", &"a".repeat(40), &["linux-x64".into()])
+            .unwrap();
+        let bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                vec![eggpack_core::BuildBinding {
+                    selector: eggpack_core::LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "bin0".into(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qual_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                eggpack_core::TargetQualificationBinding { smoke: None },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let mut validators = std::collections::BTreeMap::new();
+        validators.insert(
+            "x86_64-unknown-linux-gnu".to_owned(),
+            eggpack_ci::ConsumerValidatorV1 {
+                schema_version: 1,
+                selector: eggpack_core::LogicalOutputSelector::Direct,
+                interpreter: eggpack_ci::ValidatorInterpreterV1::Python3,
+                script: "scripts/smoke.py".into(),
+                timeout_ms: 20_000,
+                stdout_limit: 65_536,
+                stderr_limit: 65_536,
+            },
+        );
+        let shape = eggpack_ci::ReleaseWorkflowShapeV1 {
+            schema_version: 1,
+            targets: release.targets.iter().map(|t| t.policy.clone()).collect(),
+            selected_aliases: vec!["linux-x64".into()],
+            build_bindings: bindings,
+            qualification_bindings: qual_bindings,
+            consumer_validators: validators,
+            staging: Some(eggpack_ci::ShapeStagingIntentV1 {
+                provider: eggpack_ci::StagingProvider::GitHubDraft,
+                tag_source: eggpack_ci::StagingTagSource::DispatchInput,
+                required: true,
+            }),
+        };
+        let shape_path = root.join("shape.json");
+        std::fs::write(&shape_path, shape.to_json().unwrap()).unwrap();
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let policy = eggpack_ci::GitHubPolicy {
+            preflight_runner: "ubuntu-latest".into(),
+            runners: vec![eggpack_ci::RunnerMapping {
+                os: eggpack_core::HostOs::Linux,
+                arch: eggpack_core::HostArch::X86_64,
+                label: "ubuntu-latest".into(),
+                cargo_zigbuild: true,
+                zig: true,
+            }],
+            checkout: eggpack_ci::ActionPin {
+                reference: format!("actions/checkout@{sha}"),
+            },
+            rust_toolchain: eggpack_ci::ActionPin {
+                reference: format!("dtolnay/rust-toolchain@{sha}"),
+            },
+            upload_artifact: eggpack_ci::ActionPin {
+                reference: format!("actions/upload-artifact@{sha}"),
+            },
+            download_artifact: Some(eggpack_ci::ActionPin {
+                reference: format!("actions/download-artifact@{sha}"),
+            }),
+            triggers: vec![
+                eggpack_ci::WorkflowTrigger::Push,
+                eggpack_ci::WorkflowTrigger::WorkflowDispatch,
+            ],
+            timeout_minutes: 60,
+            cancel_in_progress: true,
+            artifact_retention_days: 7,
+            eggpack_tool: Some(eggpack_ci::EggpackToolPolicy {
+                repo: "https://github.com/eggstack/eggpack".into(),
+                revision: "a".repeat(40),
+                package: "eggpack-cli".into(),
+                install_timeout_minutes: 10,
+            }),
+            release_inputs: Some(eggpack_ci::GitHubReleaseInputsV1 {
+                contract: "contracts/release.toml".into(),
+                release_plan: "plans/release-plan.json".into(),
+                build_bindings: "bindings/build.toml".into(),
+                qualification_bindings: "bindings/qualification.toml".into(),
+                ci_plan: "plans/release-ci-plan.json".into(),
+                pack_config: Some("configs/pack.toml".into()),
+                draft_template: Some("policies/github-template.json".into()),
+                installer_presentation: None,
+                consumer_validators: Some("validators/consumer.json".into()),
+            }),
+            emulated_sysroots: None,
+            staging: Some(eggpack_ci::GitHubStagingPolicyV1 {
+                runner: "ubuntu-latest".into(),
+                owner: "acme".into(),
+                repository: "widget".into(),
+                tag_source: eggpack_ci::StagingTagSource::DispatchInput,
+                inputs: eggpack_ci::GitHubStagingInputsV1 {
+                    contract: "contracts/release.toml".into(),
+                    install_policy: "policies/install.toml".into(),
+                    github_policy: "policies/github-draft.json".into(),
+                    installer_presentation: None,
+                },
+                receipt_retention_days: 7,
+            }),
+        };
+        let policy_path = root.join("policy.json");
+        std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
+        let output_path = root.join("release.yml");
+        // Generate equals the library renderer.
+        ci_generate(&[
+            "--workflow-shape".into(),
+            shape_path.to_string_lossy().into_owned(),
+            "--contract".into(),
+            contract_path.to_string_lossy().into_owned(),
+            "--github-policy".into(),
+            policy_path.to_string_lossy().into_owned(),
+            "--output".into(),
+            output_path.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let expected =
+            eggpack_ci::render_reusable_release_github(&contract, &shape, &policy).unwrap();
+        assert_eq!(std::fs::read_to_string(&output_path).unwrap(), expected);
+        // Check passes the exact file and detects drift.
+        ci_check(&[
+            "--workflow-shape".into(),
+            shape_path.to_string_lossy().into_owned(),
+            "--contract".into(),
+            contract_path.to_string_lossy().into_owned(),
+            "--github-policy".into(),
+            policy_path.to_string_lossy().into_owned(),
+            "--workflow".into(),
+            output_path.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let mut drifted = expected.clone();
+        drifted.push('x');
+        std::fs::write(&output_path, &drifted).unwrap();
+        assert!(ci_check(&[
+            "--workflow-shape".into(),
+            shape_path.to_string_lossy().into_owned(),
+            "--contract".into(),
+            contract_path.to_string_lossy().into_owned(),
+            "--github-policy".into(),
+            policy_path.to_string_lossy().into_owned(),
+            "--workflow".into(),
+            output_path.to_string_lossy().into_owned(),
+        ])
+        .is_err());
+        // Mixed exact/reusable flags reject.
+        assert!(ci_generate(&[
+            "--workflow-shape".into(),
+            shape_path.to_string_lossy().into_owned(),
+            "--ci-plan".into(),
+            shape_path.to_string_lossy().into_owned(),
+            "--github-policy".into(),
+            policy_path.to_string_lossy().into_owned(),
+            "--output".into(),
+            output_path.to_string_lossy().into_owned(),
+        ])
+        .is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

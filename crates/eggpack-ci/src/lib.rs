@@ -6,8 +6,9 @@ use eggpack_contract::DistributionContract;
 use eggpack_core::{
     cargo_command, ArchiveEncoding, BuildAttempt, BuildBindingsV1, BuildStrategy,
     CompatibilityFloor, FinalizationRequest, FinalizationTargetInput, HostArch, HostOs,
-    HostRequirement, LogicalOutputSelector, PlannedAssetForm, PlannedTarget, Qualification,
-    QualificationBindingsV1, QualificationEvidence, QualificationStatus, ReleasePlan, SupportTier,
+    HostRequirement, LogicalOutputSelector, PackConfig, PlannedAssetForm, PlannedTarget,
+    Qualification, QualificationBindingsV1, QualificationEvidence, QualificationStatus,
+    ReleasePlan, SupportTier, TargetPolicy,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -566,6 +567,23 @@ pub struct GitHubReleaseInputsV1 {
     pub qualification_bindings: String,
     /// Repository-relative ReleaseCIPlanV1 JSON path.
     pub ci_plan: String,
+    /// Repository-relative PackConfig (TOML or JSON) path for M003d runtime
+    /// identity resolution. Required only for reusable workflows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pack_config: Option<String>,
+    /// Repository-relative GitHubDraftTemplateV1 JSON path for M003d runtime
+    /// identity resolution. Required only for reusable workflows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft_template: Option<String>,
+    /// Repository-relative InstallerPresentationV1 (TOML or JSON) path for
+    /// M003d product-wrapper staging. Required only when the stage job
+    /// passes `--installer-presentation`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installer_presentation: Option<String>,
+    /// Repository-relative consumer validator map (TOML or JSON) path.
+    /// Required only when the graph configures consumer validators.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consumer_validators: Option<String>,
 }
 
 /// Explicit repository-relative staging input paths for the generated draft
@@ -580,6 +598,10 @@ pub struct GitHubStagingInputsV1 {
     pub install_policy: String,
     /// Repository-relative GitHubDraftPolicyV1 JSON path.
     pub github_policy: String,
+    /// Optional repository-relative InstallerPresentationV1 path (M003d).
+    /// Absent for M003c-compatible staging (GeneratedDefault).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installer_presentation: Option<String>,
 }
 
 /// Finite staging runner label plus repository identity for the generated
@@ -615,7 +637,8 @@ pub enum StagingTagSource {
 }
 
 impl GitHubReleaseInputsV1 {
-    /// Validate all five paths are bounded relative paths without escapes.
+    /// Validate all required paths plus any configured M003d extension
+    /// paths as bounded relative paths without escapes.
     pub fn validate(&self) -> Result<(), CiError> {
         for path in [
             &self.contract,
@@ -624,6 +647,17 @@ impl GitHubReleaseInputsV1 {
             &self.qualification_bindings,
             &self.ci_plan,
         ] {
+            validate_release_input_path(path)?;
+        }
+        for path in [
+            self.pack_config.as_ref(),
+            self.draft_template.as_ref(),
+            self.installer_presentation.as_ref(),
+            self.consumer_validators.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
             validate_release_input_path(path)?;
         }
         Ok(())
@@ -760,6 +794,10 @@ pub enum RunnerCommand {
         output_dir: String,
         /// Staging payload JSON to write.
         output_payload: String,
+        /// Optional repository-relative installer presentation path (M003d).
+        installer_presentation: Option<String>,
+        /// Optional checked-out source root for product wrappers (M003d).
+        source_root: Option<String>,
     },
     /// Invoke `_stage-github-draft` to reconcile the payload into a draft.
     StageGithubDraft {
@@ -771,6 +809,52 @@ pub enum RunnerCommand {
         staging_dir: String,
         /// Staging receipt JSON to write.
         output_receipt: String,
+    },
+    /// Invoke `_validate-consumer` for one target's exact candidate.
+    ValidateConsumer {
+        /// Repository-relative consumer validator map path.
+        consumer_validators: String,
+        /// Canonical target triple.
+        target: String,
+        /// Directory holding staged candidate bytes.
+        candidate_dir: String,
+        /// Canonical build handoff document path.
+        build_handoff: String,
+        /// Canonical qualification evidence path (exact size/SHA source).
+        evidence: String,
+        /// Checked-out repository root for validator script resolution.
+        source_root: String,
+        /// Consumer evidence file to write.
+        output: String,
+    },
+    /// Invoke `_resolve-release` to materialize invocation-local identity.
+    ResolveRelease {
+        /// Repository-relative DistributionContract TOML path.
+        contract: String,
+        /// Repository-relative PackConfig (TOML or JSON) path.
+        pack_config: String,
+        /// Repository-relative build bindings path.
+        build_bindings: String,
+        /// Repository-relative qualification bindings path.
+        qualification_bindings: String,
+        /// Optional repository-relative consumer validator map path.
+        consumer_validators: Option<String>,
+        /// Comma-separated contract target aliases, in order.
+        selected: String,
+        /// Exact existing tag (or the workflow tag expression at render).
+        tag: String,
+        /// Checked-out HEAD revision (or the `$head_sha` render marker).
+        source_revision: String,
+        /// Repository-relative GitHubDraftTemplateV1 JSON path.
+        template: String,
+        /// Checked-out repository root for HEAD verification.
+        source_root: String,
+        /// Invocation-local ReleasePlan path to write.
+        output_plan: String,
+        /// Invocation-local ReleaseCIPlanV1 path to write.
+        output_ci_plan: String,
+        /// Invocation-local GitHubDraftPolicyV1 path to write.
+        output_github_policy: String,
     },
 }
 
@@ -892,25 +976,40 @@ impl RunnerCommand {
                 install_policy,
                 output_dir,
                 output_payload,
-            } => vec![
-                "eggpack".into(),
-                "ci".into(),
-                "_prepare-stage".into(),
-                "--contract".into(),
-                contract.clone(),
-                "--release-manifest".into(),
-                release_manifest.clone(),
-                "--finalized-root".into(),
-                finalized_root.clone(),
-                "--github-policy".into(),
-                github_policy.clone(),
-                "--install-policy".into(),
-                install_policy.clone(),
-                "--output-dir".into(),
-                output_dir.clone(),
-                "--output-payload".into(),
-                output_payload.clone(),
-            ],
+                installer_presentation,
+                source_root,
+            } => {
+                let mut args = vec![
+                    "eggpack".into(),
+                    "ci".into(),
+                    "_prepare-stage".into(),
+                    "--contract".into(),
+                    contract.clone(),
+                    "--release-manifest".into(),
+                    release_manifest.clone(),
+                    "--finalized-root".into(),
+                    finalized_root.clone(),
+                    "--github-policy".into(),
+                    github_policy.clone(),
+                    "--install-policy".into(),
+                    install_policy.clone(),
+                    "--output-dir".into(),
+                    output_dir.clone(),
+                    "--output-payload".into(),
+                    output_payload.clone(),
+                ];
+                // M003d installer presentation is additive: absent for
+                // M003c-compatible invocations, explicit otherwise.
+                if let Some(presentation) = installer_presentation {
+                    args.push("--installer-presentation".into());
+                    args.push(presentation.clone());
+                }
+                if let Some(root) = source_root {
+                    args.push("--source-root".into());
+                    args.push(root.clone());
+                }
+                args
+            }
             RunnerCommand::StageGithubDraft {
                 payload,
                 github_policy,
@@ -929,14 +1028,110 @@ impl RunnerCommand {
                 "--output-receipt".into(),
                 output_receipt.clone(),
             ],
+            RunnerCommand::ValidateConsumer {
+                consumer_validators,
+                target,
+                candidate_dir,
+                build_handoff,
+                evidence,
+                source_root,
+                output,
+            } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_validate-consumer".into(),
+                "--consumer-validators".into(),
+                consumer_validators.clone(),
+                "--target".into(),
+                target.clone(),
+                "--candidate-dir".into(),
+                candidate_dir.clone(),
+                "--build-handoff".into(),
+                build_handoff.clone(),
+                "--evidence".into(),
+                evidence.clone(),
+                "--source-root".into(),
+                source_root.clone(),
+                "--output".into(),
+                output.clone(),
+            ],
+            RunnerCommand::ResolveRelease {
+                contract,
+                pack_config,
+                build_bindings,
+                qualification_bindings,
+                consumer_validators,
+                selected,
+                tag,
+                source_revision,
+                template,
+                source_root,
+                output_plan,
+                output_ci_plan,
+                output_github_policy,
+            } => {
+                let mut args = vec![
+                    "eggpack".into(),
+                    "ci".into(),
+                    "_resolve-release".into(),
+                    "--contract".into(),
+                    contract.clone(),
+                    "--pack-config".into(),
+                    pack_config.clone(),
+                    "--build-bindings".into(),
+                    build_bindings.clone(),
+                    "--qualification-bindings".into(),
+                    qualification_bindings.clone(),
+                    "--selected".into(),
+                    selected.clone(),
+                    "--tag".into(),
+                    tag.clone(),
+                    "--source-revision".into(),
+                    source_revision.clone(),
+                    "--template".into(),
+                    template.clone(),
+                    "--source-root".into(),
+                    source_root.clone(),
+                    "--output-plan".into(),
+                    output_plan.clone(),
+                    "--output-ci-plan".into(),
+                    output_ci_plan.clone(),
+                    "--output-github-policy".into(),
+                    output_github_policy.clone(),
+                ];
+                if let Some(map) = consumer_validators {
+                    // Insert the optional map path in flag order (after
+                    // qualification bindings, before selected).
+                    let position = args
+                        .iter()
+                        .position(|arg| arg == "--selected")
+                        .unwrap_or(args.len());
+                    args.splice(
+                        position..position,
+                        ["--consumer-validators".into(), map.clone()],
+                    );
+                }
+                args
+            }
         }
     }
 
     /// Deterministic shell rendering with single-quote escaping.
+    ///
+    /// The exact token `$head_sha` is the renderer-only workflow marker for
+    /// the derived HEAD revision and renders double-quoted so the runner
+    /// shell expands it. It is never a valid revision, so it cannot collide
+    /// with real `_resolve-release` values (which must be 40-hex).
     pub fn to_shell(&self) -> String {
         self.argv()
             .iter()
-            .map(|arg| shell_quote(arg))
+            .map(|arg| {
+                if arg == "$head_sha" {
+                    "\"$head_sha\"".to_owned()
+                } else {
+                    shell_quote(arg)
+                }
+            })
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -1005,6 +1200,9 @@ impl GitHubPolicy {
                 &staging.inputs.github_policy,
             ] {
                 validate_release_input_path(path)?;
+            }
+            if let Some(presentation) = &staging.inputs.installer_presentation {
+                validate_release_input_path(presentation)?;
             }
             let required_trigger = match staging.tag_source {
                 StagingTagSource::RefName => WorkflowTrigger::Push,
@@ -1759,6 +1957,10 @@ pub struct ReleaseCIPlanV1 {
     /// Optional bounded staging intent (M003b). Absent for M002a rendering.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staging: Option<StagingJob>,
+    /// Optional per-target consumer validators (M003d). Absent or empty for
+    /// M003c-compatible graphs; keys are canonical target triples.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub consumer_validators: BTreeMap<String, ConsumerValidatorV1>,
 }
 
 impl ReleaseCIPlanV1 {
@@ -1871,6 +2073,20 @@ impl ReleaseCIPlanV1 {
                 return Err(fail("unsupported staging provider"));
             }
         }
+        if self.consumer_validators.len() > 256 {
+            return Err(fail("consumer validator count exceeds bound"));
+        }
+        for (target, validator) in &self.consumer_validators {
+            validator.validate()?;
+            if !self
+                .ci_plan
+                .targets
+                .iter()
+                .any(|job| job.planned.target == *target)
+            {
+                return Err(fail("consumer validator target is not in CIPlan"));
+            }
+        }
         Ok(())
     }
 }
@@ -1941,9 +2157,179 @@ pub fn project_release_plan(
             evidence_references: vec![],
         },
         staging: None,
+        consumer_validators: BTreeMap::new(),
     };
     graph.validate()?;
     Ok(graph)
+}
+
+/// Project an executable graph with per-target consumer validators.
+///
+/// Selectors must match a build binding selector for the same target;
+/// validator targets must be selected CIPlan targets. Graphs without
+/// validators serialize exactly as M003c.
+pub fn project_release_plan_with_consumer(
+    ci_plan: &CIPlan,
+    qualification_bindings: &QualificationBindingsV1,
+    build_bindings: &BuildBindingsV1,
+    release: &ReleasePlan,
+    consumer: BTreeMap<String, ConsumerValidatorV1>,
+) -> Result<ReleaseCIPlanV1, CiError> {
+    if consumer.len() > 256 {
+        return Err(fail("consumer validator count exceeds bound"));
+    }
+    for (target, validator) in &consumer {
+        validator.validate()?;
+        if !ci_plan
+            .targets
+            .iter()
+            .any(|job| job.planned.target == *target)
+        {
+            return Err(fail("consumer validator target is not in CIPlan"));
+        }
+        let bindings = build_bindings
+            .targets
+            .get(target)
+            .ok_or_else(|| fail("consumer validator target has no build bindings"))?;
+        if !bindings
+            .iter()
+            .any(|binding| binding.selector == validator.selector)
+        {
+            return Err(fail(
+                "consumer validator selector is not a build output of its target",
+            ));
+        }
+    }
+    let mut graph = project_release_plan(ci_plan, qualification_bindings, build_bindings, release)?;
+    graph.consumer_validators = consumer;
+    graph.validate()?;
+    Ok(graph)
+}
+
+/// Stable consumer validation job id derived from the build job id.
+pub fn consumer_job_id(build_job_id: &str) -> String {
+    format!("validate_{build_job_id}")
+}
+
+/// Deterministic consumer evidence artifact name for one target.
+pub fn consumer_evidence_handoff_name(target: &str) -> String {
+    format!("eggpack-consumer-evidence-{target}")
+}
+
+/// Decode and shape-check consumer validation evidence JSON (identity
+/// checked by the gate caller).
+pub fn decode_consumer_evidence(text: &str) -> Result<ConsumerValidationEvidenceV1, CiError> {
+    if text.len() > MAX_CONSUMER_EVIDENCE_JSON {
+        return Err(fail("consumer evidence exceeds size bound"));
+    }
+    serde_json::from_str(text).map_err(|_| fail("invalid consumer evidence JSON"))
+}
+
+/// Evaluate the required gate including consumer validation evidence.
+///
+/// Core qualification gates exactly as [`evaluate_gate`]; then every target
+/// with a consumer validator must present matching `Passed` consumer
+/// evidence. Required validator failure fails the gate; non-gating
+/// validator failure suppresses the release rather than producing partial
+/// output. Consumer evidence for a target without a validator is invalid.
+pub fn evaluate_gate_with_consumer(
+    graph: &ReleaseCIPlanV1,
+    evidences: &[QualificationEvidence],
+    consumer_evidences: &[ConsumerValidationEvidenceV1],
+) -> Result<AggregateOutcome, CiError> {
+    graph.validate()?;
+    for evidence in consumer_evidences {
+        evidence.validate()?;
+    }
+    let outcome = evaluate_gate(graph, evidences)?;
+    if outcome != AggregateOutcome::Complete {
+        return Ok(outcome);
+    }
+    let mut by_target: BTreeMap<&str, &ConsumerValidationEvidenceV1> = BTreeMap::new();
+    for evidence in consumer_evidences {
+        if by_target
+            .insert(evidence.target.as_str(), evidence)
+            .is_some()
+        {
+            return Err(fail("duplicate consumer evidence target"));
+        }
+    }
+    for qual in &graph.qualifications {
+        let validator = graph.consumer_validators.get(&qual.target);
+        match (validator, by_target.get(qual.target.as_str())) {
+            (None, None) => {}
+            (None, Some(_)) => return Ok(AggregateOutcome::InvalidEvidence),
+            (Some(_), None) => {
+                if qual.required {
+                    return Ok(AggregateOutcome::FailedRequiredGate);
+                }
+                return Ok(AggregateOutcome::SuppressedNonGatingIncomplete);
+            }
+            (Some(validator), Some(evidence)) => {
+                if evidence.release_id != graph.ci_plan.release_id
+                    || evidence.source_revision != graph.ci_plan.source_revision
+                    || evidence.target != qual.target
+                    || evidence.selector != validator.selector
+                    || evidence.interpreter != validator.interpreter
+                {
+                    return Ok(AggregateOutcome::InvalidEvidence);
+                }
+                match evidence.outcome {
+                    ConsumerValidationOutcome::Passed => {}
+                    ConsumerValidationOutcome::Failed(_) => {
+                        if qual.required {
+                            return Ok(AggregateOutcome::FailedRequiredGate);
+                        }
+                        return Ok(AggregateOutcome::SuppressedNonGatingIncomplete);
+                    }
+                }
+            }
+        }
+    }
+    if by_target.len() != graph.consumer_validators.len() {
+        return Ok(AggregateOutcome::InvalidEvidence);
+    }
+    Ok(AggregateOutcome::Complete)
+}
+
+/// Aggregate validated evidence, candidates, and consumer evidence.
+///
+/// Never drops failed optional targets or failed optional validators to
+/// produce a partial release. On Complete, invokes M004 finalization.
+pub fn aggregate_finalize_with_consumer(
+    contract: &DistributionContract,
+    plan: &ReleasePlan,
+    graph: &ReleaseCIPlanV1,
+    inputs: &[FinalizationTargetInput],
+    consumer_evidences: &[ConsumerValidationEvidenceV1],
+    evidence_references: &[String],
+    output_root: &Path,
+) -> Result<(AggregateOutcome, Option<eggpack_core::FinalizedRelease>), CiError> {
+    graph.validate()?;
+    let evidences: Vec<QualificationEvidence> = inputs
+        .iter()
+        .map(|input| input.qualification.clone())
+        .collect();
+    let outcome = evaluate_gate_with_consumer(graph, &evidences, consumer_evidences)?;
+    if outcome != AggregateOutcome::Complete {
+        return Ok((outcome, None));
+    }
+    let archive_encoding = if graph.finalization.archive_encoding.is_some() {
+        Some(ArchiveEncoding::TarGzip)
+    } else {
+        None
+    };
+    let request = FinalizationRequest {
+        product_id: contract.product.id.clone(),
+        release_id: plan.release_id.clone(),
+        source_revision: plan.source_revision.clone(),
+        targets: inputs.to_vec(),
+        evidence_references: evidence_references.to_vec(),
+        archive_encoding,
+    };
+    eggpack_core::finalize_release(contract, plan, &request, output_root)
+        .map(|finalized| (AggregateOutcome::Complete, Some(finalized)))
+        .map_err(|_| CiError("finalization rejected complete evidence".into()))
 }
 
 /// Attach a bounded GitHub draft staging intent to an executable graph.
@@ -2121,6 +2507,24 @@ fn source_verify_snippet(out: &mut String, inputs: &GitHubReleaseInputsV1, stagi
     out.push('\n');
 }
 
+/// Download the runtime identity preflight artifact (reusable mode only).
+///
+/// Every release-producing job downloads the invocation-local ReleasePlan,
+/// ReleaseCIPlan, and GitHubDraftPolicy before its `_verify-source` step.
+/// Exact mode emits nothing here (M003c byte-compatible).
+fn runtime_identity_download_step(out: &mut String, download_pin: &ActionPin, runtime: bool) {
+    if !runtime {
+        return;
+    }
+    out.push_str("      - name: Download runtime release identity\n        uses: ");
+    out.push_str(&yaml_scalar(&download_pin.reference));
+    out.push_str("\n        with:\n          name: ");
+    out.push_str(&yaml_scalar(RUNTIME_IDENTITY_ARTIFACT));
+    out.push_str("\n          path: ");
+    out.push_str(&yaml_scalar(&format!("./{RUNTIME_IDENTITY_DIR}")));
+    out.push_str("\n          if-no-files-found: error\n");
+}
+
 /// Deterministically render build -> qualify -> gate -> aggregate GitHub workflow.
 ///
 /// M002a execution wiring: every generated CLI invocation carries all required
@@ -2132,6 +2536,163 @@ fn source_verify_snippet(out: &mut String, inputs: &GitHubReleaseInputsV1, stagi
 pub fn render_release_github(
     graph: &ReleaseCIPlanV1,
     policy: &GitHubPolicy,
+) -> Result<String, CiError> {
+    render_release_github_inner(graph, policy, None)
+}
+
+/// Runtime render configuration for reusable workflows (M003d section 4D).
+struct RuntimeRender {
+    /// Complete `_resolve-release` command for the resolve job, with the
+    /// workflow tag expression and the `$head_sha` revision marker.
+    resolve: RunnerCommand,
+}
+
+/// Deterministically render a reusable release workflow from static shape.
+///
+/// The checked-in bytes work for any future tag: no release_id,
+/// source_revision, exact tag, or digest is embedded (rendering fails if the
+/// unresolved placeholders leak). At runtime the `resolve` job checks out
+/// the event-selected exact tag, derives HEAD, resolves invocation-local
+/// ReleasePlan/ReleaseCIPlan/GitHubDraftPolicy into workflow-private
+/// storage, and uploads them as an internal preflight artifact that every
+/// later job downloads before its `_verify-source` step.
+pub fn render_reusable_release_github(
+    contract: &DistributionContract,
+    shape: &ReleaseWorkflowShapeV1,
+    policy: &GitHubPolicy,
+) -> Result<String, CiError> {
+    shape.validate()?;
+    let staging_intent = shape
+        .staging
+        .as_ref()
+        .ok_or_else(|| fail("reusable release rendering requires a staging intent"))?;
+    let static_inputs = policy
+        .release_inputs
+        .as_ref()
+        .ok_or_else(|| fail("reusable rendering requires explicit release input paths"))?;
+    let pack_config_path = static_inputs
+        .pack_config
+        .clone()
+        .ok_or_else(|| fail("reusable rendering requires a PackConfig path"))?;
+    let template_path = static_inputs
+        .draft_template
+        .clone()
+        .ok_or_else(|| fail("reusable rendering requires a draft template path"))?;
+    if !shape.consumer_validators.is_empty() && static_inputs.consumer_validators.is_none() {
+        return Err(fail(
+            "reusable consumer validators require an explicit validator map path",
+        ));
+    }
+    // Project the static graph structure against a dummy identity. The
+    // renderer never serializes release identity (proven by the leak
+    // assertion below); the dummy only drives job/handoff derivation.
+    let pack = shape.pack_config();
+    let dummy_plan = pack
+        .resolve(
+            contract,
+            UNRESOLVED_RELEASE_ID,
+            UNRESOLVED_SOURCE_REVISION,
+            &shape.selected_aliases,
+        )
+        .map_err(|_| fail("workflow shape does not resolve against its contract"))?;
+    let dummy_ci = project_ci_plan(contract, &dummy_plan, &shape.build_bindings)?;
+    let base = project_release_plan_with_consumer(
+        &dummy_ci,
+        &shape.qualification_bindings,
+        &shape.build_bindings,
+        &dummy_plan,
+        shape.consumer_validators.clone(),
+    )?;
+    let graph = with_github_draft_staging(base, staging_intent.required)?;
+    // Rewrite identity-carrying input paths to workflow-private storage.
+    // Static checked-in paths (contract, bindings, template, PackConfig,
+    // presentation, validator map) stay repository-relative.
+    let mut runtime_policy = policy.clone();
+    {
+        let runtime_inputs = runtime_policy
+            .release_inputs
+            .as_mut()
+            .ok_or_else(|| fail("reusable rendering requires explicit release input paths"))?;
+        runtime_inputs.release_plan = RUNTIME_RELEASE_PLAN.to_owned();
+        runtime_inputs.ci_plan = RUNTIME_CI_PLAN.to_owned();
+        let runtime_staging = runtime_policy
+            .staging
+            .as_mut()
+            .ok_or_else(|| fail("reusable rendering requires a staging policy"))?;
+        if runtime_staging.tag_source != staging_intent.tag_source {
+            return Err(fail(
+                "shape staging tag source differs from provider staging policy",
+            ));
+        }
+        if staging_intent.provider != StagingProvider::GitHubDraft {
+            return Err(fail("unsupported shape staging provider"));
+        }
+        runtime_staging.inputs.github_policy = RUNTIME_GITHUB_POLICY.to_owned();
+    }
+    let tag_expr = match staging_intent.tag_source {
+        StagingTagSource::RefName => "${{ github.ref_name }}".to_owned(),
+        StagingTagSource::DispatchInput => "${{ inputs.release_tag }}".to_owned(),
+    };
+    let resolve = RunnerCommand::ResolveRelease {
+        contract: static_inputs.contract.clone(),
+        pack_config: pack_config_path,
+        build_bindings: static_inputs.build_bindings.clone(),
+        qualification_bindings: static_inputs.qualification_bindings.clone(),
+        consumer_validators: static_inputs.consumer_validators.clone(),
+        selected: shape.selected_aliases.join(","),
+        tag: tag_expr,
+        source_revision: "$head_sha".to_owned(),
+        template: template_path,
+        source_root: "${{ github.workspace }}".to_owned(),
+        output_plan: format!("./{RUNTIME_RELEASE_PLAN}"),
+        output_ci_plan: format!("./{RUNTIME_CI_PLAN}"),
+        output_github_policy: format!("./{RUNTIME_GITHUB_POLICY}"),
+    };
+    let rendered =
+        render_release_github_inner(&graph, &runtime_policy, Some(&RuntimeRender { resolve }))?;
+    if rendered.contains(UNRESOLVED_RELEASE_ID) || rendered.contains(UNRESOLVED_SOURCE_REVISION) {
+        return Err(fail("reusable workflow embeds unresolved release identity"));
+    }
+    Ok(rendered)
+}
+
+/// Compare existing reusable workflow bytes without writing files.
+pub fn check_reusable_release_github(
+    contract: &DistributionContract,
+    shape: &ReleaseWorkflowShapeV1,
+    policy: &GitHubPolicy,
+    existing: &[u8],
+) -> Result<DriftReport, CiError> {
+    let expected = render_reusable_release_github(contract, shape, policy)?;
+    if existing.len() > MAX_WORKFLOW_BYTES {
+        return Err(fail("existing workflow exceeds size bound"));
+    }
+    let expected = normalize_newlines(expected.as_bytes());
+    let existing = normalize_newlines(existing);
+    let matches = expected == existing;
+    let first_difference = if matches {
+        None
+    } else {
+        Some(
+            expected
+                .iter()
+                .zip(&existing)
+                .position(|(a, b)| a != b)
+                .unwrap_or_else(|| expected.len().min(existing.len())),
+        )
+    };
+    Ok(DriftReport {
+        matches,
+        expected_bytes: expected.len(),
+        actual_bytes: existing.len(),
+        first_difference,
+    })
+}
+
+fn render_release_github_inner(
+    graph: &ReleaseCIPlanV1,
+    policy: &GitHubPolicy,
+    runtime: Option<&RuntimeRender>,
 ) -> Result<String, CiError> {
     graph.validate()?;
     policy.validate(&graph.ci_plan)?;
@@ -2171,6 +2732,16 @@ pub fn render_release_github(
             }
         }
     }
+    // Consumer validators require an explicit checked-in validator map path;
+    // never resolve validator scripts by discovery.
+    let validator_map =
+        if graph.consumer_validators.is_empty() {
+            None
+        } else {
+            Some(inputs.consumer_validators.clone().ok_or_else(|| {
+                fail("consumer validators require an explicit validator map path")
+            })?)
+        };
 
     // Header mirrors M001 build rendering (deterministic, read-only, pinned).
     // When staging is enabled, workflow_dispatch carries an explicit
@@ -2222,6 +2793,43 @@ pub fn render_release_github(
     source_verify_snippet(&mut out, inputs, staging_enabled);
     out.push_str("      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
 
+    // Runtime identity preflight (reusable mode only, M003d section 4D):
+    // check out the event-selected exact tag, derive/verify HEAD, resolve
+    // invocation-local ReleasePlan/ReleaseCIPlan/GitHubDraftPolicy, and
+    // upload those runtime documents as an internal preflight artifact.
+    // Exact mode emits nothing here (M003c byte-compatible).
+    if let Some(runtime) = runtime {
+        let staging_policy = policy
+            .staging
+            .as_ref()
+            .ok_or_else(|| fail("reusable rendering requires a staging policy"))?;
+        out.push_str("  resolve:\n    needs: preflight\n    runs-on: ");
+        out.push_str(&yaml_scalar(&policy.preflight_runner));
+        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+        out.push_str(&policy.timeout_minutes.to_string());
+        out.push_str("\n    steps:\n");
+        checkout_snippet(&mut out, policy, true);
+        out.push_str("      - name: Validate exact-tag source\n        shell: bash\n        run: ");
+        out.push_str(&yaml_scalar(match staging_policy.tag_source {
+            StagingTagSource::RefName => "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\"",
+            StagingTagSource::DispatchInput => "test -n \"${{ inputs.release_tag }}\"",
+        }));
+        out.push('\n');
+        out.push_str(&tool_install_snippet(tool));
+        out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
+        out.push_str(&runtime.resolve.to_shell());
+        out.push('\n');
+        out.push_str("      - name: Upload runtime release identity\n        uses: ");
+        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(RUNTIME_IDENTITY_ARTIFACT));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!("./{RUNTIME_IDENTITY_DIR}")));
+        out.push_str("\n          if-no-files-found: error\n          retention-days: ");
+        out.push_str(&policy.artifact_retention_days.to_string());
+        out.push('\n');
+    }
+
     // Build jobs: M001 cargo invocations plus pinned tool install, explicit
     // `_capture-build` into the canonical per-target directory, and upload of
     // the entire canonical directory as one deterministic artifact.
@@ -2243,7 +2851,13 @@ pub fn render_release_github(
         }
         out.push_str("  ");
         out.push_str(&job.job_id);
-        out.push_str(":\n    needs: preflight\n    runs-on: ");
+        // Reusable builds wait for runtime identity; exact builds wait for
+        // preflight directly.
+        if runtime.is_some() {
+            out.push_str(":\n    needs: resolve\n    runs-on: ");
+        } else {
+            out.push_str(":\n    needs: preflight\n    runs-on: ");
+        }
         out.push_str(&yaml_scalar(&runner.label));
         out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
@@ -2251,6 +2865,7 @@ pub fn render_release_github(
         out.push_str(if job.required { "false\n" } else { "true\n" });
         out.push_str("    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
+        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str("      - name: Set up Rust toolchain\n        uses: ");
         out.push_str(&yaml_scalar(&policy.rust_toolchain.reference));
@@ -2369,6 +2984,7 @@ pub fn render_release_github(
         out.push_str(if qual.required { "false\n" } else { "true\n" });
         out.push_str("    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
+        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str(&tool_install_snippet(tool));
         out.push_str("      - name: Download build handoff\n        uses: ");
@@ -2396,6 +3012,84 @@ pub fn render_release_github(
         out.push_str(&policy.artifact_retention_days.to_string());
         out.push('\n');
     }
+    // Consumer validation jobs (M003d): one per target with a consumer
+    // validator, running after core qualification and before the gate.
+    // Each consumes the canonical qualification handoff (exact candidate
+    // bytes already validated by Eggpack) and never rebuilds the binary.
+    // Graphs without validators emit no jobs here (M003c byte-compatible).
+    if let Some(validator_map) = &validator_map {
+        for qual in &graph.qualifications {
+            if !graph.consumer_validators.contains_key(&qual.target) {
+                continue;
+            }
+            let runner = policy
+                .runners
+                .iter()
+                .find(|mapping| mapping.os == qual.host.os && mapping.arch == qual.host.arch)
+                .ok_or_else(|| fail("runner mapping missing for qualification host"))?;
+            let job_id = consumer_job_id(&qual.build_job_id);
+            let validate = RunnerCommand::ValidateConsumer {
+                consumer_validators: validator_map.clone(),
+                target: qual.target.clone(),
+                candidate_dir: format!(
+                    "./eggpack-handoff/{}/{}",
+                    qual.build_job_id, CANDIDATES_DIR
+                ),
+                build_handoff: format!(
+                    "./eggpack-handoff/{}/{}",
+                    qual.build_job_id, BUILD_HANDOFF_FILE
+                ),
+                evidence: format!(
+                    "./eggpack-handoff/{}/{}",
+                    qual.build_job_id, QUALIFICATION_EVIDENCE_FILE
+                ),
+                source_root: "${{ github.workspace }}".into(),
+                output: format!(
+                    "./eggpack-consumer/{}/{}",
+                    qual.build_job_id, CONSUMER_EVIDENCE_FILE
+                ),
+            };
+            out.push_str("  ");
+            out.push_str(&job_id);
+            out.push_str(":\n    needs: ");
+            out.push_str(&qual.job_id);
+            out.push_str("\n    runs-on: ");
+            out.push_str(&yaml_scalar(&runner.label));
+            out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+            out.push_str(&policy.timeout_minutes.to_string());
+            out.push_str("\n    continue-on-error: ");
+            out.push_str(if qual.required { "false\n" } else { "true\n" });
+            out.push_str("    steps:\n");
+            checkout_snippet(&mut out, policy, staging_enabled);
+            runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
+            source_verify_snippet(&mut out, inputs, staging_enabled);
+            out.push_str(&tool_install_snippet(tool));
+            out.push_str("      - name: Download qualification handoff\n        uses: ");
+            out.push_str(&yaml_scalar(&download_pin.reference));
+            out.push_str("\n        with:\n          name: ");
+            out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+            out.push_str("\n          path: ");
+            out.push_str(&yaml_scalar(&format!(
+                "./eggpack-handoff/{}",
+                qual.build_job_id
+            )));
+            out.push_str("\n      - name: Validate exact candidate (consumer)\n        shell: bash\n        run: ");
+            out.push_str(&yaml_scalar(&validate.to_shell()));
+            out.push('\n');
+            out.push_str("      - name: Upload consumer validation evidence\n        uses: ");
+            out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+            out.push_str("\n        with:\n          name: ");
+            out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
+            out.push_str("\n          path: ");
+            out.push_str(&yaml_scalar(&format!(
+                "./eggpack-consumer/{}",
+                qual.build_job_id
+            )));
+            out.push_str("\n          if-no-files-found: error\n          retention-days: ");
+            out.push_str(&policy.artifact_retention_days.to_string());
+            out.push('\n');
+        }
+    }
     // Required gate: one explicit download step per target into the canonical
     // `eggpack-inputs/<target>/` layout, then `_evaluate-gate` with the exact
     // CI plan, inputs directory, and outcome path.
@@ -2408,20 +3102,28 @@ pub fn render_release_github(
         out.push_str("  ");
         out.push_str(&graph.gate_job_id);
         out.push_str(":\n    needs: [");
-        out.push_str(
-            &graph
-                .qualifications
-                .iter()
-                .map(|q| q.job_id.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
+        // Gate waits for the consumer validation job where one exists,
+        // otherwise directly for the qualification job. Without validators
+        // this is exactly the M003c dependency list.
+        let gate_needs: Vec<String> = graph
+            .qualifications
+            .iter()
+            .map(|q| {
+                if graph.consumer_validators.contains_key(&q.target) {
+                    consumer_job_id(&q.build_job_id)
+                } else {
+                    q.job_id.clone()
+                }
+            })
+            .collect();
+        out.push_str(&gate_needs.join(", "));
         out.push_str("]\n    runs-on: ");
         out.push_str(&yaml_scalar(&policy.preflight_runner));
         out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
         out.push_str("\n    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
+        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str(&tool_install_snippet(tool));
         for qual in &graph.qualifications {
@@ -2431,6 +3133,22 @@ pub fn render_release_github(
             out.push_str(&yaml_scalar(&download_pin.reference));
             out.push_str("\n        with:\n          name: ");
             out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+            out.push_str("\n          path: ");
+            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+            out.push('\n');
+        }
+        // Consumer evidence joins the same canonical per-target layout so
+        // the gate consumes one complete directory per target.
+        for qual in &graph.qualifications {
+            if !graph.consumer_validators.contains_key(&qual.target) {
+                continue;
+            }
+            out.push_str("      - name: Download consumer evidence ");
+            out.push_str(&yaml_scalar(&qual.target));
+            out.push_str("\n        uses: ");
+            out.push_str(&yaml_scalar(&download_pin.reference));
+            out.push_str("\n        with:\n          name: ");
+            out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
             out.push_str("\n          path: ");
             out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
             out.push('\n');
@@ -2463,6 +3181,7 @@ pub fn render_release_github(
         out.push_str(&policy.timeout_minutes.to_string());
         out.push_str("\n    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
+        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str(&tool_install_snippet(tool));
         for qual in &graph.qualifications {
@@ -2472,6 +3191,20 @@ pub fn render_release_github(
             out.push_str(&yaml_scalar(&download_pin.reference));
             out.push_str("\n        with:\n          name: ");
             out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+            out.push_str("\n          path: ");
+            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+            out.push('\n');
+        }
+        for qual in &graph.qualifications {
+            if !graph.consumer_validators.contains_key(&qual.target) {
+                continue;
+            }
+            out.push_str("      - name: Download consumer evidence ");
+            out.push_str(&yaml_scalar(&qual.target));
+            out.push_str("\n        uses: ");
+            out.push_str(&yaml_scalar(&download_pin.reference));
+            out.push_str("\n        with:\n          name: ");
+            out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
             out.push_str("\n          path: ");
             out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
             out.push('\n');
@@ -2514,6 +3247,15 @@ pub fn render_release_github(
             install_policy: staging_policy.inputs.install_policy.clone(),
             output_dir: "./eggpack-staging".into(),
             output_payload: "./eggpack-staging-payload.json".into(),
+            // M003d installer presentation is explicit: the presentation
+            // path comes from staging inputs and the source root is the
+            // checked-out repository. Absent for M003c-compatible staging.
+            installer_presentation: staging_policy.inputs.installer_presentation.clone(),
+            source_root: staging_policy
+                .inputs
+                .installer_presentation
+                .as_ref()
+                .map(|_| "${{ github.workspace }}".to_owned()),
         };
         let stage_cmd = RunnerCommand::StageGithubDraft {
             payload: "./eggpack-staging-payload.json".into(),
@@ -2545,9 +3287,9 @@ pub fn render_release_github(
         out.push_str(&yaml_scalar(&policy.checkout.reference));
         out.push_str("\n        with:\n          ref: ");
         out.push_str(&yaml_scalar(stage_ref));
-        out.push_str(
-            "\n      - name: Validate exact-tag source\n        shell: bash\n        run: ",
-        );
+        out.push('\n');
+        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
+        out.push_str("      - name: Validate exact-tag source\n        shell: bash\n        run: ");
         out.push_str(&yaml_scalar(match staging_policy.tag_source {
             StagingTagSource::RefName => "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\"",
             StagingTagSource::DispatchInput => "test -n \"${{ inputs.release_tag }}\"",
@@ -2631,12 +3373,844 @@ pub fn check_release_github(
     })
 }
 
+// ---------------------------------------------------------------------------
+// M003d — consumer-owned exact-candidate validator.
+// ---------------------------------------------------------------------------
+
+/// Canonical consumer validation evidence file name inside per-target dirs.
+pub const CONSUMER_EVIDENCE_FILE: &str = "consumer-evidence.json";
+const MAX_VALIDATOR_JSON: usize = 64 * 1024;
+const MAX_CONSUMER_EVIDENCE_JSON: usize = 64 * 1024;
+/// Maximum validator script bytes (1 MiB, matching wrapper bound).
+const MAX_VALIDATOR_SCRIPT_BYTES: u64 = 1024 * 1024;
+
+/// Finite validator interpreter (M003d section 9).
+///
+/// Exactly `Python3`: no caller-provided interpreter executable is accepted.
+/// The renderer maps it finitely by host (`python3` on Linux/macOS, `python`
+/// on Windows) with a bounded `--version` preflight that must identify
+/// Python 3; local execution uses the same mapping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValidatorInterpreterV1 {
+    /// Bounded Python 3 interpreter selected by host mapping.
+    Python3,
+}
+
+/// One narrow post-core-qualification verifier type.
+///
+/// This is intentionally not part of `QualificationEvidence`; M003 remains
+/// the provider-neutral binary qualification authority. Invocation is fixed
+/// semantically as `Python3 <validated-script-path> <exact-candidate-path>`.
+/// No arbitrary executable field, shell, environment map, or caller-supplied
+/// argument vector exists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsumerValidatorV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// Candidate selector identifying the exact handoff output to validate.
+    pub selector: LogicalOutputSelector,
+    /// Finite interpreter (exactly Python3).
+    pub interpreter: ValidatorInterpreterV1,
+    /// Explicit repository-relative validator script path.
+    pub script: String,
+    /// Bounded execution timeout in milliseconds (1s to 10min).
+    pub timeout_ms: u64,
+    /// Bounded stdout capture in bytes.
+    pub stdout_limit: usize,
+    /// Bounded stderr capture in bytes.
+    pub stderr_limit: usize,
+}
+
+impl ConsumerValidatorV1 {
+    /// Parse a strict bounded JSON validator document.
+    pub fn from_json(text: &str) -> Result<Self, CiError> {
+        if text.len() > MAX_VALIDATOR_JSON {
+            return Err(fail("consumer validator exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid consumer validator JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Serialize deterministically after validation.
+    pub fn to_json(&self) -> Result<String, CiError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("consumer validator encode failed"))
+    }
+
+    /// Validate schema version, interpreter, script path, and bounds.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.schema_version != 1 {
+            return Err(fail("unsupported consumer validator version"));
+        }
+        if self.interpreter != ValidatorInterpreterV1::Python3 {
+            return Err(fail("unsupported consumer validator interpreter"));
+        }
+        validate_release_input_path(&self.script)?;
+        if self.timeout_ms < 1_000 || self.timeout_ms > 600_000 {
+            return Err(fail("consumer validator timeout out of bounds"));
+        }
+        if self.stdout_limit == 0
+            || self.stdout_limit > 8_000_000
+            || self.stderr_limit == 0
+            || self.stderr_limit > 8_000_000
+        {
+            return Err(fail("consumer validator output limits out of bounds"));
+        }
+        Ok(())
+    }
+}
+
+/// Bounded consumer validation failure classification (no output contents).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsumerValidationFailure {
+    /// Validator exited non-zero.
+    NonZeroExit,
+    /// Validator exceeded its bounded timeout.
+    Timeout,
+    /// Validator exceeded its bounded stdout/stderr capture.
+    OutputLimit,
+    /// Python 3 interpreter unavailable or preflight rejected.
+    InterpreterUnavailable,
+    /// Exact candidate identity (size/digest/type) mismatch.
+    CandidateMismatch,
+    /// Validator script unavailable or failed script validation.
+    ScriptUnavailable,
+    /// Caller cancellation requested before completion.
+    Cancelled,
+}
+
+/// Bounded consumer validation outcome (no script output contents).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsumerValidationOutcome {
+    /// Validator exited zero within timeout and output bounds.
+    Passed,
+    /// Validator failed with a bounded classification.
+    Failed(ConsumerValidationFailure),
+}
+
+/// Bounded consumer validation evidence (M003d section 11).
+///
+/// Contains only schema version, release/source/target identity, selector,
+/// validator kind, process outcome summary, and candidate size/SHA identity.
+/// No script output contents are recorded.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsumerValidationEvidenceV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// Release id copied from the validated handoff identity.
+    pub release_id: String,
+    /// Source revision copied from the validated handoff identity.
+    pub source_revision: String,
+    /// Canonical target triple.
+    pub target: String,
+    /// Validated candidate selector.
+    pub selector: LogicalOutputSelector,
+    /// Validator interpreter kind.
+    pub interpreter: ValidatorInterpreterV1,
+    /// Bounded process outcome summary.
+    pub outcome: ConsumerValidationOutcome,
+    /// Observed candidate size in bytes.
+    pub candidate_size: u64,
+    /// Observed candidate lowercase SHA-256 hex.
+    pub candidate_sha256: String,
+}
+
+impl ConsumerValidationEvidenceV1 {
+    /// Serialize after validation.
+    pub fn to_json(&self) -> Result<String, CiError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("consumer evidence encode failed"))
+    }
+
+    /// Parse and validate a bounded evidence document.
+    pub fn from_json(text: &str) -> Result<Self, CiError> {
+        if text.len() > MAX_CONSUMER_EVIDENCE_JSON {
+            return Err(fail("consumer evidence exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid consumer evidence JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Validate shape, identity bounds, and digest syntax.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.schema_version != 1
+            || !safe_metadata(&self.release_id, 256)
+            || !safe_metadata(&self.source_revision, 256)
+            || !safe_target(&self.target)
+            || self.candidate_size == 0
+        {
+            return Err(fail("invalid or out-of-bounds consumer evidence"));
+        }
+        if self.candidate_sha256.len() != 64
+            || !self
+                .candidate_sha256
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return Err(fail("consumer evidence digest must be lowercase hex"));
+        }
+        Ok(())
+    }
+}
+
+/// Map the finite interpreter to its host executable name.
+///
+/// `python3` on Linux/macOS, `python` on Windows (M003d section 9).
+pub fn python_interpreter_exe() -> &'static str {
+    python_interpreter_exe_for_windows(cfg!(windows))
+}
+
+/// Finite host mapping for the Python3 validator interpreter.
+pub fn python_interpreter_exe_for_windows(is_windows: bool) -> &'static str {
+    if is_windows {
+        "python"
+    } else {
+        "python3"
+    }
+}
+
+/// Bounded execution request for one consumer validator invocation.
+pub struct ConsumerValidationRequest<'a> {
+    /// Validated validator configuration.
+    pub validator: &'a ConsumerValidatorV1,
+    /// Absolute validated script file path (regular non-symlink checked by runner).
+    pub script_path: &'a Path,
+    /// Absolute validated candidate file path (identity checked by runner).
+    pub candidate_path: &'a Path,
+    /// Expected exact candidate size in bytes.
+    pub expected_size: u64,
+    /// Expected exact candidate lowercase SHA-256 hex.
+    pub expected_sha256: &'a str,
+    /// Explicit working directory (must be a real directory).
+    pub work_dir: &'a Path,
+    /// Release id for evidence linkage.
+    pub release_id: &'a str,
+    /// Source revision for evidence linkage.
+    pub source_revision: &'a str,
+    /// Canonical target triple for evidence linkage.
+    pub target: &'a str,
+    /// Optional caller cancellation flag (bounded timeout always applies).
+    pub cancelled: Option<&'a std::sync::atomic::AtomicBool>,
+    /// Optional exact PATH directories for interpreter lookup.
+    ///
+    /// `None` inherits the process PATH. `Some` replaces PATH entirely,
+    /// which keeps missing-interpreter tests hermetic.
+    pub path_dirs: Option<&'a [std::path::PathBuf]>,
+}
+
+fn consumer_evidence_shell(
+    request: &ConsumerValidationRequest<'_>,
+    outcome: ConsumerValidationOutcome,
+    candidate_size: u64,
+    candidate_sha256: String,
+) -> Result<ConsumerValidationEvidenceV1, CiError> {
+    let evidence = ConsumerValidationEvidenceV1 {
+        schema_version: 1,
+        release_id: request.release_id.to_owned(),
+        source_revision: request.source_revision.to_owned(),
+        target: request.target.to_owned(),
+        selector: request.validator.selector.clone(),
+        interpreter: request.validator.interpreter,
+        outcome,
+        candidate_size,
+        candidate_sha256,
+    };
+    evidence.validate()?;
+    Ok(evidence)
+}
+
+fn read_limited(stream: Option<std::process::ChildStdout>, limit: usize) -> (Vec<u8>, bool) {
+    use std::io::Read;
+    let Some(mut stream) = stream else {
+        return (Vec::new(), false);
+    };
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(count) => {
+                bytes.extend_from_slice(&chunk[..count]);
+                if bytes.len() > limit {
+                    // Drain is abandoned; caller kills the child and the
+                    // pipe closes on drop.
+                    return (bytes, true);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    (bytes, false)
+}
+
+fn read_limited_stderr(stream: Option<std::process::ChildStderr>, limit: usize) -> (Vec<u8>, bool) {
+    use std::io::Read;
+    let Some(mut stream) = stream else {
+        return (Vec::new(), false);
+    };
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(count) => {
+                bytes.extend_from_slice(&chunk[..count]);
+                if bytes.len() > limit {
+                    return (bytes, true);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    (bytes, false)
+}
+
+/// Execute one consumer validator against the exact candidate.
+///
+/// Shell-free fixed invocation `Python3 <script> <candidate>` with cleared
+/// environment (PATH plus `SYSTEMROOT` on Windows only), explicit working
+/// directory, null stdin, bounded timeout/output, and exact candidate
+/// identity verification. Returns bounded evidence without script output
+/// contents; only caller misuse (invalid config, non-absolute paths,
+/// malformed expectations, unusable working directory) returns `CiError`.
+/// If Python is unavailable, validation fails with
+/// `InterpreterUnavailable` rather than silently skipping.
+pub fn run_consumer_validator(
+    request: &ConsumerValidationRequest<'_>,
+) -> Result<ConsumerValidationEvidenceV1, CiError> {
+    request.validator.validate()?;
+    for path in [
+        request.script_path,
+        request.candidate_path,
+        request.work_dir,
+    ] {
+        if !path.is_absolute() {
+            return Err(fail("consumer validation paths must be absolute"));
+        }
+    }
+    let work_meta = std::fs::symlink_metadata(request.work_dir)
+        .map_err(|_| fail("consumer validation working directory is unavailable"))?;
+    if !work_meta.is_dir() || work_meta.file_type().is_symlink() {
+        return Err(fail(
+            "consumer validation working directory is not a real directory",
+        ));
+    }
+    if request.expected_sha256.len() != 64
+        || !request
+            .expected_sha256
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(fail("expected candidate digest must be lowercase hex"));
+    }
+    if !safe_metadata(request.release_id, 256)
+        || !safe_metadata(request.source_revision, 256)
+        || !safe_target(request.target)
+    {
+        return Err(fail("consumer validation identity out of bounds"));
+    }
+
+    // Script: regular non-symlink file within the script bound. The source
+    // checkout was already verified by M003c; no PATH-selected script is
+    // possible (absolute path required above, interpreter string is not
+    // configurable beyond the finite enum).
+    let script_usable = std::fs::symlink_metadata(request.script_path)
+        .ok()
+        .is_some_and(|meta| {
+            !meta.file_type().is_symlink()
+                && meta.is_file()
+                && meta.len() >= 1
+                && meta.len() <= MAX_VALIDATOR_SCRIPT_BYTES
+        });
+    // Candidate identity is observed before any execution so evidence always
+    // carries the validated linkage.
+    let (observed_size, observed_sha) = hash_candidate_file(request.candidate_path);
+    let candidate_ok = is_regular_nonempty_file(request.candidate_path)
+        && observed_size == request.expected_size
+        && observed_sha == request.expected_sha256;
+    // Evidence requires a non-zero size and 64-hex digest even when the
+    // candidate itself is the failure point.
+    let evidence_size = observed_size.max(1);
+    let evidence_sha = if observed_sha.len() == 64 {
+        observed_sha.clone()
+    } else {
+        "0".repeat(64)
+    };
+    if !candidate_ok {
+        return consumer_evidence_shell(
+            request,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::CandidateMismatch),
+            evidence_size,
+            evidence_sha,
+        );
+    }
+    if !script_usable {
+        return consumer_evidence_shell(
+            request,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::ScriptUnavailable),
+            evidence_size,
+            evidence_sha,
+        );
+    }
+
+    let exe = python_interpreter_exe();
+    let path_value = match request.path_dirs {
+        Some(dirs) => dirs
+            .iter()
+            .map(|dir| dir.as_os_str())
+            .collect::<Vec<_>>()
+            .join(&std::ffi::OsString::from(if cfg!(windows) {
+                ";"
+            } else {
+                ":"
+            }))
+            .into_string()
+            .map_err(|_| fail("validator PATH override is not valid Unicode"))?,
+        None => std::env::var("PATH").unwrap_or_default(),
+    };
+    // Bounded `--version` preflight must identify Python 3. Missing or
+    // unusable interpreters fail validation rather than skipping it.
+    let preflight_ok = run_interpreter_preflight(exe, &path_value, request);
+    if !preflight_ok {
+        return consumer_evidence_shell(
+            request,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::InterpreterUnavailable),
+            evidence_size,
+            evidence_sha,
+        );
+    }
+
+    let outcome = run_validator_process(request, exe, &path_value);
+    consumer_evidence_shell(request, outcome, evidence_size, evidence_sha)
+}
+
+fn is_regular_nonempty_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .ok()
+        .is_some_and(|meta| !meta.file_type().is_symlink() && meta.is_file() && meta.len() >= 1)
+}
+
+fn hash_candidate_file(path: &Path) -> (u64, String) {
+    let meta = match std::fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(_) => return (0, String::new()),
+    };
+    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() == 0 {
+        return (0, String::new());
+    }
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return (0, String::new()),
+    };
+    use std::io::Read;
+    let mut hasher = Sha256::new();
+    let mut chunk = [0u8; 65536];
+    let mut size = 0u64;
+    loop {
+        match file.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(count) => {
+                size += count as u64;
+                hasher.update(&chunk[..count]);
+            }
+            Err(_) => return (0, String::new()),
+        }
+    }
+    let digest: String = hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    (size, digest)
+}
+
+fn validator_command(
+    exe: &str,
+    path_value: &str,
+    request: &ConsumerValidationRequest<'_>,
+    script_arg: Option<&Path>,
+    candidate_arg: Option<&Path>,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(exe);
+    // Shell-free fixed argv; cleared environment with a documented
+    // allowlist (PATH everywhere, SYSTEMROOT on Windows for CPython).
+    // No network authority is granted by Eggpack; stdin is null.
+    command.env_clear();
+    command.env("PATH", path_value);
+    #[cfg(windows)]
+    {
+        if let Ok(system_root) = std::env::var("SYSTEMROOT") {
+            command.env("SYSTEMROOT", system_root);
+        }
+    }
+    command.current_dir(request.work_dir);
+    command.stdin(std::process::Stdio::null());
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+    match (script_arg, candidate_arg) {
+        (Some(script), Some(candidate)) => {
+            command.arg(script);
+            command.arg(candidate);
+        }
+        (None, None) => {
+            command.arg("--version");
+        }
+        _ => {}
+    }
+    command
+}
+
+fn run_interpreter_preflight(
+    exe: &str,
+    path_value: &str,
+    request: &ConsumerValidationRequest<'_>,
+) -> bool {
+    let mut command = validator_command(exe, path_value, request, None, None);
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_handle = std::thread::spawn(move || read_limited(stdout, 8192));
+    let stderr_handle = std::thread::spawn(move || read_limited_stderr(stderr, 8192));
+    let deadline =
+        std::time::Instant::now() + Duration::from_millis(request.validator.timeout_ms.min(30_000));
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(_) => break None,
+        }
+    };
+    let (out, _) = stdout_handle.join().unwrap_or_default();
+    let (err, _) = stderr_handle.join().unwrap_or_default();
+    let Some(status) = status else {
+        return false;
+    };
+    if !status.success() {
+        return false;
+    }
+    let combined = [out, err].concat();
+    let text = String::from_utf8_lossy(&combined);
+    text.contains("Python 3")
+}
+
+/// Join a finished reader thread without blocking; true when over-limit.
+fn take_finished_over(handle: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>) -> bool {
+    if handle.as_ref().is_some_and(|thread| thread.is_finished()) {
+        if let Some(joined) = handle.take().map(|thread| thread.join()) {
+            return joined.map(|(_, over)| over).unwrap_or(false);
+        }
+    }
+    false
+}
+
+// ---------------------------------------------------------------------------
+// M003d — static workflow shape vs runtime release identity.
+// ---------------------------------------------------------------------------
+
+/// Workflow-private runtime identity directory (invocation-local storage).
+pub const RUNTIME_IDENTITY_DIR: &str = "eggpack-runtime";
+/// Workflow-private runtime ReleasePlan path.
+pub const RUNTIME_RELEASE_PLAN: &str = "eggpack-runtime/release-plan.json";
+/// Workflow-private runtime ReleaseCIPlanV1 path.
+pub const RUNTIME_CI_PLAN: &str = "eggpack-runtime/release-ci-plan.json";
+/// Workflow-private runtime GitHubDraftPolicyV1 path.
+pub const RUNTIME_GITHUB_POLICY: &str = "eggpack-runtime/github-draft.json";
+/// Internal preflight artifact carrying the runtime identity documents.
+pub const RUNTIME_IDENTITY_ARTIFACT: &str = "eggpack-runtime-identity";
+const MAX_SHAPE_JSON: usize = 1_000_000;
+
+/// Placeholder release id used only to project the static graph structure.
+///
+/// It must never appear in rendered workflow bytes; reusable rendering
+/// asserts its absence along with the placeholder revision.
+const UNRESOLVED_RELEASE_ID: &str = "0.0.0-m003d-unresolved";
+/// Placeholder source revision used only to project static graph structure.
+const UNRESOLVED_SOURCE_REVISION: &str = "0000000000000000000000000000000000000000";
+
+/// Bounded staging intent carried by the static workflow shape.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ShapeStagingIntentV1 {
+    /// Staging provider (exactly GitHub draft).
+    pub provider: StagingProvider,
+    /// Explicit tag source mapping.
+    pub tag_source: StagingTagSource,
+    /// Whether staging is required.
+    pub required: bool,
+}
+
+/// Static checked-in release workflow shape (M003d section 4A).
+///
+/// Contains only identity-independent information needed to render the
+/// checked-in workflow: canonical target set, target policy, build and
+/// core qualification bindings, consumer validator configuration, and
+/// staging intent. It MUST NOT contain release_id, source_revision, an
+/// exact future tag, a GitHub release id, or artifact digests/sizes.
+/// Historical `CIPlan` v1 / `ReleaseCIPlanV1` evidence is preserved rather
+/// than silently reinterpreted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseWorkflowShapeV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// Canonical ordered PackConfig targets (identity-independent policy).
+    pub targets: Vec<TargetPolicy>,
+    /// Contract target aliases selected for resolution, in order.
+    pub selected_aliases: Vec<String>,
+    /// Explicit build bindings.
+    pub build_bindings: BuildBindingsV1,
+    /// Explicit core qualification bindings.
+    pub qualification_bindings: QualificationBindingsV1,
+    /// Per-target consumer validators (empty when disabled).
+    #[serde(default)]
+    pub consumer_validators: BTreeMap<String, ConsumerValidatorV1>,
+    /// Staging intent. Required for reusable release rendering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staging: Option<ShapeStagingIntentV1>,
+}
+
+impl ReleaseWorkflowShapeV1 {
+    /// Parse a strict bounded JSON shape document.
+    pub fn from_json(text: &str) -> Result<Self, CiError> {
+        if text.len() > MAX_SHAPE_JSON {
+            return Err(fail("workflow shape exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid workflow shape JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Serialize deterministically after validation.
+    pub fn to_json(&self) -> Result<String, CiError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("workflow shape encode failed"))
+    }
+
+    /// Validate schema version, canonical target ordering, alias bounds,
+    /// and embedded binding/validator documents.
+    pub fn validate(&self) -> Result<(), CiError> {
+        if self.schema_version != 1 {
+            return Err(fail("unsupported workflow shape version"));
+        }
+        if self.targets.is_empty() || self.targets.len() > 256 {
+            return Err(fail("workflow shape target count out of bounds"));
+        }
+        let mut previous: Option<&str> = None;
+        let mut seen = BTreeSet::new();
+        for policy in &self.targets {
+            if !safe_target(&policy.target)
+                || !seen.insert(policy.target.as_str())
+                || previous.is_some_and(|p| p >= policy.target.as_str())
+            {
+                return Err(fail(
+                    "workflow shape targets must be unique, canonical, and ordered",
+                ));
+            }
+            previous = Some(&policy.target);
+        }
+        if self.selected_aliases.is_empty() || self.selected_aliases.len() > 256 {
+            return Err(fail("workflow shape alias count out of bounds"));
+        }
+        for alias in &self.selected_aliases {
+            if !safe_metadata(alias, 128) {
+                return Err(fail("workflow shape alias out of bounds"));
+            }
+        }
+        for validator in self.consumer_validators.values() {
+            validator.validate()?;
+        }
+        if let Some(staging) = &self.staging {
+            if staging.provider != StagingProvider::GitHubDraft {
+                return Err(fail("unsupported shape staging provider"));
+            }
+        }
+        Ok(())
+    }
+
+    /// View the shape targets as a PackConfig for canonical resolution.
+    pub fn pack_config(&self) -> PackConfig {
+        PackConfig {
+            schema_version: 1,
+            targets: self.targets.clone(),
+        }
+    }
+}
+
+fn validate_exact_tag(tag: &str) -> Result<(), CiError> {
+    if tag.is_empty() || tag.len() > 128 {
+        return Err(fail("exact tag out of bounds"));
+    }
+    if tag.chars().any(char::is_control) {
+        return Err(fail("exact tag contains control characters"));
+    }
+    if tag.contains(['?', '#', '@', ' ', '\\', '\'', '"', '`', '$']) {
+        return Err(fail("exact tag contains query/injection characters"));
+    }
+    if tag.contains("..") || tag.starts_with('/') || tag.ends_with('/') {
+        return Err(fail("exact tag has unsafe path shape"));
+    }
+    Ok(())
+}
+
+fn validate_source_revision(revision: &str) -> Result<(), CiError> {
+    if revision.len() != 40
+        || !revision
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(fail("source revision must be 40 lowercase hex characters"));
+    }
+    Ok(())
+}
+
+/// Resolve one invocation's exact release identity from static configuration.
+///
+/// Validates the exact existing tag selected by the workflow event/input,
+/// consumes the checked-out HEAD revision, resolves PackConfig against
+/// DistributionContract through `PackConfig::resolve`, and uses the exact
+/// tag as the opaque `release_id` (no product-specific transformation).
+/// Returns the invocation-local ReleasePlan; the caller additionally
+/// resolves the static GitHub draft template for the same tag.
+pub fn resolve_runtime_release_plan(
+    contract: &DistributionContract,
+    pack_config: &PackConfig,
+    selected: &[String],
+    tag: &str,
+    source_revision: &str,
+) -> Result<ReleasePlan, CiError> {
+    validate_exact_tag(tag)?;
+    validate_source_revision(source_revision)?;
+    if selected.is_empty() || selected.len() > 256 {
+        return Err(fail("selected target count out of bounds"));
+    }
+    for alias in selected {
+        if !safe_metadata(alias, 128) {
+            return Err(fail("selected target alias out of bounds"));
+        }
+    }
+    if pack_config.schema_version != 1 {
+        return Err(fail("unsupported PackConfig version"));
+    }
+    let plan = pack_config
+        .resolve(contract, tag, source_revision, selected)
+        .map_err(|_| fail("PackConfig does not resolve for the exact tag and source"))?;
+    if plan.release_id != tag || plan.source_revision != source_revision {
+        return Err(fail(
+            "resolved ReleasePlan differs from the exact tag and source",
+        ));
+    }
+    Ok(plan)
+}
+
+fn run_validator_process(
+    request: &ConsumerValidationRequest<'_>,
+    exe: &str,
+    path_value: &str,
+) -> ConsumerValidationOutcome {
+    use std::sync::atomic::Ordering;
+    let mut command = validator_command(
+        exe,
+        path_value,
+        request,
+        Some(request.script_path),
+        Some(request.candidate_path),
+    );
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => {
+            return ConsumerValidationOutcome::Failed(
+                ConsumerValidationFailure::InterpreterUnavailable,
+            );
+        }
+    };
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_limit = request.validator.stdout_limit;
+    let stderr_limit = request.validator.stderr_limit;
+    let mut stdout_handle = Some(std::thread::spawn(move || {
+        read_limited(stdout, stdout_limit)
+    }));
+    let mut stderr_handle = Some(std::thread::spawn(move || {
+        read_limited_stderr(stderr, stderr_limit)
+    }));
+    // Prompt output-limit detection: a finished reader thread means its
+    // stream hit EOF or the bound. Join finished readers without blocking;
+    // an over-limit reader fails the run immediately.
+    let deadline = std::time::Instant::now() + Duration::from_millis(request.validator.timeout_ms);
+    let status = loop {
+        if request
+            .cancelled
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled);
+        }
+        if take_finished_over(&mut stdout_handle) || take_finished_over(&mut stderr_handle) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit);
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let mut over = false;
+    if let Some(handle) = stdout_handle.take() {
+        over |= handle.join().unwrap_or_default().1;
+    }
+    if let Some(handle) = stderr_handle.take() {
+        over |= handle.join().unwrap_or_default().1;
+    }
+    if over {
+        return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit);
+    }
+    match status {
+        Some(status) if status.success() => ConsumerValidationOutcome::Passed,
+        _ => ConsumerValidationOutcome::Failed(ConsumerValidationFailure::NonZeroExit),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use eggpack_core::{
         CompatibilityFloor, HostArch, HostOs, PackConfig, TargetPolicy, ToolchainRequirement,
     };
+    use std::path::PathBuf;
 
     fn contract() -> DistributionContract {
         DistributionContract::parse_toml_str(include_str!(
@@ -3112,6 +4686,10 @@ mod tests {
             build_bindings: "bindings/build.toml".into(),
             qualification_bindings: "bindings/qualification.toml".into(),
             ci_plan: "plans/release-ci-plan.json".into(),
+            pack_config: None,
+            draft_template: None,
+            installer_presentation: None,
+            consumer_validators: None,
         });
         base
     }
@@ -3713,6 +5291,10 @@ mod tests {
             build_bindings: "bindings/build.toml".into(),
             qualification_bindings: "bindings/qualification.toml".into(),
             ci_plan: "plans/release-ci-plan.json".into(),
+            pack_config: None,
+            draft_template: None,
+            installer_presentation: None,
+            consumer_validators: None,
         };
         assert!(valid.validate().is_ok());
         for bad in [
@@ -3881,6 +5463,10 @@ mod tests {
                 build_bindings: "bindings/build.toml".into(),
                 qualification_bindings: "bindings/qualification.toml".into(),
                 ci_plan: "plans/release-ci-plan.json".into(),
+                pack_config: None,
+                draft_template: None,
+                installer_presentation: None,
+                consumer_validators: None,
             }),
             emulated_sysroots: None,
             staging: None,
@@ -4555,6 +6141,7 @@ mod tests {
                 contract: "contracts/release.toml".into(),
                 install_policy: "policies/install.toml".into(),
                 github_policy: "policies/github-draft.json".into(),
+                installer_presentation: None,
             },
             receipt_retention_days: 7,
         });
@@ -4616,6 +6203,8 @@ mod tests {
             install_policy: "policies/install.toml".into(),
             output_dir: "./eggpack-staging".into(),
             output_payload: "./eggpack-staging-payload.json".into(),
+            installer_presentation: None,
+            source_root: None,
         };
         let argv = prepare.argv();
         assert_eq!(&argv[0..3], &["eggpack", "ci", "_prepare-stage"]);
@@ -5436,5 +7025,1085 @@ mod tests {
             assert!(!rerun.created);
             std::fs::remove_dir_all(parent).unwrap();
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // M003d — consumer release composition seam.
+    // -----------------------------------------------------------------------
+
+    fn m003d_validator(selector: LogicalOutputSelector) -> ConsumerValidatorV1 {
+        ConsumerValidatorV1 {
+            schema_version: 1,
+            selector,
+            interpreter: ValidatorInterpreterV1::Python3,
+            script: "scripts/smoke-mcp-binary.py".into(),
+            timeout_ms: 20_000,
+            stdout_limit: 65_536,
+            stderr_limit: 65_536,
+        }
+    }
+
+    #[test]
+    fn m003d_validator_config_validation() {
+        let valid = m003d_validator(LogicalOutputSelector::Direct);
+        assert!(valid.validate().is_ok());
+        assert_eq!(
+            ConsumerValidatorV1::from_json(&valid.to_json().unwrap()).unwrap(),
+            valid
+        );
+        let mut bad = valid.clone();
+        bad.schema_version = 2;
+        assert!(bad.validate().is_err());
+        let mut bad = valid.clone();
+        bad.script = "../escape.py".into();
+        assert!(bad.validate().is_err());
+        let mut bad = valid.clone();
+        bad.script = "/abs.py".into();
+        assert!(bad.validate().is_err());
+        let mut bad = valid.clone();
+        bad.timeout_ms = 999;
+        assert!(bad.validate().is_err());
+        let mut bad = valid.clone();
+        bad.timeout_ms = 600_001;
+        assert!(bad.validate().is_err());
+        let mut bad = valid.clone();
+        bad.stdout_limit = 0;
+        assert!(bad.validate().is_err());
+        let mut bad = valid.clone();
+        bad.stderr_limit = 8_000_001;
+        assert!(bad.validate().is_err());
+        // Unknown fields (e.g. arbitrary env/shell maps) reject.
+        assert!(ConsumerValidatorV1::from_json(
+            r#"{"schema_version":1,"selector":"direct","interpreter":"python3","script":"s.py","timeout_ms":1000,"stdout_limit":1024,"stderr_limit":1024,"env":{"A":"b"}}"#
+        )
+        .is_err());
+        assert!(ConsumerValidatorV1::from_json(
+            r#"{"schema_version":1,"selector":"direct","interpreter":"python3","script":"s.py","timeout_ms":1000,"stdout_limit":1024,"stderr_limit":1024,"shell":true}"#
+        )
+        .is_err());
+        // Evidence carries no output contents by construction.
+        let evidence = ConsumerValidationEvidenceV1 {
+            schema_version: 1,
+            release_id: "r".into(),
+            source_revision: "a".repeat(40),
+            target: "x86_64-unknown-linux-gnu".into(),
+            selector: LogicalOutputSelector::Direct,
+            interpreter: ValidatorInterpreterV1::Python3,
+            outcome: ConsumerValidationOutcome::Passed,
+            candidate_size: 4,
+            candidate_sha256: "0".repeat(64),
+        };
+        let json = evidence.to_json().unwrap();
+        assert!(!json.contains("stdout"));
+        assert!(!json.contains("stderr"));
+        assert!(!json.contains("output"));
+        assert_eq!(
+            ConsumerValidationEvidenceV1::from_json(&json).unwrap(),
+            evidence
+        );
+    }
+
+    fn m003d_write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    fn m003d_candidate(dir: &Path, name: &str, bytes: &[u8]) -> (PathBuf, u64, String) {
+        use sha2::Digest;
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        let sha: String = sha2::Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        (path, bytes.len() as u64, sha)
+    }
+
+    const M003D_SOURCE: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn m003d_request<'a>(
+        validator: &'a ConsumerValidatorV1,
+        script: &'a Path,
+        candidate: &'a Path,
+        size: u64,
+        sha: &'a str,
+        work: &'a Path,
+        path_dirs: Option<&'a [PathBuf]>,
+    ) -> ConsumerValidationRequest<'a> {
+        ConsumerValidationRequest {
+            validator,
+            script_path: script,
+            candidate_path: candidate,
+            expected_size: size,
+            expected_sha256: sha,
+            work_dir: work,
+            release_id: "v9.9.9",
+            source_revision: M003D_SOURCE,
+            target: "x86_64-unknown-linux-gnu",
+            cancelled: None,
+            path_dirs,
+        }
+    }
+
+    #[test]
+    fn m003d_consumer_execution_matrix() {
+        let parent = eggpack_core_test_temp("m003d-consumer");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let validator = m003d_validator(LogicalOutputSelector::Direct);
+        // Success: script receives exactly (script, candidate) and exits 0.
+        let script = m003d_write_script(
+            &parent,
+            "ok.py",
+            "import sys\nassert len(sys.argv) == 2\nopen(sys.argv[1], 'rb').read()\n",
+        );
+        let (candidate, size, sha) = m003d_candidate(&parent, "candidate", b"exact-bytes");
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(evidence.outcome, ConsumerValidationOutcome::Passed);
+        assert_eq!(evidence.candidate_size, size);
+        assert_eq!(evidence.candidate_sha256, sha);
+        assert_eq!(evidence.selector, LogicalOutputSelector::Direct);
+        // Non-zero exit fails.
+        let script = m003d_write_script(&parent, "fail.py", "import sys\nsys.exit(3)\n");
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::NonZeroExit)
+        );
+        // Timeout fails (script sleeps past a short bound).
+        let mut short = validator.clone();
+        short.timeout_ms = 1_000;
+        let script = m003d_write_script(&parent, "slow.py", "import time\ntime.sleep(30)\n");
+        let evidence = run_consumer_validator(&m003d_request(
+            &short, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout)
+        );
+        // Output limit fails (script floods stdout, then would exit 0).
+        let mut limited = validator.clone();
+        limited.stdout_limit = 1024;
+        let script = m003d_write_script(
+            &parent,
+            "flood.py",
+            "import sys\nsys.stdout.write('x' * 100000)\n",
+        );
+        let evidence = run_consumer_validator(&m003d_request(
+            &limited, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit)
+        );
+        // Missing interpreter fails rather than skipping (hermetic PATH).
+        let script = m003d_write_script(&parent, "ok2.py", "pass\n");
+        let empty: Vec<PathBuf> = Vec::new();
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator,
+            &script,
+            &candidate,
+            size,
+            &sha,
+            &work,
+            Some(&empty),
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::InterpreterUnavailable)
+        );
+        // Wrong candidate identity fails (size and digest mismatch).
+        let (other, other_size, other_sha) = m003d_candidate(&parent, "other", b"other-bytes");
+        assert_ne!(other_sha, sha);
+        let script = m003d_write_script(&parent, "ok3.py", "pass\n");
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &other, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::CandidateMismatch)
+        );
+        let _ = other_size;
+        // Symlink script rejects as unavailable (no PATH-selected script).
+        #[cfg(unix)]
+        {
+            let link = parent.join("link.py");
+            std::os::unix::fs::symlink(&script, &link).unwrap();
+            let evidence = run_consumer_validator(&m003d_request(
+                &validator, &link, &candidate, size, &sha, &work, None,
+            ))
+            .unwrap();
+            assert_eq!(
+                evidence.outcome,
+                ConsumerValidationOutcome::Failed(ConsumerValidationFailure::ScriptUnavailable)
+            );
+            // Symlink candidate mismatches identity.
+            let candidate_link = parent.join("candidate-link");
+            std::os::unix::fs::symlink(&candidate, &candidate_link).unwrap();
+            let evidence = run_consumer_validator(&m003d_request(
+                &validator,
+                &script,
+                &candidate_link,
+                size,
+                &sha,
+                &work,
+                None,
+            ))
+            .unwrap();
+            assert_eq!(
+                evidence.outcome,
+                ConsumerValidationOutcome::Failed(ConsumerValidationFailure::CandidateMismatch)
+            );
+        }
+        // Cancellation fails closed.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+        let flag = Arc::new(AtomicBool::new(false));
+        let script_hang = m003d_write_script(&parent, "hang.py", "import time\ntime.sleep(30)\n");
+        let slow_validator = ConsumerValidatorV1 {
+            timeout_ms: 60_000,
+            ..validator.clone()
+        };
+        let worker = {
+            let flag_child = flag.clone();
+            let slow2 = slow_validator.clone();
+            let script2 = script_hang.clone();
+            let candidate2 = candidate.clone();
+            let work2 = work.clone();
+            let sha2 = sha.clone();
+            let release2 = "v9.9.9".to_owned();
+            let source2 = "a".repeat(40);
+            let target2 = "x86_64-unknown-linux-gnu".to_owned();
+            std::thread::spawn(move || {
+                let request = ConsumerValidationRequest {
+                    validator: &slow2,
+                    script_path: &script2,
+                    candidate_path: &candidate2,
+                    expected_size: size,
+                    expected_sha256: &sha2,
+                    work_dir: &work2,
+                    release_id: &release2,
+                    source_revision: &source2,
+                    target: &target2,
+                    cancelled: Some(&flag_child),
+                    path_dirs: None,
+                };
+                run_consumer_validator(&request).unwrap()
+            })
+        };
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        flag.store(true, Ordering::SeqCst);
+        let evidence = worker.join().unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled)
+        );
+        // Caller misuse returns CiError, not failure evidence.
+        let bad_request = ConsumerValidationRequest {
+            validator: &validator,
+            script_path: Path::new("relative/script.py"),
+            candidate_path: &candidate,
+            expected_size: size,
+            expected_sha256: &sha,
+            work_dir: &work,
+            release_id: "v9.9.9",
+            source_revision: &"a".repeat(40),
+            target: "x86_64-unknown-linux-gnu",
+            cancelled: None,
+            path_dirs: None,
+        };
+        assert!(run_consumer_validator(&bad_request).is_err());
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003d_python_mapping_and_hermetic_lookup() {
+        // Finite host mapping: python3 on Linux/macOS, python on Windows.
+        assert_eq!(python_interpreter_exe_for_windows(false), "python3");
+        assert_eq!(python_interpreter_exe_for_windows(true), "python");
+        assert_eq!(
+            python_interpreter_exe(),
+            python_interpreter_exe_for_windows(cfg!(windows))
+        );
+        // Hermetic PATH lookup: a fixture dir providing the platform
+        // interpreter proves fixed argv (script, candidate) without
+        // depending on ambient tooling beyond the fake.
+        let parent = eggpack_core_test_temp("m003d-python-path");
+        let bin = parent.join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let marker = parent.join("argv-marker.txt");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            // Fake interpreter: answers the version preflight with
+            // Python 3 and records its fixed argv for the real run.
+            let fake = format!(
+                "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo \"Python 3.99.0\"; exit 0; fi\necho \"$1\" > \"{}\"\necho \"$2\" >> \"{}\"\nexit 0\n",
+                marker.display(),
+                marker.display()
+            );
+            let exe = bin.join(python_interpreter_exe());
+            std::fs::write(&exe, fake).unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        #[cfg(windows)]
+        {
+            let fake = format!(
+                "@echo off\r\nif \"%~1\"==\"--version\" (echo Python 3.99.0) else (echo %1> \"{m}\" & echo %2>> \"{m}\")\r\nexit /b 0\r\n",
+                m = marker.display()
+            );
+            std::fs::write(bin.join("python.cmd"), fake).unwrap();
+        }
+        let validator = m003d_validator(LogicalOutputSelector::Direct);
+        let script = m003d_write_script(&parent, "v.py", "pass\n");
+        let (candidate, size, sha) = m003d_candidate(&parent, "candidate", b"bytes");
+        let dirs = [bin];
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator,
+            &script,
+            &candidate,
+            size,
+            &sha,
+            &work,
+            Some(&dirs),
+        ))
+        .unwrap();
+        #[cfg(unix)]
+        {
+            assert_eq!(evidence.outcome, ConsumerValidationOutcome::Passed);
+            let recorded = std::fs::read_to_string(&marker).unwrap();
+            let mut lines = recorded.lines();
+            assert_eq!(lines.next().unwrap(), script.to_string_lossy().as_ref());
+            assert_eq!(lines.next().unwrap(), candidate.to_string_lossy().as_ref());
+        }
+        #[cfg(windows)]
+        {
+            // Windows lookup resolves `python` via PATHEXT/cmd shim search;
+            // the hermetic dir may not provide it, so only the mapping name
+            // is asserted above on this host.
+            let _ = evidence;
+        }
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    fn m003d_graph_with_consumer(
+        support: SupportTier,
+    ) -> (
+        DistributionContract,
+        ReleasePlan,
+        BuildBindingsV1,
+        QualificationBindingsV1,
+        ReleaseCIPlanV1,
+    ) {
+        let (contract, release, bindings, qual_bindings) = m002_release(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            "linux-x64",
+            Qualification::Structural,
+            support,
+        );
+        let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+        let mut validators = BTreeMap::new();
+        validators.insert(
+            "x86_64-unknown-linux-gnu".to_owned(),
+            m003d_validator(LogicalOutputSelector::Direct),
+        );
+        let graph = project_release_plan_with_consumer(
+            &ci_plan,
+            &qual_bindings,
+            &bindings,
+            &release,
+            validators,
+        )
+        .unwrap();
+        (contract, release, bindings, qual_bindings, graph)
+    }
+
+    fn m003d_consumer_evidence(
+        release: &ReleasePlan,
+        outcome: ConsumerValidationOutcome,
+    ) -> ConsumerValidationEvidenceV1 {
+        ConsumerValidationEvidenceV1 {
+            schema_version: 1,
+            release_id: release.release_id.clone(),
+            source_revision: release.source_revision.clone(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            selector: LogicalOutputSelector::Direct,
+            interpreter: ValidatorInterpreterV1::Python3,
+            outcome,
+            candidate_size: 4,
+            candidate_sha256: "0".repeat(64),
+        }
+    }
+
+    #[test]
+    fn m003d_consumer_gate_matrix() {
+        let (_, release, _, _, graph) = m003d_graph_with_consumer(SupportTier::Required);
+        let target = "x86_64-unknown-linux-gnu";
+        let passed_core = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Passed,
+        );
+        let core = [passed_core];
+        // Consumer pass gates through.
+        let consumer_pass = m003d_consumer_evidence(&release, ConsumerValidationOutcome::Passed);
+        assert_eq!(
+            evaluate_gate_with_consumer(&graph, &core, &[consumer_pass]).unwrap(),
+            AggregateOutcome::Complete
+        );
+        // Required consumer failure blocks aggregation.
+        let consumer_fail = m003d_consumer_evidence(
+            &release,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::NonZeroExit),
+        );
+        assert_eq!(
+            evaluate_gate_with_consumer(&graph, &core, std::slice::from_ref(&consumer_fail))
+                .unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        // Missing consumer evidence for a required validator blocks.
+        assert_eq!(
+            evaluate_gate_with_consumer(&graph, &core, &[]).unwrap(),
+            AggregateOutcome::FailedRequiredGate
+        );
+        // Identity mismatch (wrong selector) is invalid, never partial.
+        let mut swapped = m003d_consumer_evidence(&release, ConsumerValidationOutcome::Passed);
+        swapped.selector = LogicalOutputSelector::BundleEntry { index: 0 };
+        assert_eq!(
+            evaluate_gate_with_consumer(&graph, &core, &[swapped]).unwrap(),
+            AggregateOutcome::InvalidEvidence
+        );
+        let mut wrong_release =
+            m003d_consumer_evidence(&release, ConsumerValidationOutcome::Passed);
+        wrong_release.release_id = "other".into();
+        assert_eq!(
+            evaluate_gate_with_consumer(&graph, &core, &[wrong_release]).unwrap(),
+            AggregateOutcome::InvalidEvidence
+        );
+        // Optional validator failure suppresses rather than producing output.
+        let (_, optional_release, _, _, optional_graph) =
+            m003d_graph_with_consumer(SupportTier::NonGating);
+        let optional_core = m002_evidence(
+            target,
+            &optional_release.release_id,
+            &optional_release.source_revision,
+            Qualification::Structural,
+            SupportTier::NonGating,
+            QualificationStatus::Failed(eggpack_core::QualificationFailure::SmokeFailed),
+        );
+        // Core optional failure alone already suppresses.
+        let failed_optional = [optional_core];
+        assert_eq!(
+            evaluate_gate_with_consumer(
+                &optional_graph,
+                &failed_optional,
+                &[m003d_consumer_evidence(
+                    &optional_release,
+                    ConsumerValidationOutcome::Passed
+                )]
+            )
+            .unwrap(),
+            AggregateOutcome::SuppressedNonGatingIncomplete
+        );
+        // Optional core pass + optional consumer failure suppresses.
+        let optional_pass = m002_evidence(
+            target,
+            &optional_release.release_id,
+            &optional_release.source_revision,
+            Qualification::Structural,
+            SupportTier::NonGating,
+            QualificationStatus::Passed,
+        );
+        let optional_consumer_fail = m003d_consumer_evidence(
+            &optional_release,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout),
+        );
+        assert_eq!(
+            evaluate_gate_with_consumer(
+                &optional_graph,
+                &[optional_pass],
+                &[optional_consumer_fail]
+            )
+            .unwrap(),
+            AggregateOutcome::SuppressedNonGatingIncomplete
+        );
+        // Consumer evidence for a target without a validator is invalid.
+        let (_, _, _, _, _, plain_graph) =
+            m002_graph(Qualification::Structural, SupportTier::Required);
+        let plain_core = m002_evidence(
+            target,
+            &release.release_id,
+            &release.source_revision,
+            Qualification::Structural,
+            SupportTier::Required,
+            QualificationStatus::Passed,
+        );
+        assert_eq!(
+            evaluate_gate_with_consumer(
+                &plain_graph,
+                &[plain_core],
+                &[m003d_consumer_evidence(
+                    &release,
+                    ConsumerValidationOutcome::Passed
+                )]
+            )
+            .unwrap(),
+            AggregateOutcome::InvalidEvidence
+        );
+        // Durable evidence contains no script output contents.
+        let json = consumer_fail.to_json().unwrap();
+        assert!(!json.contains("stdout"));
+        assert!(!json.contains("stderr"));
+    }
+    #[test]
+    fn m003d_consumer_attach_rejects_mismatch() {
+        let (contract, release, bindings, qual_bindings) = m002_release(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            "linux-x64",
+            Qualification::Structural,
+            SupportTier::Required,
+        );
+        let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+        // Unknown target rejects.
+        let mut validators = BTreeMap::new();
+        validators.insert(
+            "aarch64-unknown-linux-gnu".to_owned(),
+            m003d_validator(LogicalOutputSelector::Direct),
+        );
+        assert!(project_release_plan_with_consumer(
+            &ci_plan,
+            &qual_bindings,
+            &bindings,
+            &release,
+            validators
+        )
+        .is_err());
+        // Selector outside the target bindings rejects.
+        let mut validators = BTreeMap::new();
+        validators.insert(
+            "x86_64-unknown-linux-gnu".to_owned(),
+            m003d_validator(LogicalOutputSelector::BundleEntry { index: 0 }),
+        );
+        assert!(project_release_plan_with_consumer(
+            &ci_plan,
+            &qual_bindings,
+            &bindings,
+            &release,
+            validators
+        )
+        .is_err());
+        // Validator map path is required for rendering.
+        let (_, _, _, _, graph) = m003d_graph_with_consumer(SupportTier::Required);
+        let mut policy = m002_golden_policy();
+        assert!(render_release_github(&graph, &policy).is_err());
+        policy.release_inputs.as_mut().unwrap().consumer_validators =
+            Some("validators/consumer.json".into());
+        assert!(render_release_github(&graph, &policy).is_ok());
+    }
+
+    #[test]
+    fn m003d_stage_presentation_flags_are_explicit() {
+        // Without a presentation path the stage job carries no wrapper
+        // flags (M003c byte-compatible); with one, both paired flags render
+        // and product scripts are only ever copied as bytes (never executed).
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        let plain = render_release_github(&graph, &policy).unwrap();
+        assert!(!plain.contains("--installer-presentation"));
+        assert!(!plain.contains("--source-root"));
+        let mut presented = policy.clone();
+        presented
+            .staging
+            .as_mut()
+            .unwrap()
+            .inputs
+            .installer_presentation = Some("policies/installer-presentation.toml".into());
+        let yaml = render_release_github(&graph, &presented).unwrap();
+        assert!(yaml.contains("--installer-presentation"));
+        assert!(yaml.contains("policies/installer-presentation.toml"));
+        assert!(yaml.contains("--source-root"));
+        // The wrapper file itself is never named or executed in the
+        // workflow; only the presentation policy path is referenced.
+        assert!(!yaml.contains("packaging/install.sh"));
+        assert!(!yaml.contains("install-exact.sh"));
+    }
+
+    #[test]
+    fn m003d_consumer_render_gates_and_detects_drift() {
+        let (_, _, _, _, graph) = m003d_graph_with_consumer(SupportTier::Required);
+        let mut policy = m002_golden_policy();
+        policy.release_inputs.as_mut().unwrap().consumer_validators =
+            Some("validators/consumer.json".into());
+        let yaml = render_release_github(&graph, &policy).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+        // Consumer validation job runs after core qualification.
+        let validate_job = jobs.get("validate_build_x86_64_unknown_linux_gnu").unwrap();
+        assert_eq!(
+            validate_job.get("needs").unwrap().as_str().unwrap(),
+            "qualify_build_x86_64_unknown_linux_gnu"
+        );
+        // Gate waits for the validator, not just core qualification.
+        let gate = jobs.get("required_gate").unwrap();
+        let needs = gate.get("needs").unwrap().as_sequence().unwrap();
+        let needs: Vec<&str> = needs.iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(needs, vec!["validate_build_x86_64_unknown_linux_gnu"]);
+        // Validator receives exact handoff bytes; stage stays the writer.
+        let text = serde_yaml::to_string(&serde_yaml::Value::Mapping(jobs.clone())).unwrap();
+        assert!(text.contains("_validate-consumer"));
+        assert!(text.contains("--consumer-validators"));
+        assert!(text.contains("--source-root"));
+        assert!(text.contains("eggpack-consumer-evidence-x86_64-unknown-linux-gnu"));
+        let mut writers = Vec::new();
+        for (name, job) in jobs {
+            let name = name.as_str().unwrap();
+            let contents = job
+                .get("permissions")
+                .unwrap()
+                .get("contents")
+                .unwrap()
+                .as_str()
+                .unwrap();
+            if contents == "write" {
+                writers.push(name.to_owned());
+            }
+            assert_ne!(
+                job.get("permissions")
+                    .unwrap()
+                    .get("id-token")
+                    .map(|v| v.as_str().unwrap_or("")),
+                Some("write"),
+                "job {name}"
+            );
+        }
+        assert!(
+            writers.is_empty(),
+            "exact consumer graph has no writer without staging"
+        );
+        // Drift: validator removal/reorder is detected.
+        let (_, _, _, _, _, plain) = m002_graph(Qualification::Structural, SupportTier::Required);
+        assert!(!check_release_github(&plain, &policy, yaml.as_bytes())
+            .map(|report| report.matches)
+            .unwrap_or(true));
+        let yaml_plain = render_release_github(&plain, &policy).unwrap();
+        assert_ne!(yaml, yaml_plain);
+        assert!(
+            check_release_github(&graph, &policy, yaml.as_bytes())
+                .unwrap()
+                .matches
+        );
+        // No validator jobs leak into extension-disabled rendering.
+        assert!(!yaml_plain.contains("_validate-consumer"));
+        assert!(!yaml_plain.contains("validate_build_"));
+    }
+
+    #[test]
+    fn m003d_runner_commands_cover_consumer_and_resolve() {
+        let validate = RunnerCommand::ValidateConsumer {
+            consumer_validators: "validators/consumer.json".into(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: "./eggpack-handoff/build_x/candidates".into(),
+            build_handoff: "./eggpack-handoff/build_x/build-handoff.json".into(),
+            evidence: "./eggpack-handoff/build_x/evidence.json".into(),
+            source_root: "${{ github.workspace }}".into(),
+            output: "./eggpack-consumer/build_x/consumer-evidence.json".into(),
+        };
+        let shell = validate.to_shell();
+        for required in [
+            "_validate-consumer",
+            "--consumer-validators",
+            "--target",
+            "--candidate-dir",
+            "--build-handoff",
+            "--evidence",
+            "--source-root",
+            "--output",
+        ] {
+            assert!(
+                shell.contains(required),
+                "validate shell missing {required}"
+            );
+        }
+        assert!(!shell.contains("publish"));
+        let resolve = RunnerCommand::ResolveRelease {
+            contract: "contracts/release.toml".into(),
+            pack_config: "configs/pack.toml".into(),
+            build_bindings: "bindings/build.toml".into(),
+            qualification_bindings: "bindings/qualification.toml".into(),
+            consumer_validators: Some("validators/consumer.json".into()),
+            selected: "linux-x64".into(),
+            tag: "v1.2.3".into(),
+            source_revision: "a".repeat(40),
+            template: "policies/github-template.json".into(),
+            source_root: "${{ github.workspace }}".into(),
+            output_plan: "./eggpack-runtime/release-plan.json".into(),
+            output_ci_plan: "./eggpack-runtime/release-ci-plan.json".into(),
+            output_github_policy: "./eggpack-runtime/github-draft.json".into(),
+        };
+        let argv = resolve.argv();
+        assert_eq!(&argv[0..3], &["eggpack", "ci", "_resolve-release"]);
+        for required in [
+            "--contract",
+            "--pack-config",
+            "--build-bindings",
+            "--qualification-bindings",
+            "--consumer-validators",
+            "--selected",
+            "--tag",
+            "--source-revision",
+            "--template",
+            "--source-root",
+            "--output-plan",
+            "--output-ci-plan",
+            "--output-github-policy",
+        ] {
+            assert!(argv.contains(&required.to_string()), "missing {required}");
+        }
+        assert!(!resolve.to_shell().contains("publish"));
+        // Omitted validator map omits the flag pair (exact position stable).
+        let bare = RunnerCommand::ResolveRelease {
+            contract: "contracts/release.toml".into(),
+            pack_config: "configs/pack.toml".into(),
+            build_bindings: "bindings/build.toml".into(),
+            qualification_bindings: "bindings/qualification.toml".into(),
+            consumer_validators: None,
+            selected: "linux-x64".into(),
+            tag: "v1.2.3".into(),
+            source_revision: "a".repeat(40),
+            template: "policies/github-template.json".into(),
+            source_root: "${{ github.workspace }}".into(),
+            output_plan: "./eggpack-runtime/release-plan.json".into(),
+            output_ci_plan: "./eggpack-runtime/release-ci-plan.json".into(),
+            output_github_policy: "./eggpack-runtime/github-draft.json".into(),
+        };
+        assert!(!bare.argv().contains(&"--consumer-validators".to_string()));
+    }
+
+    fn m003d_shape_and_policy(
+        tag_source: StagingTagSource,
+    ) -> (DistributionContract, ReleaseWorkflowShapeV1, GitHubPolicy) {
+        let (contract, release, bindings, qual_bindings) = m002_release(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            "linux-x64",
+            Qualification::Structural,
+            SupportTier::Required,
+        );
+        let mut validators = BTreeMap::new();
+        validators.insert(
+            "x86_64-unknown-linux-gnu".to_owned(),
+            m003d_validator(LogicalOutputSelector::Direct),
+        );
+        let shape = ReleaseWorkflowShapeV1 {
+            schema_version: 1,
+            targets: release.targets.iter().map(|t| t.policy.clone()).collect(),
+            selected_aliases: vec!["linux-x64".into()],
+            build_bindings: bindings,
+            qualification_bindings: qual_bindings,
+            consumer_validators: validators,
+            staging: Some(ShapeStagingIntentV1 {
+                provider: StagingProvider::GitHubDraft,
+                tag_source,
+                required: true,
+            }),
+        };
+        let mut policy = m002_golden_policy();
+        let inputs = policy.release_inputs.as_mut().unwrap();
+        inputs.pack_config = Some("configs/pack.toml".into());
+        inputs.draft_template = Some("policies/github-template.json".into());
+        inputs.consumer_validators = Some("validators/consumer.json".into());
+        policy.staging = Some(GitHubStagingPolicyV1 {
+            runner: "ubuntu-latest".into(),
+            owner: "acme".into(),
+            repository: "widget".into(),
+            tag_source,
+            inputs: GitHubStagingInputsV1 {
+                contract: "contracts/release.toml".into(),
+                install_policy: "policies/install.toml".into(),
+                github_policy: "policies/github-draft.json".into(),
+                installer_presentation: None,
+            },
+            receipt_retention_days: 7,
+        });
+        (contract, shape, policy)
+    }
+
+    #[test]
+    fn m003d_shape_validation() {
+        let (_, shape, _) = m003d_shape_and_policy(StagingTagSource::RefName);
+        assert!(shape.validate().is_ok());
+        assert_eq!(
+            ReleaseWorkflowShapeV1::from_json(&shape.to_json().unwrap()).unwrap(),
+            shape
+        );
+        // No release identity lives in the shape by construction: unknown
+        // identity fields reject.
+        assert!(ReleaseWorkflowShapeV1::from_json(
+            r#"{"schema_version":1,"targets":[],"selected_aliases":[],"build_bindings":{},"qualification_bindings":{},"release_id":"v1"}"#
+        )
+        .is_err());
+        let mut bad = shape.clone();
+        bad.schema_version = 2;
+        assert!(bad.validate().is_err());
+        let mut bad = shape.clone();
+        bad.targets.reverse();
+        // Single-target shape: reversal is a no-op; duplicate instead.
+        bad.targets.push(bad.targets[0].clone());
+        assert!(bad.validate().is_err());
+        let mut bad = shape.clone();
+        bad.selected_aliases.clear();
+        assert!(bad.validate().is_err());
+        let mut bad = shape.clone();
+        bad.selected_aliases = vec!["".into()];
+        assert!(bad.validate().is_err());
+    }
+
+    #[test]
+    fn m003d_runtime_resolve_matrix() {
+        let (contract, shape, _) = m003d_shape_and_policy(StagingTagSource::RefName);
+        let pack = shape.pack_config();
+        let source = "a".repeat(40);
+        let first = resolve_runtime_release_plan(
+            &contract,
+            &pack,
+            &shape.selected_aliases,
+            "v1.2.4",
+            &source,
+        )
+        .unwrap();
+        assert_eq!(first.release_id, "v1.2.4");
+        assert_eq!(first.source_revision, source);
+        // Distinct future tags resolve distinct plans from identical shape.
+        let second = resolve_runtime_release_plan(
+            &contract,
+            &pack,
+            &shape.selected_aliases,
+            "v1.2.5",
+            &source,
+        )
+        .unwrap();
+        assert_ne!(
+            serde_json::to_string(&first).unwrap(),
+            serde_json::to_string(&second).unwrap()
+        );
+        // Exact tag is used as-is (no product syntax transformation).
+        let tagged = resolve_runtime_release_plan(
+            &contract,
+            &pack,
+            &shape.selected_aliases,
+            "eggsact-v2.0.0",
+            &source,
+        )
+        .unwrap();
+        assert_eq!(tagged.release_id, "eggsact-v2.0.0");
+        // Injection and shape violations reject.
+        for bad_tag in [
+            "",
+            "v1?x",
+            "v 1",
+            "../escape",
+            "/v1",
+            "v1/",
+            "a".repeat(129).as_str(),
+        ] {
+            assert!(
+                resolve_runtime_release_plan(
+                    &contract,
+                    &pack,
+                    &shape.selected_aliases,
+                    bad_tag,
+                    &source
+                )
+                .is_err(),
+                "tag {bad_tag:?} must reject"
+            );
+        }
+        for bad_rev in [
+            "",
+            &"a".repeat(39),
+            &"A".repeat(40),
+            "not-hex-at-all------------------------",
+        ] {
+            assert!(
+                resolve_runtime_release_plan(
+                    &contract,
+                    &pack,
+                    &shape.selected_aliases,
+                    "v1.2.4",
+                    bad_rev
+                )
+                .is_err(),
+                "revision {bad_rev:?} must reject"
+            );
+        }
+        assert!(resolve_runtime_release_plan(&contract, &pack, &[], "v1.2.4", &source).is_err());
+        assert!(resolve_runtime_release_plan(
+            &contract,
+            &pack,
+            &["unknown-alias".to_owned()],
+            "v1.2.4",
+            &source
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn m003d_reusable_render_is_tag_independent() {
+        for tag_source in [StagingTagSource::RefName, StagingTagSource::DispatchInput] {
+            let (contract, shape, policy) = m003d_shape_and_policy(tag_source);
+            let first = render_reusable_release_github(&contract, &shape, &policy).unwrap();
+            // Same static config renders byte-identical workflow bytes
+            // independent of any future tag.
+            assert_eq!(
+                first,
+                render_reusable_release_github(&contract, &shape, &policy).unwrap()
+            );
+            // No release identity is embedded.
+            assert!(!first.contains("0.0.0-m003d-unresolved"));
+            assert!(!first.contains("0000000000000000000000000000000000000000"));
+            assert!(!first.contains("plans/release-plan.json"));
+            assert!(!first.contains("plans/release-ci-plan.json"));
+            assert!(!first.contains("policies/github-draft.json"));
+            // Runtime preflight resolves identity into private storage.
+            assert!(first.contains("resolve:"));
+            assert!(first.contains("_resolve-release"));
+            assert!(first.contains("--pack-config"));
+            assert!(first.contains("--template"));
+            assert!(first.contains("eggpack-runtime-identity"));
+            assert!(first.contains("./eggpack-runtime/release-plan.json"));
+            assert!(first.contains("head_sha=\"$(git rev-parse --verify HEAD^{commit})\""));
+            assert!(first.contains("\"$head_sha\""));
+            // Every source checkout is verified against the runtime plan.
+            assert!(first.contains("_verify-source"));
+            assert_eq!(
+                first.matches("needs: resolve").count(),
+                1,
+                "only the build job waits for resolve"
+            );
+            // Consumer seam is wired after core qualification.
+            assert!(first.contains("validate_build_x86_64_unknown_linux_gnu"));
+            assert!(first.contains("_validate-consumer"));
+            // Tag source controls the event mapping.
+            match tag_source {
+                StagingTagSource::RefName => {
+                    assert!(first.contains("github.ref_type == 'tag'"));
+                    assert!(!first.contains("inputs.release_tag:\n"));
+                }
+                StagingTagSource::DispatchInput => {
+                    assert!(first.contains("inputs.release_tag"));
+                    assert!(first.contains("github.event_name == 'workflow_dispatch'"));
+                }
+            }
+            // Only stage writes; no publication authority.
+            let parsed: serde_yaml::Value = serde_yaml::from_str(&first).unwrap();
+            let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+            let mut writers = Vec::new();
+            for (name, job) in jobs {
+                let contents = job
+                    .get("permissions")
+                    .unwrap()
+                    .get("contents")
+                    .unwrap()
+                    .as_str()
+                    .unwrap();
+                if contents == "write" {
+                    writers.push(name.as_str().unwrap().to_owned());
+                }
+            }
+            assert_eq!(writers, vec!["stage".to_string()]);
+            assert!(!first.contains("id-token: write"));
+            assert!(!first.contains("gh release"));
+            assert!(!first.contains("publish"));
+        }
+        // Tag sources render distinct workflows.
+        let (contract, shape_ref, policy_ref) = m003d_shape_and_policy(StagingTagSource::RefName);
+        let (_, shape_dispatch, policy_dispatch) =
+            m003d_shape_and_policy(StagingTagSource::DispatchInput);
+        assert_ne!(
+            render_reusable_release_github(&contract, &shape_ref, &policy_ref).unwrap(),
+            render_reusable_release_github(&contract, &shape_dispatch, &policy_dispatch).unwrap()
+        );
+    }
+
+    #[test]
+    fn m003d_reusable_check_detects_shape_drift() {
+        let (contract, shape, policy) = m003d_shape_and_policy(StagingTagSource::RefName);
+        let yaml = render_reusable_release_github(&contract, &shape, &policy).unwrap();
+        assert!(
+            check_reusable_release_github(&contract, &shape, &policy, yaml.as_bytes())
+                .unwrap()
+                .matches
+        );
+        // Validator removal is detected.
+        let mut no_validator = shape.clone();
+        no_validator.consumer_validators.clear();
+        assert!(
+            !check_reusable_release_github(&contract, &no_validator, &policy, yaml.as_bytes())
+                .map(|report| report.matches)
+                .unwrap_or(true)
+        );
+        // Staging intent removal is detected.
+        let mut no_staging = shape.clone();
+        no_staging.staging = None;
+        assert!(
+            check_reusable_release_github(&contract, &no_staging, &policy, yaml.as_bytes())
+                .is_err()
+                || !check_reusable_release_github(&contract, &no_staging, &policy, yaml.as_bytes())
+                    .map(|report| report.matches)
+                    .unwrap_or(true)
+        );
+        // Tag source switch is detected.
+        let (_, shape_dispatch, policy_dispatch) =
+            m003d_shape_and_policy(StagingTagSource::DispatchInput);
+        assert!(!check_reusable_release_github(
+            &contract,
+            &shape_dispatch,
+            &policy_dispatch,
+            yaml.as_bytes()
+        )
+        .map(|report| report.matches)
+        .unwrap_or(true));
+        // Missing static paths fail closed at render time.
+        let mut bad_policy = policy.clone();
+        bad_policy.release_inputs.as_mut().unwrap().pack_config = None;
+        assert!(render_reusable_release_github(&contract, &shape, &bad_policy).is_err());
+        let mut bad_policy = policy.clone();
+        bad_policy.release_inputs.as_mut().unwrap().draft_template = None;
+        assert!(render_reusable_release_github(&contract, &shape, &bad_policy).is_err());
+        // Shape/policy tag source skew fails closed.
+        let mut skewed = policy.clone();
+        skewed.staging.as_mut().unwrap().tag_source = StagingTagSource::DispatchInput;
+        assert!(render_reusable_release_github(&contract, &shape, &skewed).is_err());
     }
 }

@@ -154,6 +154,13 @@ impl GitHubDraftPolicyV1 {
 }
 
 /// Semantic kind of one staged file.
+///
+/// M003d compatibility: the payload schema remains v1. `GeneratedDefault`
+/// payloads use exactly the M003a kind set, so existing v1 readers parse
+/// them unchanged. `ProductWrappers` payloads additionally use
+/// `ProductPosixWrapper` / `ProductPowershellWrapper`; v1 readers that do
+/// not know those variants reject such payloads (fail-closed) rather than
+/// silently reinterpreting them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StagingAssetKind {
@@ -167,6 +174,12 @@ pub enum StagingAssetKind {
     PosixInstaller,
     /// Deterministic PowerShell installer.
     PowershellInstaller,
+    /// Consumer-owned POSIX wrapper copied exactly from the verified source
+    /// tree and staged as the public `install.sh` (M003d only).
+    ProductPosixWrapper,
+    /// Consumer-owned PowerShell wrapper copied exactly from the verified
+    /// source tree and staged as the public `install.ps1` (M003d only).
+    ProductPowershellWrapper,
 }
 
 /// One ordered staged file record.
@@ -847,6 +860,712 @@ pub fn prepare_staging_payload(
     staged_entries.push((
         FIXED_POWERSHELL_NAME.to_owned(),
         StagingAssetKind::PowershellInstaller,
+        "text/x-powershell".to_owned(),
+    ));
+    for (name, kind, media) in staged_entries {
+        if !staged_names.insert(name.to_ascii_lowercase()) {
+            cleanup(());
+            return Err(fail("duplicate staging asset name"));
+        }
+        let (size, sha) = digest_file(&output_dir.join(&name)).map_err(|_| {
+            cleanup(());
+            fail("staged file digest failed")
+        })?;
+        assets.push(StagingAsset {
+            name: name.clone(),
+            path: name,
+            size,
+            sha256: sha,
+            media_type: media,
+            kind,
+        });
+    }
+    assets.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let payload = StagingPayloadV1 {
+        schema_version: 1,
+        product_id: manifest.product_id.clone(),
+        release_id: manifest.release_id.clone(),
+        source_revision: manifest.source_revision.clone(),
+        owner: policy.owner.clone(),
+        repository: policy.repository.clone(),
+        tag: policy.tag.clone(),
+        title: policy.title.clone(),
+        prerelease: policy.prerelease,
+        body: policy.body.clone(),
+        assets,
+    };
+    payload.validate().map_err(|_| {
+        cleanup(());
+        fail("staging payload invalid")
+    })?;
+    Ok(payload)
+}
+
+/// Materialize a staging payload with an explicit installer presentation.
+///
+/// `GeneratedDefault` delegates to [`prepare_staging_payload`] with
+/// byte-identical behavior.
+#[allow(clippy::too_many_arguments)]
+pub fn prepare_staging_payload_with_presentation(
+    contract: &DistributionContract,
+    manifest: &ReleaseManifest,
+    finalized_root: &Path,
+    policy: &GitHubDraftPolicyV1,
+    install_policy: &BootstrapInstallPolicyV1,
+    presentation: &InstallerPresentationV1,
+    source_root: &Path,
+    output_dir: &Path,
+) -> Result<StagingPayloadV1, GithubError> {
+    presentation.validate()?;
+    match &presentation.mode {
+        InstallerPresentationModeV1::GeneratedDefault => prepare_staging_payload(
+            contract,
+            manifest,
+            finalized_root,
+            policy,
+            install_policy,
+            output_dir,
+        ),
+        InstallerPresentationModeV1::ProductWrappers(_) => {
+            prepare_staging_payload_with_presentation_inner(
+                contract,
+                manifest,
+                finalized_root,
+                policy,
+                install_policy,
+                presentation,
+                Some(source_root),
+                output_dir,
+            )
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// M003d — installer presentation policy and static draft template.
+// ---------------------------------------------------------------------------
+
+/// Maximum product wrapper source bytes (1 MiB per wrapper, M003d section 6).
+pub const MAX_WRAPPER_BYTES: u64 = 1024 * 1024;
+const MAX_PRESENTATION_JSON: usize = 64 * 1024;
+const MAX_TEMPLATE_JSON: usize = 64 * 1024;
+const MAX_TITLE_PREFIX: usize = 128;
+
+/// Strict versioned staging installer policy owned by the staging layer.
+///
+/// - `GeneratedDefault` preserves M003a behavior byte-for-byte: generated
+///   exact-release installers are staged as the public `install.sh` /
+///   `install.ps1`.
+/// - `ProductWrappers` stages four installer assets: consumer-owned wrapper
+///   bytes copied exactly as the public `install.sh` / `install.ps1`, plus
+///   Eggpack-generated exact installers under configured non-colliding
+///   names (eggsact: `install-exact.sh` / `install-exact.ps1`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstallerPresentationV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// Presentation mode.
+    pub mode: InstallerPresentationModeV1,
+}
+
+/// Installer presentation mode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum InstallerPresentationModeV1 {
+    /// Generated exact installers are the public install surface.
+    GeneratedDefault,
+    /// Product-owned wrappers are the public install surface.
+    ProductWrappers(ProductWrapperSourcesV1),
+}
+
+/// Product wrapper source configuration (M003d section 6).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductWrapperSourcesV1 {
+    /// Repository-relative POSIX wrapper source (staged as `install.sh`).
+    pub posix_source: String,
+    /// Repository-relative PowerShell wrapper source (staged as `install.ps1`).
+    pub powershell_source: String,
+    /// Staged asset name for the generated exact POSIX installer.
+    pub generated_posix_name: String,
+    /// Staged asset name for the generated exact PowerShell installer.
+    pub generated_powershell_name: String,
+}
+
+impl InstallerPresentationV1 {
+    /// Generated-default presentation (M003a behavior).
+    pub fn generated_default() -> Self {
+        Self {
+            schema_version: 1,
+            mode: InstallerPresentationModeV1::GeneratedDefault,
+        }
+    }
+
+    /// Parse a strict bounded JSON presentation document.
+    pub fn from_json(text: &str) -> Result<Self, GithubError> {
+        if text.len() > MAX_PRESENTATION_JSON {
+            return Err(fail("installer presentation exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid installer presentation JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Serialize deterministically after validation.
+    pub fn to_json(&self) -> Result<String, GithubError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("installer presentation encode failed"))
+    }
+
+    /// Validate schema version, wrapper paths, and generated names.
+    pub fn validate(&self) -> Result<(), GithubError> {
+        if self.schema_version != 1 {
+            return Err(fail("unsupported installer presentation version"));
+        }
+        match &self.mode {
+            InstallerPresentationModeV1::GeneratedDefault => Ok(()),
+            InstallerPresentationModeV1::ProductWrappers(sources) => {
+                validate_wrapper_source_path(&sources.posix_source)?;
+                validate_wrapper_source_path(&sources.powershell_source)?;
+                if sources.posix_source == sources.powershell_source {
+                    return Err(fail("product wrapper sources must be distinct files"));
+                }
+                validate_generated_installer_name(&sources.generated_posix_name)?;
+                validate_generated_installer_name(&sources.generated_powershell_name)?;
+                if sources
+                    .generated_posix_name
+                    .eq_ignore_ascii_case(&sources.generated_powershell_name)
+                {
+                    return Err(fail("generated installer names must not collide"));
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+fn validate_wrapper_source_path(path: &str) -> Result<(), GithubError> {
+    if path.is_empty() || path.len() > 512 || path.contains('\0') || path.contains('\\') {
+        return Err(fail("wrapper source is not a bounded relative path"));
+    }
+    if path.starts_with('/') || path.contains(':') {
+        return Err(fail("wrapper source escapes its root"));
+    }
+    if path.split('/').any(|segment| {
+        segment.is_empty() || segment == "." || segment == ".." || segment.len() > 128
+    }) {
+        return Err(fail("wrapper source escapes its root"));
+    }
+    if path.chars().any(char::is_control) {
+        return Err(fail("wrapper source contains control characters"));
+    }
+    Ok(())
+}
+
+fn validate_generated_installer_name(name: &str) -> Result<(), GithubError> {
+    validate_asset_name(name)?;
+    let lower = name.to_ascii_lowercase();
+    if lower == FIXED_MANIFEST_NAME || lower == FIXED_POSIX_NAME || lower == FIXED_POWERSHELL_NAME {
+        return Err(fail(
+            "generated installer name collides with a reserved staging name",
+        ));
+    }
+    Ok(())
+}
+
+/// Read one product wrapper source exactly (no interpolation, no execution).
+///
+/// The source root must be a real non-symlink directory; the resolved file
+/// must stay beneath it, be a regular non-symlink file, and fit the
+/// 1 MiB bound. Bytes are copied exactly.
+fn read_wrapper_source(source_root: &Path, relative: &str) -> Result<Vec<u8>, GithubError> {
+    reject_symlink_dir(source_root, "wrapper source root")?;
+    validate_wrapper_source_path(relative)?;
+    let path = source_root.join(relative);
+    let metadata =
+        std::fs::symlink_metadata(&path).map_err(|_| fail("wrapper source is unavailable"))?;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(fail("wrapper source must be a regular file"));
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_WRAPPER_BYTES {
+        return Err(fail("wrapper source size out of bounds"));
+    }
+    let bytes = std::fs::read(&path).map_err(|_| fail("wrapper source cannot be read"))?;
+    if bytes.len() as u64 != metadata.len() {
+        return Err(fail("wrapper source changed during read"));
+    }
+    Ok(bytes)
+}
+
+/// Static reusable GitHub draft template (M003d section 4C).
+///
+/// Contains only identity-independent fields known before the future tag:
+/// owner/repository, fixed title prefix, bounded body/notes, prerelease
+/// flag, token environment, and transport bounds. It MUST NOT contain a
+/// release id, source revision, exact tag, GitHub release id, or digests.
+/// Runtime resolution appends the exact validated tag to the title prefix;
+/// no arbitrary string templating exists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHubDraftTemplateV1 {
+    /// Schema version, exactly 1.
+    pub schema_version: u32,
+    /// GitHub repository owner.
+    pub owner: String,
+    /// GitHub repository name.
+    pub repository: String,
+    /// Fixed title prefix; the exact tag is appended at resolve time.
+    pub title_prefix: String,
+    /// Bounded fixed release notes.
+    #[serde(default)]
+    pub body: String,
+    /// Prerelease intent.
+    #[serde(default)]
+    pub prerelease: bool,
+    /// Token environment variable name, allowlisted to `GITHUB_TOKEN`.
+    #[serde(default = "default_token_env")]
+    pub token_env: String,
+    /// Per-request timeout in seconds.
+    #[serde(default = "default_timeout_secs")]
+    pub request_timeout_secs: u64,
+    /// Maximum metadata response bytes.
+    #[serde(default = "default_max_metadata_bytes")]
+    pub max_metadata_bytes: usize,
+    /// Maximum bounded release-list pages.
+    #[serde(default = "default_max_list_pages")]
+    pub max_list_pages: u32,
+}
+
+impl GitHubDraftTemplateV1 {
+    /// Parse a strict bounded JSON template document.
+    pub fn from_json(text: &str) -> Result<Self, GithubError> {
+        if text.len() > MAX_TEMPLATE_JSON {
+            return Err(fail("github draft template exceeds size bound"));
+        }
+        let value: Self =
+            serde_json::from_str(text).map_err(|_| fail("invalid github draft template JSON"))?;
+        value.validate()?;
+        Ok(value)
+    }
+
+    /// Serialize deterministically after validation.
+    pub fn to_json(&self) -> Result<String, GithubError> {
+        self.validate()?;
+        serde_json::to_string(self).map_err(|_| fail("github draft template encode failed"))
+    }
+
+    /// Validate all bounds and injection rules.
+    pub fn validate(&self) -> Result<(), GithubError> {
+        if self.schema_version != 1 {
+            return Err(fail("unsupported github draft template version"));
+        }
+        validate_owner(&self.owner)?;
+        validate_repo(&self.repository)?;
+        if self.title_prefix.is_empty()
+            || self.title_prefix.len() > MAX_TITLE_PREFIX
+            || self.title_prefix.chars().any(char::is_control)
+        {
+            return Err(fail("draft title prefix out of bounds"));
+        }
+        validate_body(&self.body)?;
+        if self.token_env != "GITHUB_TOKEN" {
+            return Err(fail("token env must be GITHUB_TOKEN"));
+        }
+        if !(5..=120).contains(&self.request_timeout_secs) {
+            return Err(fail("request timeout out of bounds"));
+        }
+        if self.max_metadata_bytes == 0 || self.max_metadata_bytes > 8_000_000 {
+            return Err(fail("max metadata bytes out of bounds"));
+        }
+        if self.max_list_pages == 0 || self.max_list_pages > 32 {
+            return Err(fail("max list pages out of bounds"));
+        }
+        Ok(())
+    }
+
+    /// Resolve the static template against one exact validated tag.
+    ///
+    /// Uses the exact tag as-is (no product-specific transformation) and
+    /// appends it to the fixed title prefix. The tag itself is validated
+    /// with the same rules as [`GitHubDraftPolicyV1`].
+    pub fn resolve(&self, tag: &str) -> Result<GitHubDraftPolicyV1, GithubError> {
+        self.validate()?;
+        validate_tag(tag)?;
+        let title = format!("{}{}", self.title_prefix, tag);
+        validate_title(&title)?;
+        Ok(GitHubDraftPolicyV1 {
+            schema_version: 1,
+            owner: self.owner.clone(),
+            repository: self.repository.clone(),
+            tag: tag.to_owned(),
+            title,
+            body: self.body.clone(),
+            prerelease: self.prerelease,
+            token_env: self.token_env.clone(),
+            request_timeout_secs: self.request_timeout_secs,
+            max_metadata_bytes: self.max_metadata_bytes,
+            max_list_pages: self.max_list_pages,
+        })
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_staging_payload_with_presentation_inner(
+    contract: &DistributionContract,
+    manifest: &ReleaseManifest,
+    finalized_root: &Path,
+    policy: &GitHubDraftPolicyV1,
+    install_policy: &BootstrapInstallPolicyV1,
+    presentation: &InstallerPresentationV1,
+    source_root: Option<&Path>,
+    output_dir: &Path,
+) -> Result<StagingPayloadV1, GithubError> {
+    presentation.validate()?;
+    let sources = match &presentation.mode {
+        InstallerPresentationModeV1::GeneratedDefault => {
+            return Err(fail("presentation dispatch mismatch"));
+        }
+        InstallerPresentationModeV1::ProductWrappers(sources) => sources,
+    };
+    let source_root = source_root.ok_or_else(|| fail("product wrappers require a source root"))?;
+    policy.validate()?;
+    manifest
+        .validate()
+        .map_err(|_| fail("invalid release manifest"))?;
+    if contract.product.id != manifest.product_id {
+        return Err(fail("contract and manifest product mismatch"));
+    }
+    reject_symlink_dir(finalized_root, "finalized root")?;
+
+    // Collect expected inventory from contract expansion plus manifest facts.
+    let mut expected: BTreeMap<String, (bool, u64, String)> = BTreeMap::new();
+    for target in &manifest.targets {
+        let expanded = contract
+            .expand(&target.target, &manifest.release_id)
+            .map_err(|_| fail("manifest target is not supported by contract"))?;
+        match (&expanded.assets, &target.form) {
+            (
+                ExpandedAssets::Direct(direct),
+                eggpack_manifest::ArtifactForm::Direct { artifact, .. },
+            ) => {
+                if direct.asset_file != artifact.name {
+                    return Err(fail("contract and manifest direct asset differ"));
+                }
+                if expected
+                    .insert(
+                        artifact.name.clone(),
+                        (true, artifact.size, artifact.sha256.clone()),
+                    )
+                    .is_some()
+                {
+                    return Err(fail("duplicate release asset name"));
+                }
+                if expected
+                    .insert(direct.sidecar_file.clone(), (false, 0, String::new()))
+                    .is_some()
+                {
+                    return Err(fail("duplicate release asset name"));
+                }
+            }
+            (
+                ExpandedAssets::Bundle(bundle),
+                eggpack_manifest::ArtifactForm::Bundle { entries },
+            ) => {
+                if bundle.entries.len() != entries.len() {
+                    return Err(fail("bundle contract and manifest entry counts differ"));
+                }
+                let mut expanded_map = BTreeMap::new();
+                for entry in &bundle.entries {
+                    if expanded_map
+                        .insert(entry.asset_file.clone(), entry.sidecar_file.clone())
+                        .is_some()
+                    {
+                        return Err(fail("duplicate bundle asset"));
+                    }
+                }
+                for entry in entries {
+                    let sidecar = expanded_map
+                        .get(&entry.artifact.name)
+                        .ok_or_else(|| fail("bundle contract and manifest entries differ"))?;
+                    if expected
+                        .insert(
+                            entry.artifact.name.clone(),
+                            (true, entry.artifact.size, entry.artifact.sha256.clone()),
+                        )
+                        .is_some()
+                    {
+                        return Err(fail("duplicate release asset name"));
+                    }
+                    if expected
+                        .insert(sidecar.clone(), (false, 0, String::new()))
+                        .is_some()
+                    {
+                        return Err(fail("duplicate release asset name"));
+                    }
+                }
+            }
+            (
+                ExpandedAssets::Archive(archive),
+                eggpack_manifest::ArtifactForm::Archive { artifact, .. },
+            ) => {
+                if archive.archive_file != artifact.name {
+                    return Err(fail("contract and manifest archive filenames differ"));
+                }
+                if expected
+                    .insert(
+                        artifact.name.clone(),
+                        (true, artifact.size, artifact.sha256.clone()),
+                    )
+                    .is_some()
+                {
+                    return Err(fail("duplicate release asset name"));
+                }
+                if expected
+                    .insert(archive.sidecar_file.clone(), (false, 0, String::new()))
+                    .is_some()
+                {
+                    return Err(fail("duplicate release asset name"));
+                }
+            }
+            _ => return Err(fail("contract and manifest forms differ for target")),
+        }
+    }
+
+    // Auxiliary collision guard, extended with the generated exact-installer
+    // names: neither contract assets nor generated names may collide
+    // (case-insensitively) with reserved staging names or each other.
+    let generated_names = [
+        sources.generated_posix_name.clone(),
+        sources.generated_powershell_name.clone(),
+    ];
+    for name in expected.keys() {
+        let lower = name.to_ascii_lowercase();
+        if lower == FIXED_MANIFEST_NAME
+            || lower == FIXED_POSIX_NAME
+            || lower == FIXED_POWERSHELL_NAME
+            || generated_names
+                .iter()
+                .any(|generated| generated.to_ascii_lowercase() == lower)
+        {
+            return Err(fail("release asset collides with staging auxiliary name"));
+        }
+    }
+
+    // Inventory of the finalized root.
+    let mut observed: BTreeMap<String, PathBuf> = BTreeMap::new();
+    let entries =
+        std::fs::read_dir(finalized_root).map_err(|_| fail("finalized root cannot be listed"))?;
+    for entry in entries {
+        let entry = entry.map_err(|_| fail("finalized root entry unavailable"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|_| fail("finalized entry type unavailable"))?;
+        if file_type.is_symlink() || !file_type.is_file() {
+            return Err(fail("finalized root must contain only regular files"));
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        validate_asset_name(&name)?;
+        if observed.insert(name.clone(), entry.path()).is_some() {
+            return Err(fail("duplicate finalized file"));
+        }
+    }
+    let expected_names: BTreeSet<String> = expected.keys().cloned().collect();
+    let observed_names: BTreeSet<String> = observed.keys().cloned().collect();
+    if expected_names != observed_names {
+        return Err(fail("finalized root files do not exactly match manifest"));
+    }
+
+    // Verify artifact bytes and sidecar contents.
+    for (name, (is_artifact, size, sha)) in &expected {
+        let path = observed
+            .get(name)
+            .ok_or_else(|| fail("finalized file missing"))?;
+        if *is_artifact {
+            let (actual_size, actual_sha) = digest_file(path)?;
+            if actual_size != *size || actual_sha != *sha {
+                return Err(fail("finalized file differs from manifest"));
+            }
+        }
+    }
+    for (name, (is_artifact, _, _)) in &expected {
+        if *is_artifact {
+            continue;
+        }
+        let path = observed
+            .get(name)
+            .ok_or_else(|| fail("finalized file missing"))?;
+        let text = std::fs::read_to_string(path).map_err(|_| fail("sidecar cannot be read"))?;
+        if text.len() > 4096 {
+            return Err(fail("sidecar exceeds bound"));
+        }
+        let trimmed = text.trim_end_matches(['\n', '\r']);
+        let mut parts = trimmed.splitn(2, "  ");
+        let sha = parts
+            .next()
+            .ok_or_else(|| fail("sidecar content invalid"))?;
+        let file = parts
+            .next()
+            .ok_or_else(|| fail("sidecar content invalid"))?;
+        validate_sha256(sha)?;
+        validate_asset_name(file)?;
+        let artifact_path = finalized_root.join(file);
+        if !observed.contains_key(file) {
+            return Err(fail("sidecar references unknown artifact"));
+        }
+        let (actual_size, actual_sha) = digest_file(&artifact_path)?;
+        if actual_sha != sha {
+            return Err(fail("sidecar digest differs from artifact"));
+        }
+        let _ = actual_size;
+        if !name.ends_with(".sha256") {
+            return Err(fail("sidecar filename invalid"));
+        }
+    }
+
+    ensure_absent_private_dir(output_dir, "staging output")?;
+    let cleanup = |_: ()| {
+        let _ = std::fs::remove_dir_all(output_dir);
+    };
+
+    // Copy exact finalized assets.
+    for (name, path) in &observed {
+        let dest = output_dir.join(name);
+        std::fs::copy(path, &dest).map_err(|_| {
+            cleanup(());
+            fail("staging copy failed")
+        })?;
+    }
+
+    // Standalone manifest handoff.
+    let manifest_json = manifest
+        .to_json()
+        .map_err(|_| fail("manifest encode failed"))?;
+    let manifest_path = output_dir.join(FIXED_MANIFEST_NAME);
+    std::fs::write(&manifest_path, manifest_json.as_bytes()).map_err(|_| {
+        cleanup(());
+        fail("staging manifest write failed")
+    })?;
+    let roundtrip = ReleaseManifest::from_json(&manifest_json).map_err(|_| {
+        cleanup(());
+        fail("staging manifest roundtrip failed")
+    })?;
+    let roundtrip_json = roundtrip.to_json().map_err(|_| {
+        cleanup(());
+        fail("staging manifest roundtrip failed")
+    })?;
+    if roundtrip_json != manifest_json {
+        cleanup(());
+        return Err(fail("staging manifest does not decode to exact manifest"));
+    }
+
+    // Deterministic bootstrap installers with exact-tag origin.
+    let origin = policy.download_origin();
+    let spec = BootstrapSpec {
+        origin,
+        fixture_http: false,
+    };
+    let posix =
+        eggpack_bootstrap::render_posix_with_policy(contract, manifest, &spec, install_policy)
+            .map_err(|_| {
+                cleanup(());
+                fail("posix installer generation failed")
+            })?;
+    let powershell =
+        eggpack_bootstrap::render_powershell_with_policy(contract, manifest, &spec, install_policy)
+            .map_err(|_| {
+                cleanup(());
+                fail("powershell installer generation failed")
+            })?;
+    // Exact-tag origin only; never latest/download.
+    if posix.contains("latest/download") || powershell.contains("latest/download") {
+        cleanup(());
+        return Err(fail("installer uses unsupported latest origin"));
+    }
+    // Product wrappers are the public surface; generated exact installers
+    // keep distinct non-colliding names as qualified-bootstrap evidence.
+    let posix_wrapper = read_wrapper_source(source_root, &sources.posix_source).map_err(|_| {
+        cleanup(());
+        fail("product posix wrapper is unavailable")
+    })?;
+    let powershell_wrapper =
+        read_wrapper_source(source_root, &sources.powershell_source).map_err(|_| {
+            cleanup(());
+            fail("product powershell wrapper is unavailable")
+        })?;
+    std::fs::write(
+        output_dir.join(&sources.generated_posix_name),
+        posix.as_bytes(),
+    )
+    .map_err(|_| {
+        cleanup(());
+        fail("posix installer write failed")
+    })?;
+    std::fs::write(
+        output_dir.join(&sources.generated_powershell_name),
+        powershell.as_bytes(),
+    )
+    .map_err(|_| {
+        cleanup(());
+        fail("powershell installer write failed")
+    })?;
+    std::fs::write(output_dir.join(FIXED_POSIX_NAME), posix_wrapper.as_slice()).map_err(|_| {
+        cleanup(());
+        fail("product posix wrapper write failed")
+    })?;
+    std::fs::write(
+        output_dir.join(FIXED_POWERSHELL_NAME),
+        powershell_wrapper.as_slice(),
+    )
+    .map_err(|_| {
+        cleanup(());
+        fail("product powershell wrapper write failed")
+    })?;
+
+    // Build deterministic payload records.
+    let mut assets = Vec::new();
+    let mut staged_names: BTreeSet<String> = BTreeSet::new();
+    let mut staged_entries: Vec<(String, StagingAssetKind, String)> = Vec::new();
+    for name in observed.keys() {
+        let is_artifact = expected
+            .get(name)
+            .map(|(is_artifact, _, _)| *is_artifact)
+            .unwrap_or(false);
+        let (kind, media) = if is_artifact {
+            (
+                StagingAssetKind::FinalizedArtifact,
+                "application/octet-stream".to_owned(),
+            )
+        } else {
+            (StagingAssetKind::ChecksumSidecar, "text/plain".to_owned())
+        };
+        staged_entries.push((name.clone(), kind, media));
+    }
+    staged_entries.push((
+        FIXED_MANIFEST_NAME.to_owned(),
+        StagingAssetKind::ReleaseManifest,
+        "application/json".to_owned(),
+    ));
+    staged_entries.push((
+        sources.generated_posix_name.clone(),
+        StagingAssetKind::PosixInstaller,
+        "text/x-shellscript".to_owned(),
+    ));
+    staged_entries.push((
+        sources.generated_powershell_name.clone(),
+        StagingAssetKind::PowershellInstaller,
+        "text/x-powershell".to_owned(),
+    ));
+    staged_entries.push((
+        FIXED_POSIX_NAME.to_owned(),
+        StagingAssetKind::ProductPosixWrapper,
+        "text/x-shellscript".to_owned(),
+    ));
+    staged_entries.push((
+        FIXED_POWERSHELL_NAME.to_owned(),
+        StagingAssetKind::ProductPowershellWrapper,
         "text/x-powershell".to_owned(),
     ));
     for (name, kind, media) in staged_entries {

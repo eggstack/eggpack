@@ -1391,3 +1391,458 @@ fn lean_eggfetch_client_talks_to_loopback_without_retry_redirect() {
         server.await.unwrap();
     });
 }
+
+// ---------------------------------------------------------------------------
+// M003d — installer presentation and static draft template.
+// ---------------------------------------------------------------------------
+
+fn wrapper_presentation() -> InstallerPresentationV1 {
+    InstallerPresentationV1 {
+        schema_version: 1,
+        mode: InstallerPresentationModeV1::ProductWrappers(ProductWrapperSourcesV1 {
+            posix_source: "packaging/install.sh".to_owned(),
+            powershell_source: "packaging/install.ps1".to_owned(),
+            generated_posix_name: "install-exact.sh".to_owned(),
+            generated_powershell_name: "install-exact.ps1".to_owned(),
+        }),
+    }
+}
+
+fn write_wrapper_sources(root: &Path, posix: &[u8], powershell: &[u8]) {
+    std::fs::create_dir_all(root.join("packaging")).unwrap();
+    std::fs::write(root.join("packaging/install.sh"), posix).unwrap();
+    std::fs::write(root.join("packaging/install.ps1"), powershell).unwrap();
+}
+
+#[test]
+fn generated_default_preserves_exact_m003a_behavior() {
+    let contract = direct_contract();
+    let source = "a".repeat(40);
+    let manifest = direct_manifest("1.2.6", &source);
+    let install_policy = BootstrapInstallPolicyV1 {
+        schema_version: 1,
+        targets: BTreeMap::new(),
+    };
+    let parent = temp_root("m003d-default");
+    let finalized = parent.join("finalized");
+    write_finalized_root(&contract, &manifest, &finalized);
+    let policy = test_policy();
+    let legacy_dir = parent.join("legacy");
+    let legacy = prepare_staging_payload(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &install_policy,
+        &legacy_dir,
+    )
+    .unwrap();
+    let modern_dir = parent.join("modern");
+    let modern = prepare_staging_payload_with_presentation(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &install_policy,
+        &InstallerPresentationV1::generated_default(),
+        &parent,
+        &modern_dir,
+    )
+    .unwrap();
+    assert_eq!(legacy.to_json().unwrap(), modern.to_json().unwrap());
+    // Same staged file inventory with identical bytes.
+    let mut legacy_files: Vec<String> = std::fs::read_dir(&legacy_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    legacy_files.sort();
+    let mut modern_files: Vec<String> = std::fs::read_dir(&modern_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    modern_files.sort();
+    assert_eq!(legacy_files, modern_files);
+    for name in &legacy_files {
+        assert_eq!(
+            std::fs::read(legacy_dir.join(name)).unwrap(),
+            std::fs::read(modern_dir.join(name)).unwrap(),
+            "staged bytes differ for {name}"
+        );
+    }
+    // Legacy kinds only: no product wrapper kinds leak into default payloads.
+    for asset in &modern.assets {
+        assert!(!matches!(
+            asset.kind,
+            StagingAssetKind::ProductPosixWrapper | StagingAssetKind::ProductPowershellWrapper
+        ));
+    }
+    std::fs::remove_dir_all(&parent).unwrap();
+}
+
+#[test]
+fn product_wrappers_stage_four_installers_with_exact_bytes() {
+    let contract = direct_contract();
+    let source = "a".repeat(40);
+    let manifest = direct_manifest("1.2.6", &source);
+    let install_policy = BootstrapInstallPolicyV1 {
+        schema_version: 1,
+        targets: BTreeMap::new(),
+    };
+    let parent = temp_root("m003d-wrappers");
+    let finalized = parent.join("finalized");
+    write_finalized_root(&contract, &manifest, &finalized);
+    let source_root = parent.join("consumer");
+    let posix_wrapper = b"#!/bin/sh\n# product wrapper v1\n";
+    let powershell_wrapper = b"# product wrapper v1\r\nWrite-Host hi\r\n";
+    write_wrapper_sources(&source_root, posix_wrapper, powershell_wrapper);
+    let policy = test_policy();
+    let presentation = wrapper_presentation();
+    assert!(presentation.validate().is_ok());
+    assert_eq!(
+        InstallerPresentationV1::from_json(&presentation.to_json().unwrap()).unwrap(),
+        presentation
+    );
+    let staging = parent.join("staging");
+    let payload = prepare_staging_payload_with_presentation(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &install_policy,
+        &presentation,
+        &source_root,
+        &staging,
+    )
+    .unwrap();
+    // Four installer assets with exact names, paths, kinds, and digests.
+    let installers: Vec<&StagingAsset> = payload
+        .assets
+        .iter()
+        .filter(|asset| {
+            matches!(
+                asset.kind,
+                StagingAssetKind::PosixInstaller
+                    | StagingAssetKind::PowershellInstaller
+                    | StagingAssetKind::ProductPosixWrapper
+                    | StagingAssetKind::ProductPowershellWrapper
+            )
+        })
+        .collect();
+    assert_eq!(installers.len(), 4);
+    let by_name: BTreeMap<&str, &StagingAsset> = installers
+        .iter()
+        .map(|asset| (asset.name.as_str(), *asset))
+        .collect();
+    let public_posix = by_name["install.sh"];
+    assert_eq!(public_posix.kind, StagingAssetKind::ProductPosixWrapper);
+    assert_eq!(public_posix.path, "install.sh");
+    assert_eq!(public_posix.media_type, "text/x-shellscript");
+    assert_eq!(public_posix.sha256, sha_hex(posix_wrapper));
+    assert_eq!(public_posix.size, posix_wrapper.len() as u64);
+    let public_ps = by_name["install.ps1"];
+    assert_eq!(public_ps.kind, StagingAssetKind::ProductPowershellWrapper);
+    assert_eq!(public_ps.sha256, sha_hex(powershell_wrapper));
+    let exact_posix = by_name["install-exact.sh"];
+    assert_eq!(exact_posix.kind, StagingAssetKind::PosixInstaller);
+    let exact_ps = by_name["install-exact.ps1"];
+    assert_eq!(exact_ps.kind, StagingAssetKind::PowershellInstaller);
+    // Wrapper bytes copied exactly; no interpolation.
+    assert_eq!(
+        std::fs::read(staging.join("install.sh")).unwrap(),
+        posix_wrapper
+    );
+    assert_eq!(
+        std::fs::read(staging.join("install.ps1")).unwrap(),
+        powershell_wrapper
+    );
+    // Generated exact installers match the GeneratedDefault projection for
+    // the same manifest/policy (same exact-tag origin).
+    let default_dir = parent.join("default");
+    let default_payload = prepare_staging_payload(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &install_policy,
+        &default_dir,
+    )
+    .unwrap();
+    let default_posix = default_payload
+        .assets
+        .iter()
+        .find(|asset| asset.name == "install.sh")
+        .unwrap();
+    let default_ps = default_payload
+        .assets
+        .iter()
+        .find(|asset| asset.name == "install.ps1")
+        .unwrap();
+    assert_eq!(exact_posix.sha256, default_posix.sha256);
+    assert_eq!(exact_posix.size, default_posix.size);
+    assert_eq!(exact_ps.sha256, default_ps.sha256);
+    assert_eq!(exact_ps.size, default_ps.size);
+    assert_eq!(
+        std::fs::read(staging.join("install-exact.sh")).unwrap(),
+        std::fs::read(default_dir.join("install.sh")).unwrap()
+    );
+    // Determinism: same input produces identical payload/digests.
+    let staging2 = parent.join("staging2");
+    let rerun = prepare_staging_payload_with_presentation(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &install_policy,
+        &presentation,
+        &source_root,
+        &staging2,
+    )
+    .unwrap();
+    assert_eq!(payload.to_json().unwrap(), rerun.to_json().unwrap());
+    std::fs::remove_dir_all(&parent).unwrap();
+}
+
+#[test]
+fn wrapper_sources_reject_symlink_traversal_size_and_collision() {
+    let contract = direct_contract();
+    let source = "a".repeat(40);
+    let manifest = direct_manifest("1.2.6", &source);
+    let install_policy = BootstrapInstallPolicyV1 {
+        schema_version: 1,
+        targets: BTreeMap::new(),
+    };
+    let parent = temp_root("m003d-wrapper-neg");
+    let finalized = parent.join("finalized");
+    write_finalized_root(&contract, &manifest, &finalized);
+    let policy = test_policy();
+    let source_root = parent.join("consumer");
+    write_wrapper_sources(&source_root, b"posix", b"powershell");
+    let prepare = |presentation: &InstallerPresentationV1, source_root: &Path, label: &str| {
+        let staging = parent.join(format!("staging-{label}"));
+        prepare_staging_payload_with_presentation(
+            &contract,
+            &manifest,
+            &finalized,
+            &policy,
+            &install_policy,
+            presentation,
+            source_root,
+            &staging,
+        )
+    };
+    // Shape-level validation rejects before any I/O.
+    let mut bad = wrapper_presentation();
+    if let InstallerPresentationModeV1::ProductWrappers(sources) = &mut bad.mode {
+        sources.posix_source = "../escape.sh".to_owned();
+    }
+    assert!(bad.validate().is_err());
+    let mut bad = wrapper_presentation();
+    if let InstallerPresentationModeV1::ProductWrappers(sources) = &mut bad.mode {
+        sources.generated_posix_name = "INSTALL.SH".to_owned();
+    }
+    assert!(bad.validate().is_err());
+    let mut bad = wrapper_presentation();
+    if let InstallerPresentationModeV1::ProductWrappers(sources) = &mut bad.mode {
+        sources.generated_posix_name = sources.generated_powershell_name.clone();
+    }
+    assert!(bad.validate().is_err());
+    let mut bad = wrapper_presentation();
+    if let InstallerPresentationModeV1::ProductWrappers(sources) = &mut bad.mode {
+        sources.powershell_source = sources.posix_source.clone();
+    }
+    assert!(bad.validate().is_err());
+    // Unknown fields (e.g. a future tag-carrying variant) reject.
+    assert!(InstallerPresentationV1::from_json(
+        r#"{"schema_version":1,"mode":{"product_wrappers":{"posix_source":"a","powershell_source":"b","generated_posix_name":"c","generated_powershell_name":"d","tag":"v1"}}}"#
+    )
+    .is_err());
+    assert!(InstallerPresentationV1::from_json(
+        r#"{"schema_version":2,"mode":"generated_default"}"#
+    )
+    .is_err());
+    // Symlink wrapper source rejects.
+    #[cfg(unix)]
+    {
+        let link_root = parent.join("link-consumer");
+        std::fs::create_dir_all(link_root.join("packaging")).unwrap();
+        std::os::unix::fs::symlink(
+            source_root.join("packaging/install.sh"),
+            link_root.join("packaging/install.sh"),
+        )
+        .unwrap();
+        std::fs::write(link_root.join("packaging/install.ps1"), b"powershell").unwrap();
+        assert!(prepare(&wrapper_presentation(), &link_root, "link").is_err());
+        // Symlink source root itself rejects.
+        let root_link = parent.join("root-link");
+        std::os::unix::fs::symlink(&source_root, &root_link).unwrap();
+        assert!(prepare(&wrapper_presentation(), &root_link, "root-link").is_err());
+    }
+    // Oversized wrapper rejects (> 1 MiB).
+    let big_root = parent.join("big-consumer");
+    std::fs::create_dir_all(big_root.join("packaging")).unwrap();
+    std::fs::write(
+        big_root.join("packaging/install.sh"),
+        vec![b'x'; (MAX_WRAPPER_BYTES + 1) as usize],
+    )
+    .unwrap();
+    std::fs::write(big_root.join("packaging/install.ps1"), b"powershell").unwrap();
+    assert!(prepare(&wrapper_presentation(), &big_root, "big").is_err());
+    // Empty wrapper rejects (staged files must be non-empty).
+    let empty_root = parent.join("empty-consumer");
+    std::fs::create_dir_all(empty_root.join("packaging")).unwrap();
+    std::fs::write(empty_root.join("packaging/install.sh"), b"").unwrap();
+    std::fs::write(empty_root.join("packaging/install.ps1"), b"powershell").unwrap();
+    assert!(prepare(&wrapper_presentation(), &empty_root, "empty").is_err());
+    // Missing wrapper file rejects.
+    let missing_root = parent.join("missing-consumer");
+    std::fs::create_dir_all(missing_root.join("packaging")).unwrap();
+    std::fs::write(missing_root.join("packaging/install.ps1"), b"powershell").unwrap();
+    assert!(prepare(&wrapper_presentation(), &missing_root, "missing").is_err());
+    // Generated name colliding with a contract artifact rejects.
+    let mut colliding = wrapper_presentation();
+    if let InstallerPresentationModeV1::ProductWrappers(sources) = &mut colliding.mode {
+        sources.generated_posix_name = "eggsact-1.2.6-x86_64-unknown-linux-gnu".to_owned();
+    }
+    assert!(colliding.validate().is_ok());
+    assert!(prepare(&colliding, &source_root, "artifact-collision").is_err());
+    // Generated names colliding with each other case-insensitively rejects.
+    let mut colliding = wrapper_presentation();
+    if let InstallerPresentationModeV1::ProductWrappers(sources) = &mut colliding.mode {
+        sources.generated_powershell_name = "INSTALL-EXACT.SH".to_owned();
+    }
+    assert!(colliding.validate().is_err());
+    std::fs::remove_dir_all(&parent).unwrap();
+}
+
+#[tokio::test]
+async fn wrapper_payload_reconciles_exact_remote_set() {
+    let contract = direct_contract();
+    let source = "a".repeat(40);
+    let manifest = direct_manifest("1.2.6", &source);
+    let install_policy = BootstrapInstallPolicyV1 {
+        schema_version: 1,
+        targets: BTreeMap::new(),
+    };
+    let parent = temp_root("m003d-wrapper-adapter");
+    let finalized = parent.join("finalized");
+    write_finalized_root(&contract, &manifest, &finalized);
+    let source_root = parent.join("consumer");
+    write_wrapper_sources(&source_root, b"posix wrapper", b"powershell wrapper");
+    let mut policy = test_policy();
+    policy.tag = "v1.2.6".to_owned();
+    policy.title = "widget 1.2.6".to_owned();
+    let staging = parent.join("staging");
+    let payload = prepare_staging_payload_with_presentation(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &install_policy,
+        &wrapper_presentation(),
+        &source_root,
+        &staging,
+    )
+    .unwrap();
+    assert!(payload
+        .assets
+        .iter()
+        .any(|asset| asset.name == "install.sh"
+            && asset.kind == StagingAssetKind::ProductPosixWrapper));
+    assert!(payload
+        .assets
+        .iter()
+        .any(|asset| asset.name == "install-exact.sh"
+            && asset.kind == StagingAssetKind::PosixInstaller));
+    let fixture = FixtureGithub::with_tag(&source);
+    let mut staged_bytes = BTreeMap::new();
+    for asset in &payload.assets {
+        staged_bytes.insert(
+            asset.name.clone(),
+            std::fs::read(staging.join(&asset.name)).unwrap(),
+        );
+    }
+    let receipt = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+    })
+    .await
+    .unwrap();
+    assert!(receipt.draft && !receipt.immutable);
+    assert_eq!(receipt.uploaded as usize, payload.assets.len());
+    assert_eq!(receipt.assets.len(), payload.assets.len());
+    // Rerun reuses the exact four-installer set.
+    let rerun = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        Ok(staged_bytes.get(name).cloned().expect("staged bytes exist"))
+    })
+    .await
+    .unwrap();
+    assert!(!rerun.created);
+    assert_eq!(rerun.reused as usize, payload.assets.len());
+    std::fs::remove_dir_all(&parent).unwrap();
+}
+
+fn draft_template() -> GitHubDraftTemplateV1 {
+    GitHubDraftTemplateV1 {
+        schema_version: 1,
+        owner: "acme".to_owned(),
+        repository: "widget".to_owned(),
+        title_prefix: "widget ".to_owned(),
+        body: "notes".to_owned(),
+        prerelease: false,
+        token_env: "GITHUB_TOKEN".to_owned(),
+        request_timeout_secs: 30,
+        max_metadata_bytes: 1_000_000,
+        max_list_pages: 5,
+    }
+}
+
+#[test]
+fn draft_template_resolves_distinct_tags_from_identical_bytes() {
+    let template = draft_template();
+    assert!(template.validate().is_ok());
+    let bytes = template.to_json().unwrap();
+    // Same static bytes work for distinct future tags.
+    assert_eq!(
+        GitHubDraftTemplateV1::from_json(&bytes)
+            .unwrap()
+            .to_json()
+            .unwrap(),
+        bytes
+    );
+    let first = GitHubDraftTemplateV1::from_json(&bytes)
+        .unwrap()
+        .resolve("v1.2.4")
+        .unwrap();
+    let second = GitHubDraftTemplateV1::from_json(&bytes)
+        .unwrap()
+        .resolve("v1.2.5")
+        .unwrap();
+    assert_ne!(first.to_json().unwrap(), second.to_json().unwrap());
+    assert_eq!(first.tag, "v1.2.4");
+    assert_eq!(first.title, "widget v1.2.4");
+    assert_eq!(second.tag, "v1.2.5");
+    assert_eq!(second.title, "widget v1.2.5");
+    // Owner/repository/body/prerelease carry over unchanged.
+    assert_eq!(first.owner, "acme");
+    assert_eq!(first.body, "notes");
+    assert!(!first.prerelease);
+    // The template carries no release identity: unknown tag-carrying fields
+    // reject, and injection tags reject at resolve time.
+    assert!(GitHubDraftTemplateV1::from_json(
+        r#"{"schema_version":1,"owner":"a","repository":"b","title_prefix":"p ","tag":"v1"}"#
+    )
+    .is_err());
+    assert!(template.resolve("v1?x").is_err());
+    assert!(template.resolve("").is_err());
+    assert!(template.resolve("../escape").is_err());
+    // Title bound enforced: prefix plus tag must fit.
+    let mut long = draft_template();
+    long.title_prefix = "p".repeat(200);
+    assert!(long.validate().is_err());
+    let mut bad = draft_template();
+    bad.token_env = "OTHER".to_owned();
+    assert!(bad.validate().is_err());
+    assert!(GitHubDraftTemplateV1::from_json(
+        r#"{"schema_version":2,"owner":"a","repository":"b","title_prefix":"p "}"#
+    )
+    .is_err());
+}
