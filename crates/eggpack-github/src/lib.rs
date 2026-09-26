@@ -31,6 +31,9 @@ const MAX_NAME_SEGMENT: usize = 128;
 const FIXED_MANIFEST_NAME: &str = "release-manifest.json";
 const FIXED_POSIX_NAME: &str = "install.sh";
 const FIXED_POWERSHELL_NAME: &str = "install.ps1";
+/// Maximum upload read/write chunk, bounding per-asset transfer memory.
+const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
+const ASSET_PAGE_SIZE: usize = 100;
 
 /// Bounded staging failure with redacted diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +98,7 @@ fn default_max_metadata_bytes() -> usize {
 }
 
 fn default_max_list_pages() -> u32 {
-    5
+    16
 }
 
 impl GitHubDraftPolicyV1 {
@@ -135,7 +138,7 @@ impl GitHubDraftPolicyV1 {
         if self.max_metadata_bytes == 0 || self.max_metadata_bytes > 8_000_000 {
             return Err(fail("max metadata bytes out of bounds"));
         }
-        if self.max_list_pages == 0 || self.max_list_pages > 10 {
+        if self.max_list_pages == 0 || self.max_list_pages > 32 {
             return Err(fail("max list pages out of bounds"));
         }
         Ok(())
@@ -432,7 +435,7 @@ fn validate_asset_name(value: &str) -> Result<(), GithubError> {
     if value == "." || value == ".." {
         return Err(fail("asset name is not a safe flat name"));
     }
-    if value.contains('/') || value.contains('\\') || value.contains(':') {
+    if value.contains('/') || value.contains('\\') {
         return Err(fail("asset name must be flat"));
     }
     if value.chars().any(char::is_control) {
@@ -987,16 +990,19 @@ pub trait GithubApi: Send + Sync {
         owner: &str,
         repo: &str,
         release_id: u64,
+        page: u32,
     ) -> impl std::future::Future<Output = Result<Vec<RemoteAsset>, GithubError>> + Send;
     /// Upload one asset; 502/422 are reported as errors with `http_502` /
     /// `http_422_duplicate` prefixes so the caller can apply narrow recovery.
+    #[allow(clippy::too_many_arguments)]
     fn upload_asset(
         &self,
         owner: &str,
         repo: &str,
         release_id: u64,
         name: &str,
-        bytes: &[u8],
+        file: Box<dyn std::io::Read + Send>,
+        length: u64,
         content_type: &str,
     ) -> impl std::future::Future<Output = Result<RemoteAsset, GithubError>> + Send;
     /// Delete one asset by id (only the narrow starter recovery may call this).
@@ -1006,6 +1012,23 @@ pub trait GithubApi: Send + Sync {
         repo: &str,
         asset_id: u64,
     ) -> impl std::future::Future<Output = Result<(), GithubError>> + Send;
+}
+
+trait ReadSeek: std::io::Read + std::io::Seek {
+    fn source_len(&self) -> Result<u64, GithubError>;
+}
+impl ReadSeek for std::fs::File {
+    fn source_len(&self) -> Result<u64, GithubError> {
+        Ok(self
+            .metadata()
+            .map_err(|_| fail("staged file is unavailable"))?
+            .len())
+    }
+}
+impl<T: AsRef<[u8]> + Send> ReadSeek for std::io::Cursor<T> {
+    fn source_len(&self) -> Result<u64, GithubError> {
+        Ok(self.get_ref().as_ref().len() as u64)
+    }
 }
 
 fn is_http_502(error: &GithubError) -> bool {
@@ -1087,10 +1110,119 @@ fn find_exact_release(
     Ok(matches.into_iter().next())
 }
 
-fn check_upload_url(url: &str) -> Result<(), GithubError> {
-    if !url.starts_with(UPLOAD_BASE) {
+fn check_upload_url(
+    url: &str,
+    owner: &str,
+    repository: &str,
+    release_id: u64,
+) -> Result<(), GithubError> {
+    let normalized = url.strip_suffix("{?name,label}").unwrap_or(url);
+    let parsed = url::Url::parse(normalized).map_err(|_| fail("upload URL is invalid"))?;
+    if parsed.scheme() != "https"
+        || parsed.host_str() != Some("uploads.github.com")
+        || parsed.username() != ""
+        || parsed.password().is_some()
+        || parsed.port().is_some_and(|port| port != 443)
+        || parsed.fragment().is_some()
+        || parsed.path() != format!("/repos/{owner}/{repository}/releases/{release_id}/assets")
+        || parsed.query().is_some()
+    {
         return Err(fail("upload host is not the expected GitHub host"));
     }
+    Ok(())
+}
+
+fn upload_url(
+    owner: &str,
+    repository: &str,
+    release_id: u64,
+    name: &str,
+) -> Result<String, GithubError> {
+    validate_asset_name(name)?;
+    let mut url = url::Url::parse(&format!(
+        "{UPLOAD_BASE}/repos/{owner}/{repository}/releases/{release_id}/assets"
+    ))
+    .map_err(|_| fail("upload URL construction failed"))?;
+    url.query_pairs_mut().append_pair("name", name);
+    Ok(url.into())
+}
+
+fn streamed_upload_body(
+    file: Box<dyn std::io::Read + Send>,
+    length: u64,
+) -> Result<eggfetch_core::RequestBody, GithubError> {
+    let length =
+        usize::try_from(length).map_err(|_| fail("asset length exceeds platform bound"))?;
+    Ok(eggfetch_core::RequestBody::from_stream(
+        futures_util::stream::try_unfold(file, |mut file| async move {
+            use std::io::Read;
+            let mut chunk = vec![0; UPLOAD_CHUNK_BYTES];
+            let count = file
+                .read(&mut chunk)
+                .map_err(|error| eggfetch_core::Error::Io(std::sync::Arc::new(error)))?;
+            if count == 0 {
+                Ok(None)
+            } else {
+                chunk.truncate(count);
+                Ok(Some((bytes::Bytes::from(chunk), file)))
+            }
+        }),
+        Some(length),
+    ))
+}
+
+async fn list_all_assets(
+    transport: &impl GithubApi,
+    policy: &GitHubDraftPolicyV1,
+    release_id: u64,
+) -> Result<Vec<RemoteAsset>, GithubError> {
+    let mut all = Vec::new();
+    for page in 1..=policy.max_list_pages {
+        let batch = transport
+            .list_assets(&policy.owner, &policy.repository, release_id, page)
+            .await?;
+        let full = batch.len() == ASSET_PAGE_SIZE;
+        all.extend(batch);
+        if !full {
+            return Ok(all);
+        }
+        if page == policy.max_list_pages {
+            return Err(fail("asset pagination bound exhausted"));
+        }
+    }
+    Ok(all)
+}
+
+fn verify_file(file: &mut dyn ReadSeek, expected: &StagingAsset) -> Result<(), GithubError> {
+    use std::io::SeekFrom;
+    if file.source_len()? != expected.size {
+        return Err(fail("local asset size differs from payload"));
+    }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| fail("staged file cannot be read"))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buf = [0u8; UPLOAD_CHUNK_BYTES];
+    loop {
+        let count = file
+            .read(&mut buf)
+            .map_err(|_| fail("staged file cannot be read"))?;
+        if count == 0 {
+            break;
+        }
+        use sha2::Digest;
+        hasher.update(&buf[..count]);
+    }
+    use sha2::Digest;
+    let digest = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
+    if digest != expected.sha256 {
+        return Err(fail("local asset digest differs from payload"));
+    }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| fail("staged file cannot be read"))?;
     Ok(())
 }
 
@@ -1104,6 +1236,22 @@ pub async fn stage_with_bytes<F>(
 ) -> Result<GitHubDraftReceiptV1, GithubError>
 where
     F: FnMut(&str) -> Result<Vec<u8>, GithubError>,
+{
+    stage_with_source(payload, policy, transport, token, |name| {
+        Ok(Box::new(std::io::Cursor::new(bytes_for(name)?)) as Box<dyn ReadSeek + Send>)
+    })
+    .await
+}
+
+async fn stage_with_source<F>(
+    payload: &StagingPayloadV1,
+    policy: &GitHubDraftPolicyV1,
+    transport: &impl GithubApi,
+    token: &str,
+    mut source_for: F,
+) -> Result<GitHubDraftReceiptV1, GithubError>
+where
+    F: FnMut(&str) -> Result<Box<dyn ReadSeek + Send>, GithubError>,
 {
     if token.is_empty() || token.len() > 4096 || token.chars().any(char::is_control) {
         return Err(fail("github token is absent"));
@@ -1177,7 +1325,12 @@ where
             (current, false)
         }
     };
-    check_upload_url(&release.upload_url)?;
+    check_upload_url(
+        &release.upload_url,
+        &policy.owner,
+        &policy.repository,
+        release.id,
+    )?;
 
     let mut expected: BTreeMap<String, &StagingAsset> = BTreeMap::new();
     for asset in &payload.assets {
@@ -1186,9 +1339,7 @@ where
         }
     }
 
-    let remote = transport
-        .list_assets(&policy.owner, &policy.repository, release.id)
-        .await?;
+    let remote = list_all_assets(transport, policy, release.id).await?;
     {
         let mut names = BTreeSet::new();
         for asset in &remote {
@@ -1210,25 +1361,16 @@ where
     for (name, local) in &expected {
         match remote_by_name.get(name) {
             None => {
-                let bytes = bytes_for(name)?;
-                if bytes.len() as u64 != local.size {
-                    return Err(fail("local asset size differs from payload"));
-                }
-                use sha2::Digest;
-                let digest: String = sha2::Sha256::digest(&bytes)
-                    .iter()
-                    .map(|b| format!("{b:02x}"))
-                    .collect();
-                if digest != local.sha256 {
-                    return Err(fail("local asset digest differs from payload"));
-                }
+                let mut file = source_for(name)?;
+                verify_file(file.as_mut(), local)?;
                 match transport
                     .upload_asset(
                         &policy.owner,
                         &policy.repository,
                         release.id,
                         name,
-                        &bytes,
+                        Box::new(file),
+                        local.size,
                         &local.media_type,
                     )
                     .await
@@ -1257,9 +1399,7 @@ where
                             return Err(fail("duplicate-name upload rejected"));
                         }
                         if is_http_502(&error) {
-                            let after = transport
-                                .list_assets(&policy.owner, &policy.repository, release.id)
-                                .await?;
+                            let after = list_all_assets(transport, policy, release.id).await?;
                             let starters: Vec<&RemoteAsset> = after
                                 .iter()
                                 .filter(|asset| {
@@ -1298,9 +1438,7 @@ where
         }
     }
 
-    let final_assets = transport
-        .list_assets(&policy.owner, &policy.repository, release.id)
-        .await?;
+    let final_assets = list_all_assets(transport, policy, release.id).await?;
     {
         let mut names = BTreeSet::new();
         for asset in &final_assets {
@@ -1361,15 +1499,34 @@ pub async fn stage_with_dir(
     token: &str,
     staging_dir: &Path,
 ) -> Result<GitHubDraftReceiptV1, GithubError> {
+    payload.validate()?;
+    policy.validate()?;
     reject_symlink_dir(staging_dir, "staging directory")?;
-    stage_with_bytes(payload, policy, transport, token, |name| {
-        let path = staging_dir.join(name);
+    let mut files = BTreeMap::new();
+    for asset in &payload.assets {
+        let path = staging_dir.join(&asset.name);
         let metadata =
             std::fs::symlink_metadata(&path).map_err(|_| fail("staged file is unavailable"))?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(fail("staged file must be a regular file"));
         }
-        std::fs::read(&path).map_err(|_| fail("staged file cannot be read"))
+        let mut file =
+            std::fs::File::open(&path).map_err(|_| fail("staged file cannot be read"))?;
+        if !file
+            .metadata()
+            .map_err(|_| fail("staged file is unavailable"))?
+            .is_file()
+        {
+            return Err(fail("staged file must be a regular file"));
+        }
+        verify_file(&mut file, asset)?;
+        files.insert(asset.name.clone(), file);
+    }
+    stage_with_source(payload, policy, transport, token, |name| {
+        let file = files
+            .remove(name)
+            .ok_or_else(|| fail("staged file is unavailable"))?;
+        Ok(Box::new(file) as Box<dyn ReadSeek + Send>)
     })
     .await
 }
@@ -1638,9 +1795,10 @@ impl GithubApi for EggfetchTransport {
         owner: &str,
         repo: &str,
         release_id: u64,
+        page: u32,
     ) -> Result<Vec<RemoteAsset>, GithubError> {
         let url = format!(
-            "{API_BASE}/repos/{owner}/{repo}/releases/{release_id}/assets?per_page=100&page=1"
+            "{API_BASE}/repos/{owner}/{repo}/releases/{release_id}/assets?per_page=100&page={page}"
         );
         let response = self
             .client
@@ -1673,13 +1831,12 @@ impl GithubApi for EggfetchTransport {
         repo: &str,
         release_id: u64,
         name: &str,
-        bytes: &[u8],
+        file: Box<dyn std::io::Read + Send>,
+        length: u64,
         content_type: &str,
     ) -> Result<RemoteAsset, GithubError> {
-        validate_asset_name(name)?;
-        // Asset names are safe flat names, so query encoding is exact.
-        let url =
-            format!("{UPLOAD_BASE}/repos/{owner}/{repo}/releases/{release_id}/assets?name={name}");
+        let url = upload_url(owner, repo, release_id, name)?;
+        let body = streamed_upload_body(file, length)?;
         let response = self
             .client
             .post(&url)
@@ -1690,7 +1847,7 @@ impl GithubApi for EggfetchTransport {
             .auth(self.auth()?)
             .timeout(self.timeout())
             .max_decoded_body_size(self.max_metadata_bytes)
-            .bytes(bytes.to_vec())
+            .body(body)
             .send()
             .await
             .map_err(|_| fail("github asset upload failed"))?;
@@ -1907,7 +2064,7 @@ pub fn fixture_release(
         draft,
         immutable,
         prerelease,
-        upload_url: format!("{UPLOAD_BASE}/repos/o/r/releases/{id}/assets{{?name,label}}"),
+        upload_url: format!("{UPLOAD_BASE}/repos/acme/widget/releases/{id}/assets{{?name,label}}"),
     }
 }
 
@@ -1980,8 +2137,8 @@ impl GithubApi for FixtureGithub {
 
     async fn create_release(
         &self,
-        _owner: &str,
-        _repo: &str,
+        owner: &str,
+        repo: &str,
         tag: &str,
         title: &str,
         body: &str,
@@ -1999,7 +2156,9 @@ impl GithubApi for FixtureGithub {
             draft: true,
             immutable: false,
             prerelease,
-            upload_url: format!("{UPLOAD_BASE}/repos/o/r/releases/{id}/assets{{?name,label}}"),
+            upload_url: format!(
+                "{UPLOAD_BASE}/repos/{owner}/{repo}/releases/{id}/assets{{?name,label}}"
+            ),
         };
         inner.releases.push(FixtureReleaseState {
             release: release.clone(),
@@ -2013,9 +2172,12 @@ impl GithubApi for FixtureGithub {
         _owner: &str,
         _repo: &str,
         release_id: u64,
+        page: u32,
     ) -> Result<Vec<RemoteAsset>, GithubError> {
         let inner = self.inner.lock().unwrap();
-        Ok(inner.assets.get(&release_id).cloned().unwrap_or_default())
+        let all = inner.assets.get(&release_id).cloned().unwrap_or_default();
+        let start = (page.saturating_sub(1) as usize).saturating_mul(ASSET_PAGE_SIZE);
+        Ok(all.into_iter().skip(start).take(ASSET_PAGE_SIZE).collect())
     }
 
     async fn upload_asset(
@@ -2024,9 +2186,17 @@ impl GithubApi for FixtureGithub {
         _repo: &str,
         release_id: u64,
         name: &str,
-        bytes: &[u8],
+        mut file: Box<dyn std::io::Read + Send>,
+        length: u64,
         _content_type: &str,
     ) -> Result<RemoteAsset, GithubError> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|_| fail("fixture upload read failed"))?;
+        if bytes.len() as u64 != length {
+            return Err(fail("fixture upload length mismatch"));
+        }
         let mut inner = self.inner.lock().unwrap();
         inner.upload_calls += 1;
         if inner.upload_fail_422_next {
@@ -2055,7 +2225,7 @@ impl GithubApi for FixtureGithub {
             }
         }
         use sha2::Digest;
-        let digest: String = sha2::Sha256::digest(bytes)
+        let digest: String = sha2::Sha256::digest(&bytes)
             .iter()
             .map(|b| format!("{b:02x}"))
             .collect();

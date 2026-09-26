@@ -2,15 +2,10 @@ name: Eggpack candidate builds
 'on':
   push:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Exact existing tag to stage
-        required: true
-        type: string
 permissions:
   contents: read
 concurrency:
-  group: eggpack-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
+  group: eggpack-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   preflight:
@@ -21,6 +16,11 @@ jobs:
     steps:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with:
+          ref: "${{ github.ref }}"
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Check Cargo availability
         shell: bash
         run: cargo --version
@@ -34,6 +34,11 @@ jobs:
     steps:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with:
+          ref: "${{ github.ref }}"
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Set up Rust toolchain
         uses: "dtolnay/rust-toolchain@0123456789abcdef0123456789abcdef01234567"
         with:
@@ -78,6 +83,11 @@ jobs:
     steps:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with:
+          ref: "${{ github.ref }}"
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -108,6 +118,11 @@ jobs:
     steps:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with:
+          ref: "${{ github.ref }}"
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -131,6 +146,11 @@ jobs:
     steps:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
+        with:
+          ref: "${{ github.ref }}"
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -154,7 +174,7 @@ jobs:
           retention-days: 7
   stage:
     needs: aggregate
-    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: "ubuntu-latest"
     permissions:
       contents: write
@@ -163,10 +183,13 @@ jobs:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}"
+          ref: "${{ github.ref }}"
       - name: Validate exact-tag source
         shell: bash
-        run: "test \"${{ github.event_name }}\" != \"workflow_dispatch\" || test -n \"${{ inputs.release_tag }}\""
+        run: "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\""
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10

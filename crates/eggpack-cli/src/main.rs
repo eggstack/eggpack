@@ -20,23 +20,24 @@ fn run(args: Vec<String>) -> i32 {
 
 fn dispatch(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
-        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     if args[0] == "--version" || args[0] == "-V" {
         println!("eggpack {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args[0] == "--help" || args[0] == "-h" {
-        println!("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]");
+        println!("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]");
         return Ok(());
     }
     if args[0] != "ci" {
-        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     if args.len() < 2 {
-        return Err("usage: eggpack ci <generate|check|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err("usage: eggpack ci <generate|check|_verify-source|_capture-build|_qualify-target|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
     }
     match args[1].as_str() {
+        "_verify-source" => ci_verify_source(&args[2..]),
         "generate" => ci_generate(&args[2..]),
         "check" => ci_check(&args[2..]),
         "_capture-build" => ci_capture_build(&args[2..]),
@@ -47,6 +48,49 @@ fn dispatch(args: Vec<String>) -> Result<(), String> {
         "_stage-github-draft" => ci_stage_github_draft(&args[2..]),
         _ => Err("unknown ci subcommand".to_owned()),
     }
+}
+
+fn ci_verify_source(args: &[String]) -> Result<(), String> {
+    let plan_path = PathBuf::from(get_flag(args, "release-plan")?);
+    let text = read_bounded(&plan_path, 1_000_000, "release plan")?;
+    let plan: eggpack_core::ReleasePlan =
+        serde_json::from_str(&text).map_err(|_| "invalid release plan".to_owned())?;
+    let expected = plan.source_revision.as_str();
+    if expected.len() != 40
+        || !expected
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("release plan source revision is invalid".to_owned());
+    }
+    verify_source_revision(expected, None)
+}
+
+fn verify_source_revision(expected: &str, cwd: Option<&Path>) -> Result<(), String> {
+    let mut command = std::process::Command::new("git");
+    command.args(["rev-parse", "--verify", "HEAD^{commit}"]);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = command
+        .output()
+        .map_err(|_| "checked-out source verification failed".to_owned())?;
+    if !output.status.success() {
+        return Err("checked-out source verification failed".to_owned());
+    }
+    let actual = std::str::from_utf8(&output.stdout)
+        .map_err(|_| "checked-out source verification failed".to_owned())?
+        .trim();
+    if actual.len() != 40
+        || !actual
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        || actual != expected
+    {
+        return Err("checked-out source does not match release plan".to_owned());
+    }
+    println!("checked-out source matches release plan");
+    Ok(())
 }
 
 fn get_flag(args: &[String], name: &str) -> Result<String, String> {
@@ -653,6 +697,46 @@ mod tests {
                 Err(error) => panic!("create test temp directory: {error}"),
             }
         }
+    }
+
+    #[test]
+    fn source_verifier_accepts_tag_commit_and_rejects_other_checkout() {
+        let root = temp_root("source-identity");
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .env("GIT_AUTHOR_NAME", "Eggpack test")
+                .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+                .env("GIT_COMMITTER_NAME", "Eggpack test")
+                .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+                .status()
+                .unwrap();
+            assert!(status.success(), "git command failed: {args:?}");
+        };
+        run(&["init", "-q"]);
+        std::fs::write(root.join("source.txt"), "A").unwrap();
+        run(&["add", "source.txt"]);
+        run(&["commit", "-q", "-m", "A"]);
+        std::fs::write(root.join("source.txt"), "B").unwrap();
+        run(&["commit", "-q", "-am", "B"]);
+        run(&["tag", "vX"]);
+        let tag = std::process::Command::new("git")
+            .args(["rev-parse", "vX^{commit}"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        let b = String::from_utf8(tag.stdout).unwrap().trim().to_owned();
+        assert_eq!(verify_source_revision(&b, Some(&root)), Ok(()));
+        let a = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD~1^{commit}"])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        let a = String::from_utf8(a.stdout).unwrap().trim().to_owned();
+        assert_ne!(a, b);
+        assert!(verify_source_revision(&a, Some(&root)).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn golden_graph_and_policy() -> (String, String) {

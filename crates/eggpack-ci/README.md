@@ -25,6 +25,13 @@ step/permission drift.
 
 `render_github` and `render_release_github` are pure. `check_github` and `check_release_github` compare deterministic bytes after CRLF-to-LF normalization and report drift without changing files.
 
+Staging-enabled workflows resolve one release source for every job. `RefName`
+uses the GitHub ref and authorizes staging only for tag pushes. `DispatchInput`
+requires `workflow_dispatch.inputs.release_tag`, uses it for all release
+checkouts, and authorizes staging only for dispatches. Each job verifies
+`HEAD^{commit}` against the checked-in `ReleasePlan.source_revision` before
+release work; `ci check` compares the complete deterministic workflow.
+
 Runner labels and action commit pins are policy inputs rather than CIPlan data.
 Cross-build runners must declare preinstalled cargo-zigbuild and Zig; generated
 build jobs check the configured cargo-zigbuild version and never install tools.

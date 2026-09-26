@@ -1,5 +1,7 @@
 # CI and Release Orchestration Milestone 003b Closure — Generated Draft Staging Job and Operational Qualification
 
+Historical closure annotation (M003c): post-closure review identified workflow-dispatch source mismatch and non-authoritative `StagingTagSource`. The former statement that live draft evidence was the only remaining blocker was withdrawn. Both findings are corrected by M003c; after its closure, M003b remains conditionally closed solely for live draft qualification.
+
 Status: conditionally closed
 
 Source plan: `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md`

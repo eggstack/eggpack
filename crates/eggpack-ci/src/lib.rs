@@ -679,6 +679,11 @@ pub fn validate_canonical_target_dir(target: &str) -> Result<(), CiError> {
 /// internal CI operations; no generic arbitrary command DSL is authorized.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunnerCommand {
+    /// Verify checked-out HEAD equals the declared ReleasePlan source revision.
+    VerifySource {
+        /// Repository-relative ReleasePlan JSON path.
+        release_plan: String,
+    },
     /// Invoke `_capture-build` for one target.
     CaptureBuild {
         /// Repository-relative contract path (informational; CLI resolves via plan).
@@ -773,6 +778,13 @@ impl RunnerCommand {
     /// Shell tokens (`eggpack`, `ci`, subcommand, flags) for YAML rendering.
     pub fn argv(&self) -> Vec<String> {
         match self {
+            RunnerCommand::VerifySource { release_plan } => vec![
+                "eggpack".into(),
+                "ci".into(),
+                "_verify-source".into(),
+                "--release-plan".into(),
+                release_plan.clone(),
+            ],
             RunnerCommand::CaptureBuild {
                 contract: _,
                 release_plan,
@@ -993,6 +1005,15 @@ impl GitHubPolicy {
                 &staging.inputs.github_policy,
             ] {
                 validate_release_input_path(path)?;
+            }
+            let required_trigger = match staging.tag_source {
+                StagingTagSource::RefName => WorkflowTrigger::Push,
+                StagingTagSource::DispatchInput => WorkflowTrigger::WorkflowDispatch,
+            };
+            if !self.triggers.contains(&required_trigger) {
+                return Err(fail(
+                    "staging tag source requires its matching workflow trigger",
+                ));
             }
         }
         let mut hosts = BTreeSet::new();
@@ -2072,6 +2093,34 @@ fn tool_install_snippet(tool: &EggpackToolPolicy) -> String {
     )
 }
 
+fn checkout_snippet(out: &mut String, policy: &GitHubPolicy, staging: bool) {
+    out.push_str("      - name: Check out source\n        uses: ");
+    out.push_str(&yaml_scalar(&policy.checkout.reference));
+    if staging {
+        let reference = match policy.staging.as_ref().map(|p| p.tag_source) {
+            Some(StagingTagSource::DispatchInput) => "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}",
+            _ => "${{ github.ref }}",
+        };
+        out.push_str("\n        with:\n          ref: ");
+        out.push_str(&yaml_scalar(reference));
+    }
+    out.push('\n');
+}
+
+fn source_verify_snippet(out: &mut String, inputs: &GitHubReleaseInputsV1, staging: bool) {
+    if !staging {
+        return;
+    }
+    let command = RunnerCommand::VerifySource {
+        release_plan: inputs.release_plan.clone(),
+    };
+    out.push_str(
+        "      - name: Verify checked-out release source\n        shell: bash\n        run: ",
+    );
+    out.push_str(&yaml_scalar(&command.to_shell()));
+    out.push('\n');
+}
+
 /// Deterministically render build -> qualify -> gate -> aggregate GitHub workflow.
 ///
 /// M002a execution wiring: every generated CLI invocation carries all required
@@ -2133,7 +2182,11 @@ pub fn render_release_github(
             WorkflowTrigger::Push => out.push_str("  push:\n"),
             WorkflowTrigger::WorkflowDispatch => {
                 out.push_str("  workflow_dispatch:\n");
-                if staging_enabled {
+                if staging_enabled
+                    && policy.staging.as_ref().is_some_and(|staging| {
+                        staging.tag_source == StagingTagSource::DispatchInput
+                    })
+                {
                     out.push_str("    inputs:\n      release_tag:\n        description: Exact existing tag to stage\n        required: true\n        type: string\n");
                 }
             }
@@ -2144,7 +2197,12 @@ pub fn render_release_github(
     // When staging is enabled, manual dispatch also serializes on the
     // resolved staging tag (not just the branch ref). M003a remote
     // reconciliation remains authoritative; concurrency is best-effort.
-    if staging_enabled {
+    if staging_enabled
+        && policy
+            .staging
+            .as_ref()
+            .is_some_and(|staging| staging.tag_source == StagingTagSource::DispatchInput)
+    {
         out.push_str("  group: eggpack-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}\n");
     } else {
         out.push_str("  group: eggpack-${{ github.workflow }}-${{ github.ref }}\n");
@@ -2159,9 +2217,10 @@ pub fn render_release_github(
     out.push_str(&yaml_scalar(&policy.preflight_runner));
     out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
     out.push_str(&policy.timeout_minutes.to_string());
-    out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
-    out.push_str(&yaml_scalar(&policy.checkout.reference));
-    out.push_str("\n      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
+    out.push_str("\n    steps:\n");
+    checkout_snippet(&mut out, policy, staging_enabled);
+    source_verify_snippet(&mut out, inputs, staging_enabled);
+    out.push_str("      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
 
     // Build jobs: M001 cargo invocations plus pinned tool install, explicit
     // `_capture-build` into the canonical per-target directory, and upload of
@@ -2190,9 +2249,10 @@ pub fn render_release_github(
         out.push_str(&policy.timeout_minutes.to_string());
         out.push_str("\n    continue-on-error: ");
         out.push_str(if job.required { "false\n" } else { "true\n" });
-        out.push_str("    steps:\n      - name: Check out source\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.checkout.reference));
-        out.push_str("\n      - name: Set up Rust toolchain\n        uses: ");
+        out.push_str("    steps:\n");
+        checkout_snippet(&mut out, policy, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled);
+        out.push_str("      - name: Set up Rust toolchain\n        uses: ");
         out.push_str(&yaml_scalar(&policy.rust_toolchain.reference));
         out.push_str("\n        with:\n          toolchain: ");
         out.push_str(&yaml_scalar(&job.planned.policy.toolchain.rust));
@@ -2307,9 +2367,9 @@ pub fn render_release_github(
         out.push_str(&policy.timeout_minutes.to_string());
         out.push_str("\n    continue-on-error: ");
         out.push_str(if qual.required { "false\n" } else { "true\n" });
-        out.push_str("    steps:\n      - name: Check out source\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.checkout.reference));
-        out.push('\n');
+        out.push_str("    steps:\n");
+        checkout_snippet(&mut out, policy, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str(&tool_install_snippet(tool));
         out.push_str("      - name: Download build handoff\n        uses: ");
         out.push_str(&yaml_scalar(&download_pin.reference));
@@ -2360,9 +2420,9 @@ pub fn render_release_github(
         out.push_str(&yaml_scalar(&policy.preflight_runner));
         out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.checkout.reference));
-        out.push('\n');
+        out.push_str("\n    steps:\n");
+        checkout_snippet(&mut out, policy, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str(&tool_install_snippet(tool));
         for qual in &graph.qualifications {
             out.push_str("      - name: Download qualification ");
@@ -2401,9 +2461,9 @@ pub fn render_release_github(
         out.push_str(&yaml_scalar(&policy.preflight_runner));
         out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.checkout.reference));
-        out.push('\n');
+        out.push_str("\n    steps:\n");
+        checkout_snippet(&mut out, policy, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str(&tool_install_snippet(tool));
         for qual in &graph.qualifications {
             out.push_str("      - name: Download qualification ");
@@ -2465,23 +2525,35 @@ pub fn render_release_github(
         out.push_str(&staging.job_id);
         out.push_str(":\n    needs: ");
         out.push_str(&staging.aggregate_job_id);
-        out.push_str("\n    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'\n    runs-on: ");
+        let (stage_if, stage_ref) = match staging_policy.tag_source {
+            StagingTagSource::RefName => (
+                "github.event_name == 'push' && github.ref_type == 'tag'",
+                "${{ github.ref }}",
+            ),
+            StagingTagSource::DispatchInput => (
+                "github.event_name == 'workflow_dispatch'",
+                "${{ inputs.release_tag }}",
+            ),
+        };
+        out.push_str("\n    if: ");
+        out.push_str(stage_if);
+        out.push_str("\n    runs-on: ");
         out.push_str(&yaml_scalar(&staging_policy.runner));
         out.push_str("\n    permissions:\n      contents: write\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
         out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
         out.push_str(&yaml_scalar(&policy.checkout.reference));
         out.push_str("\n        with:\n          ref: ");
-        out.push_str(&yaml_scalar(
-            "${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}",
-        ));
+        out.push_str(&yaml_scalar(stage_ref));
         out.push_str(
             "\n      - name: Validate exact-tag source\n        shell: bash\n        run: ",
         );
-        out.push_str(&yaml_scalar(
-            "test \"${{ github.event_name }}\" != \"workflow_dispatch\" || test -n \"${{ inputs.release_tag }}\"",
-        ));
+        out.push_str(&yaml_scalar(match staging_policy.tag_source {
+            StagingTagSource::RefName => "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\"",
+            StagingTagSource::DispatchInput => "test -n \"${{ inputs.release_tag }}\"",
+        }));
         out.push('\n');
+        source_verify_snippet(&mut out, inputs, true);
         out.push_str(&tool_install_snippet(tool));
         out.push_str("      - name: Download finalized release\n        uses: ");
         out.push_str(&yaml_scalar(&download_pin.reference));
@@ -4740,7 +4812,7 @@ mod tests {
         // Concurrency is release-scoped and tag-aware for manual dispatch.
         let concurrency = parsed.get("concurrency").unwrap();
         let group = concurrency.get("group").unwrap().as_str().unwrap();
-        assert!(group.contains("inputs.release_tag"));
+        assert!(!group.contains("inputs.release_tag"));
         assert!(group.contains("github.ref"));
         let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
         let mut writers = Vec::new();
@@ -4763,8 +4835,8 @@ mod tests {
         assert_eq!(needs.as_str().unwrap(), "aggregate");
         // Stage runs only for exact tags (tag push or explicit dispatch).
         let condition = stage.get("if").unwrap().as_str().unwrap();
+        assert!(condition.contains("github.event_name == 'push'"));
         assert!(condition.contains("github.ref_type == 'tag'"));
-        assert!(condition.contains("workflow_dispatch"));
         // No untrusted PR trigger may reach the write job: the workflow
         // triggers are push + workflow_dispatch only (no pull_request).
         let triggers = parsed.get("on").unwrap().as_mapping().unwrap();
@@ -4810,6 +4882,72 @@ mod tests {
                     .map(|report| report.matches)
                     .unwrap_or(true)
         );
+    }
+
+    #[test]
+    fn m003c_tag_source_controls_checkout_input_and_stage_guard() {
+        let (graph, mut policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        let ref_name = render_release_github(&graph, &policy).unwrap();
+        assert!(!ref_name.contains("inputs:\n      release_tag:"));
+        assert!(ref_name.contains("if: github.event_name == 'push' && github.ref_type == 'tag'"));
+        assert!(ref_name.contains("_verify-source"));
+        assert_eq!(ref_name.matches("_verify-source").count(), 6);
+        assert_eq!(ref_name.matches("ref: \"${{ github.ref }}\"").count(), 6);
+        let implicit_checkout = ref_name.replacen(
+            "        with:\n          ref: \"${{ github.ref }}\"\n",
+            "",
+            1,
+        );
+        assert!(
+            !check_release_github(&graph, &policy, implicit_checkout.as_bytes())
+                .unwrap()
+                .matches
+        );
+        let no_verifier = ref_name.replacen("_verify-source", "_removed-source-check", 1);
+        assert!(
+            !check_release_github(&graph, &policy, no_verifier.as_bytes())
+                .unwrap()
+                .matches
+        );
+        let broad_stage = ref_name.replace(
+            "github.event_name == 'push' && github.ref_type == 'tag'",
+            "always()",
+        );
+        assert!(
+            !check_release_github(&graph, &policy, broad_stage.as_bytes())
+                .unwrap()
+                .matches
+        );
+        policy.staging.as_mut().unwrap().tag_source = StagingTagSource::DispatchInput;
+        let dispatch = render_release_github(&graph, &policy).unwrap();
+        assert!(dispatch.contains("release_tag:\n        description:"));
+        assert!(dispatch.contains(
+            "github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref"
+        ));
+        assert!(dispatch.contains("if: github.event_name == 'workflow_dispatch'"));
+        assert_eq!(dispatch.matches("ref: \"${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}\"").count(), 5);
+        assert!(dispatch.contains("ref: \"${{ inputs.release_tag }}\""));
+        assert!(dispatch.contains(
+            "github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref"
+        ));
+        assert!(!dispatch.contains("if: github.event_name == 'push' && github.ref_type == 'tag'"));
+        let mut missing_dispatch = policy.clone();
+        missing_dispatch
+            .triggers
+            .retain(|trigger| *trigger != WorkflowTrigger::WorkflowDispatch);
+        assert!(render_release_github(&graph, &missing_dispatch).is_err());
+        assert_ne!(ref_name, dispatch);
     }
 
     #[test]

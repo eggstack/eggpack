@@ -21,6 +21,9 @@ serde_json = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt", "time", "macros", "net", "io-util"] }
 eggfetch-core = { version = "0.2.0", default-features = false, features = ["standard-http1", "tls-rustls", "tls-native-roots", "json"] }
+bytes = "1"
+futures-util = "0.3"
+url = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "net", "io-util"] }

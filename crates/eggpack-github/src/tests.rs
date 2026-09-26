@@ -690,6 +690,148 @@ async fn existing_exact_draft_reused() {
     assert_eq!(receipt.github_release_id, 7);
 }
 
+#[test]
+fn upload_origin_is_exact_and_names_are_query_encoded() {
+    let expected = "/repos/acme/widget/releases/7/assets";
+    check_upload_url(
+        &format!("https://uploads.github.com{expected}{{?name,label}}"),
+        "acme",
+        "widget",
+        7,
+    )
+    .unwrap();
+    for bad in [
+        format!("https://uploads.github.com.example.invalid{expected}"),
+        format!("https://user@uploads.github.com{expected}"),
+        format!("https://uploads.github.com:444{expected}"),
+        format!("https://uploads.github.com{expected}#fragment"),
+    ] {
+        assert!(
+            check_upload_url(&bad, "acme", "widget", 7).is_err(),
+            "{bad}"
+        );
+    }
+    for name in [
+        "space name",
+        "plus+name",
+        "amp&name",
+        "what?name",
+        "hash#name",
+        "pct%name",
+        "λ.bin",
+    ] {
+        let value = upload_url("acme", "widget", 7, name).unwrap();
+        let parsed = url::Url::parse(&value).unwrap();
+        assert_eq!(
+            parsed
+                .query_pairs()
+                .find(|(key, _)| key == "name")
+                .unwrap()
+                .1,
+            name
+        );
+    }
+}
+
+#[tokio::test]
+async fn upload_request_body_streams_multiple_bounded_chunks_with_known_length() {
+    let content = vec![0x5a; UPLOAD_CHUNK_BYTES * 3 + 17];
+    let expected_len = content.len();
+    let body = streamed_upload_body(
+        Box::new(std::io::Cursor::new(content.clone())),
+        expected_len as u64,
+    )
+    .unwrap();
+    let actual = body.into_bytes().await.unwrap();
+    assert_eq!(actual.len(), expected_len);
+    assert_eq!(actual.as_ref(), content.as_slice());
+}
+
+#[tokio::test]
+async fn asset_pagination_covers_101_and_fails_when_bound_exhausted() {
+    let mut policy = test_policy();
+    let fixture = FixtureGithub::with_tag(&"a".repeat(40));
+    let assets = (0..101)
+        .map(|id| fixture_asset(id, &format!("asset-{id}"), 1, "uploaded", None))
+        .collect();
+    fixture.seed_release(
+        fixture_release(7, "v1.2.3", "widget 1.2.3", "notes", false, true, false),
+        assets,
+    );
+    assert_eq!(
+        list_all_assets(&fixture, &policy, 7).await.unwrap().len(),
+        101
+    );
+    policy.max_list_pages = 1;
+    assert!(list_all_assets(&fixture, &policy, 7)
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("pagination bound"));
+}
+
+#[tokio::test]
+async fn staging_reconciles_101_assets_across_pages() {
+    let source = "a".repeat(40);
+    let (policy, mut payload, _) = payload_for_adapter(&source);
+    let mut bytes = BTreeMap::new();
+    payload.assets.clear();
+    for id in 0..101 {
+        let name = format!("payload-{id:03}.bin");
+        let data = format!("content-{id}").into_bytes();
+        payload.assets.push(StagingAsset {
+            name: name.clone(),
+            path: name.clone(),
+            size: data.len() as u64,
+            sha256: sha_hex(&data),
+            media_type: "application/octet-stream".into(),
+            kind: StagingAssetKind::FinalizedArtifact,
+        });
+        bytes.insert(name, data);
+    }
+    payload.assets.sort_by(|a, b| a.name.cmp(&b.name));
+    let fixture = FixtureGithub::with_tag(&source);
+    let receipt = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        bytes
+            .get(name)
+            .cloned()
+            .ok_or_else(|| fail("missing fixture bytes"))
+    })
+    .await
+    .unwrap();
+    assert_eq!(receipt.uploaded, 101);
+    assert_eq!(fixture.assets_for(receipt.github_release_id).len(), 101);
+}
+
+#[tokio::test]
+async fn directory_staging_uses_opened_files_and_rejects_digest_mismatch_before_mutation() {
+    let source = "a".repeat(40);
+    let (policy, payload, bytes) = payload_for_adapter(&source);
+    let dir = temp_root("stream-source");
+    for (name, body) in &bytes {
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+    let fixture = FixtureGithub::with_tag(&source);
+    let receipt = stage_with_dir(&payload, &policy, &fixture, "token", &dir)
+        .await
+        .unwrap();
+    assert_eq!(receipt.uploaded as usize, payload.assets.len());
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    let dir = temp_root("stream-mismatch");
+    for (name, body) in &bytes {
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+    std::fs::write(dir.join("app.bin"), b"evil").unwrap();
+    let fixture = FixtureGithub::with_tag(&source);
+    assert!(stage_with_dir(&payload, &policy, &fixture, "token", &dir)
+        .await
+        .is_err());
+    assert_eq!(fixture.create_calls(), 0);
+    assert_eq!(fixture.upload_calls(), 0);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[tokio::test]
 async fn published_and_immutable_reject() {
     for (draft, immutable) in [(false, false), (true, true)] {
@@ -954,9 +1096,15 @@ async fn post_stage_tag_movement_rejects() {
         fixture: FixtureGithub,
         moved: Mutex<bool>,
         source: String,
+        replace_path: Mutex<Option<(PathBuf, PathBuf)>>,
+        move_after_upload: bool,
     }
     impl GithubApi for MovingTransport {
         async fn get_ref(&self, o: &str, r: &str, t: &str) -> Result<RefTarget, GithubError> {
+            if let Some((path, backup)) = self.replace_path.lock().unwrap().take() {
+                std::fs::rename(&path, &backup).unwrap();
+                std::fs::write(&path, b"EVIL").unwrap();
+            }
             if *self.moved.lock().unwrap() {
                 Ok(RefTarget {
                     sha: "b".repeat(40),
@@ -993,8 +1141,9 @@ async fn post_stage_tag_movement_rejects() {
             o: &str,
             r: &str,
             id: u64,
+            page: u32,
         ) -> Result<Vec<RemoteAsset>, GithubError> {
-            self.fixture.list_assets(o, r, id).await
+            self.fixture.list_assets(o, r, id, page).await
         }
         async fn upload_asset(
             &self,
@@ -1002,12 +1151,18 @@ async fn post_stage_tag_movement_rejects() {
             r: &str,
             id: u64,
             n: &str,
-            bytes: &[u8],
+            file: Box<dyn std::io::Read + Send>,
+            length: u64,
             ct: &str,
         ) -> Result<RemoteAsset, GithubError> {
-            let result = self.fixture.upload_asset(o, r, id, n, bytes, ct).await;
+            let result = self
+                .fixture
+                .upload_asset(o, r, id, n, file, length, ct)
+                .await;
             // Move the tag after the last upload so post-stage verification fails.
-            *self.moved.lock().unwrap() = true;
+            if self.move_after_upload {
+                *self.moved.lock().unwrap() = true;
+            }
             let _ = &self.source;
             result
         }
@@ -1021,12 +1176,42 @@ async fn post_stage_tag_movement_rejects() {
         fixture: FixtureGithub::with_tag(&source),
         moved: Mutex::new(false),
         source: source.clone(),
+        replace_path: Mutex::new(None),
+        move_after_upload: true,
     };
     let result = stage_with_bytes(&payload, &policy, &moving, "token", |name| {
         bytes.get(name).cloned().ok_or_else(|| fail("missing"))
     })
     .await;
     assert!(result.is_err());
+
+    let source = "a".repeat(40);
+    let (policy, payload, bytes) = payload_for_adapter(&source);
+    let dir = temp_root("path-replacement");
+    for (name, data) in &bytes {
+        std::fs::write(dir.join(name), data).unwrap();
+    }
+    let original = dir.join("app.bin");
+    let backup = dir.join("app.bin.original");
+    let transport = MovingTransport {
+        fixture: FixtureGithub::with_tag(&source),
+        moved: Mutex::new(false),
+        source: source.clone(),
+        replace_path: Mutex::new(Some((original, backup.clone()))),
+        move_after_upload: false,
+    };
+    let receipt = stage_with_dir(&payload, &policy, &transport, "token", &dir)
+        .await
+        .unwrap();
+    let uploaded = transport.fixture.assets_for(receipt.github_release_id);
+    let app = uploaded
+        .iter()
+        .find(|asset| asset.name == "app.bin")
+        .unwrap();
+    let expected_digest = format!("sha256:{}", sha_hex(b"body"));
+    assert_eq!(app.digest.as_deref(), Some(expected_digest.as_str()));
+    assert_eq!(std::fs::read(dir.join("app.bin")).unwrap(), b"EVIL");
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[tokio::test]

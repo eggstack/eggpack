@@ -1,5 +1,7 @@
 # CI and Release Orchestration Milestone 003a Closure — Local Staging Payload and GitHub Draft Adapter
 
+Historical closure annotation (M003c): post-closure review identified full-file upload buffering, page-1-only asset reconciliation, prefix-based upload-origin validation, and unencoded asset query names. These findings are corrected and closed by `plans/closure/ci-release-orchestration/003c-status.md`; the historical M003a evidence below is retained as originally recorded.
+
 Status: closed
 
 Source plan: `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md`
