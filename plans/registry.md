@@ -73,11 +73,11 @@ Distribution predecessor evidence:
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement closed; consumer evidence gates M003 |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
-| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001/M002/M002a/M003/M004 closed | producer finalization interface is available |
+| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001-M004 closed; M005 ready | deterministic Zig/cargo-zigbuild provisioning is the first-consumer prerequisite |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 historical; M002a closed | M002a closed on `4d2270a` + run 36154905956; M003 blocked on adoption evidence/candidate review |
-| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003b live qualification ready to resume | run 36213316240 passed Linux stable, Linux 1.89, macOS, and Windows; live draft evidence remains |
+| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003d ready | first-consumer review requires reusable runtime identity + product-wrapper/consumer-validator composition before eggsact live qualification |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
-| Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 research complete / blocked | eggsact baseline `43971e7`; waits on full M003b live draft + mirrored eggsact release-adoption plan |
+| Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 blocked / planned | eggsact baseline `174764c`; mirrored eggsact M005 plan registered; waits on Eggpack M003d + Build M005 closures, then performs M003b live draft proof |
 
 ## Dependency-ready implementation work
 
@@ -91,6 +91,7 @@ Current dependency-ready implementation work:
 | Build and qualification | M002a Windows qualification stability | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | Closure `plans/closure/build-qualification/002a-status.md`; three first-attempt hosted Windows runs passed |
 | Build and qualification | M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | Closure `plans/closure/build-qualification/003-status.md`; hosted run 36095915717 |
 | Build and qualification | M004 finalization/aggregation | closed | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | Closure `plans/closure/build-qualification/004-status.md`; hosted run 36098072913 |
+| Build and qualification | M005 deterministic cross-tool provisioning | ready | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | first real CargoZigbuild consumer requires exact Zig 0.14.1 / cargo-zigbuild 0.23.3 provisioning rather than ambient tools |
 | Bootstrap installers | M001 generator/direct fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Closure `plans/closure/bootstrap-installers/001-status.md` |
 | CI orchestration | M001 CIPlan/GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Closure `plans/closure/ci-release-orchestration/001-status.md`; hosted run 36040032768 passes all lanes |
 | CI orchestration | M002 qualification/aggregation gates + drift CLI | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | Historical closure retained; executable generated-workflow defect corrected and qualified by M002a (`plans/closure/ci-release-orchestration/002a-status.md`) |
@@ -98,6 +99,7 @@ Current dependency-ready implementation work:
 | CI orchestration | M003a local staging payload + GitHub draft adapter | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/003a-local-staging-payload-and-github-draft-adapter.md` | Historical closure retained; M003c resolves transfer/pagination/origin/query findings |
 | CI orchestration | M003b generated draft staging job + operational qualification | conditionally closed; corrective closed | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | Source identity/tag-source findings corrected; live draft is its only remaining condition |
 | CI orchestration | M003c staging source identity + bounded transfer corrective | closed | `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md` | Closure `plans/closure/ci-release-orchestration/003c-status.md`; implementation `5c28099`; hosted run 36213316240 green |
+| CI orchestration | M003d consumer release composition seam | ready | `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md` | reusable static workflow/runtime identity, public product wrappers + generated exact installers, bounded Python3 consumer validator |
 | Bootstrap installers | M002 bundle/archive bootstrap safety | closed historically; corrective closed | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | Historical closure retained; PowerShell archive runtime evidence gap corrected and qualified by M002a (`plans/closure/bootstrap-installers/002a-status.md`) |
 | Bootstrap installers | M002a PowerShell archive runtime evidence | closed | `plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md` | Closure `plans/closure/bootstrap-installers/002a-status.md`; implementation `4d2270a`; hosted run 36154905956 (attempt 1, all lanes green) |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |
@@ -108,15 +110,15 @@ Current dependency-ready implementation work:
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 
-| CI orchestration | M003b generated draft staging + live qualification | ready to resume | M003c closed; the live draft fixture/qualification is the remaining M003b condition |
+| CI orchestration | M003b generated draft staging + live qualification | blocked behind first-consumer prerequisites | M003c closed; live proof will run inside eggsact M001 after M003d + Build M005 close |
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | blocked | real adoption evidence/candidate review (M002a precondition satisfied) |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
 | Eggup interoperability | M003 real-consumer adoption | ready to plan | select a real consumer currently owning duplicated manifest-to-update mapping |
-| Ecosystem adoption | M001 eggsact direct release adoption | blocked / research complete | Full M003b live draft + mirrored eggsact distribution/release plan; baseline `43971e7`; retain product-owned fallback/update policy |
+| Ecosystem adoption | M001 eggsact direct release adoption | blocked / planned | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`; waits on M003d + Build M005; mirrored eggsact M005 plan registered at baseline `174764c` |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
-Build/Qualification M002a/M003/M004 remain closed with hosted cross-platform evidence. CI M002 and Bootstrap M002 retain their historical implementation/closure records. Both M002a correctives are closed on implementation `4d2270a` with hosted run 36154905956 green. CI M003a/M003b retain their historical evidence (`36f1cc1`/36180399698 and `84e4e4f`/36193654633); M003c corrected their post-closure source-integrity and transfer findings in `5c28099`, qualified by hosted run 36213316240 (all four lanes green). CI M003b live draft qualification is ready to resume and is its only remaining condition. Bootstrap M003 remains blocked on adoption evidence/candidate review. Eggsact ecosystem M001 research is complete but implementation remains blocked on M003b live draft evidence and a mirrored consumer-repo plan.
+Build/Qualification M002a/M003/M004 remain closed with hosted cross-platform evidence. CI M002 and Bootstrap M002 retain their historical implementation/closure records. Both M002a correctives are closed on implementation `4d2270a` with hosted run 36154905956 green. CI M003a/M003b retain their historical evidence (`36f1cc1`/36180399698 and `84e4e4f`/36193654633); M003c corrected their post-closure source-integrity and transfer findings in `5c28099`, qualified by hosted run 36213316240 (all four lanes green). First-consumer review showed that the live-draft proof must exercise two additional reusable seams rather than the fixture-only M003c surface: M003d consumer composition/runtime identity and Build M005 deterministic cross-tool provisioning. Both are dependency-ready in Eggpack. Ecosystem M001 eggsact and mirrored eggsact M005 are planned but blocked until both close; that adoption milestone then performs the outstanding M003b real-draft/rerun proof. Bootstrap M003 remains blocked on adoption evidence/candidate review.
 
 ## Immediate execution graph
 
@@ -166,7 +168,13 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
          |                                                                               v
          |                                                                    CI M003c [CLOSED]
          |                                                                               |
-         |                                                                               `--> live draft qualification [READY] --> eggsact M001 [BLOCKED]
+         |                                                                    CI M003d [READY] -----------+
+         |                                                                                                 |
+         |              Build M004 [CLOSED] --> Build M005 [READY] ---------------------+
+         |                                                                                                 v
+         |                                                                         eggsact M001 [BLOCKED / PLANNED]
+         |                                                                                                 |
+         |                                                                                                 `--> M003b live draft proof
          `--> bootstrap installers M001 [CLOSED; direct first-install generator]
                         |
                         `--> Bootstrap M002 [CLOSED HISTORICALLY]
@@ -201,7 +209,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-Manifest M002, Build/Qualification M001/M002/M002a/M003/M004, CI M001/M002/M002a/M003a/M003b/M003c, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records. CI M002a and Bootstrap M002a closed on `4d2270a` (hosted run 36154905956); M003c closed on `5c28099` with hosted run 36213316240 green across all lanes. M003b live-draft qualification is ready to resume; Phase 8 exit and eggsact adoption remain blocked on that evidence, with eggsact also requiring its mirrored adoption plan. Bootstrap M003 remains blocked on real adoption evidence/candidate review. Eggup Interoperability M003 real-consumer adoption remains independently ready to plan.
+Manifest M002, Build/Qualification M001-M004, CI M001/M002/M002a/M003a/M003b/M003c, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records. The parallel dependency-ready handoffs are Build M005 (`plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md`) and CI M003d (`plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md`). Eggpack Ecosystem M001 is planned at `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`; mirrored eggsact M005 is registered in `eggstack/eggsact`. Do not attempt the real draft until M003d and Build M005 close. The adoption milestone itself supplies the remaining M003b live-draft/rerun evidence. Bootstrap M003 remains blocked on real adoption evidence/candidate review. Eggup Interoperability M003 remains independently ready to plan.
 
 ## Registry update rule
 
