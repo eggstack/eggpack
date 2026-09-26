@@ -70,7 +70,7 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Core direct build/finalization/staging prerequisites are closed, but first-consumer review found two missing reusable seams: CI M003d for static-workflow/runtime-identity plus product-wrapper/consumer-validator composition, and Build M005 for deterministic Zig/cargo-zigbuild provisioning. Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; Eggpack Ecosystem M001 begins only after M003d and Build M005 close, and then supplies the outstanding M003b live-draft evidence itself.
+Core direct build/finalization/staging prerequisites are closed, and CI M003d closed the static-workflow/runtime-identity plus product-wrapper/consumer-validator composition seam. The remaining first-consumer prerequisite is Build M005 deterministic Zig/cargo-zigbuild provisioning. Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; Eggpack Ecosystem M001 begins after Build M005 closes, and then supplies the outstanding M003b live-draft evidence itself.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -118,7 +118,7 @@ Multiple independent repos use Eggpack as producer authority with measurable red
 
 ## 12. Milestone status
 
-Core build/finalization/bootstrap/staging prerequisites through M003c are closed. M001 eggsact research and mirrored planning are complete; implementation is blocked only on the newly identified reusable consumer-composition M003d and deterministic cross-tool Build M005 prerequisites.
+Core build/finalization/bootstrap/staging prerequisites through M003d are closed. M001 eggsact research and mirrored planning are complete; implementation is blocked only on deterministic cross-tool Build M005.
 
 Reviewed eggsact baseline: `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`.
 

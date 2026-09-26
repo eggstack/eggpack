@@ -1,6 +1,10 @@
 # CI and Release Orchestration Milestone 003d — Consumer Release Composition Seam
 
-Status: ready for handoff
+Status: closed
+
+Closure record: `plans/closure/ci-release-orchestration/003d-status.md`
+
+Closure disposition: M003d is closed on implementation `946dd7a`. Reusable static workflow shape with runtime `_resolve-release` identity resolution, staging-owned installer presentation (GeneratedDefault byte-identical; ProductWrappers stages product-owned public wrappers plus generated exact installers), static draft template with exact-tag resolution, and a bounded Python3 consumer validator with identity-linked evidence and required/optional gate semantics all landed with full local verification (workspace 195 passed/6 ignored, MSRV green, check-local.sh exit 0). No generic command DSL, arbitrary staging surface, product-specific logic, publication authority, or tag mutation was added. Ecosystem M001 remains blocked only on Build M005, which then performs the M003b live-draft proof.
 
 Repository baseline: `8a451ba8f98cd058d861b3283af92c6412deec15`
 

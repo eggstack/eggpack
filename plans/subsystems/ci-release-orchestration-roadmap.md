@@ -108,7 +108,7 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001-M004, CI M001/M002/M002a, and corrective M003c are closed. First-consumer analysis exposed a reusable-workflow/runtime-identity plus product-wrapper/consumer-validator composition gap, now owned by M003d. M003a/M003b retain historical evidence; the eggsact live-draft qualification is deliberately sequenced after M003d and Build M005 so the operational proof exercises the actual consumer interface.
+Build/Qualification M001-M004, CI M001/M002/M002a, and corrective M003c/M003d are closed. M003a/M003b retain historical evidence; the eggsact live-draft qualification is deliberately sequenced after Build M005 so the operational proof exercises the actual consumer interface.
 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
@@ -121,4 +121,4 @@ Build/Qualification M001-M004, CI M001/M002/M002a, and corrective M003c are clos
 
 | M003c staging source identity + bounded transfer corrective | closed | `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md` | `plans/closure/ci-release-orchestration/003c-status.md`; implementation `5c28099`; hosted run 36213316240 passed all lanes | M003b live draft qualification is ready to resume; Phase 8 and consumer adoption still require its evidence |
 
-| M003d consumer release composition seam | ready | `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md` | — | reusable runtime release identity, product wrapper presentation, and bounded consumer-validator seam required before eggsact live qualification |
+| M003d consumer release composition seam | closed | `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md` | `plans/closure/ci-release-orchestration/003d-status.md` | reusable static workflow/runtime identity, product wrapper presentation, and bounded consumer-validator seam landed; eggsact live qualification still waits on Build M005 |

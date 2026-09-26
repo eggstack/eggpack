@@ -64,8 +64,21 @@ install the pinned Eggpack CLI, download the exact aggregate artifact, run
 `_prepare-stage`, then `_stage-github-draft`, and upload the bounded staging
 receipt. Reruns reconcile exact draft/asset state without clobber; public
 publication remains a separate human action. Live draft qualification remains
-outstanding (maintainer-authorized fixture required).
+outstanding (maintainer-authorized fixture required). M003d adds the consumer
+composition seam: reusable checked-in workflows carry static shape only
+(`ReleaseWorkflowShapeV1`, no future tag or source SHA) with a runtime
+`resolve` job materializing invocation-local ReleasePlan/ReleaseCIPlan/draft
+policy per event-selected tag; product-owned `install.sh`/`install.ps1`
+wrappers coexist with generated exact installers (`install-exact.*`) as
+copied bytes; and a bounded Python3 consumer validator runs the exact
+candidate after core qualification with identity-linked evidence and no
+arbitrary command support. Ownership boundary: generated exact installers are
+Eggpack first-install evidence, product wrappers are consumer-owned
+selection/fallback/install UX, and the consumer validator is bounded
+consumer-owned release evidence rather than Eggpack qualification semantics.
 
 `eggpack-cli` provides deterministic `eggpack ci generate` and `eggpack ci check`
-plus narrow internal runner commands wrapping core qualification, finalization,
-and draft staging.
+(exact `--ci-plan` mode plus reusable `--workflow-shape` mode) with narrow
+internal runner commands wrapping source verification, runtime identity
+resolution, core qualification, consumer validation, finalization, and draft
+staging.
