@@ -165,4 +165,4 @@ The historical implementation and hosted run remain valid evidence for the behav
 
 Corrective plan: `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md`.
 
-M003a is retained as historical closure evidence with M003c active. No live-draft qualification or consumer adoption should rely on the provider path until M003c closes.
+M003a is retained as historical closure evidence. M003c closed the listed provider findings at `plans/closure/ci-release-orchestration/003c-status.md` (implementation `5c28099`, hosted run `36213316240`). Provider-path use for M003b live qualification may resume; consumer adoption still requires its remaining operational gates.

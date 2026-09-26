@@ -137,4 +137,8 @@ The historical implementation/run remain valid evidence for permissions, determi
 
 Corrective plan: `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md`.
 
-M003b remains historical conditional-close evidence with M003c active. Live draft qualification, Phase 8 exit, and eggsact adoption remain blocked until M003c closes.
+M003b remains conditionally closed after M003c. Its exact-source and `StagingTagSource` defects are corrected; live draft qualification is its only remaining condition. Phase 8 exit and eggsact adoption remain blocked on that live evidence, with eggsact also requiring its mirrored adoption plan.
+
+## M003c corrective reconciliation
+
+M003c closure: `plans/closure/ci-release-orchestration/003c-status.md` (implementation `5c28099`; hosted run `36213316240`, all four lanes green). The prior source mismatch and tag-source policy defects are closed. M003b live qualification is ready to resume using a maintainer-authorized fixture; no real draft was created as part of M003c.

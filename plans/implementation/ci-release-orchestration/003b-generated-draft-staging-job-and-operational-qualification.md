@@ -6,6 +6,8 @@ Closure record: `plans/closure/ci-release-orchestration/003b-status.md`
 
 Closure disposition (2026-09-25): M003b implementation is complete and locally qualified on fake-adapter evidence (conditional close; live draft outstanding). The final M003a CLI/provider contracts were re-reviewed against this plan with no interface change required (`_prepare-stage` / `_stage-github-draft` flag shapes match the rendered `RunnerCommand` argv). Generated `stage` job, permission matrix, drift detection, and local fake-GitHub orchestration (direct/bundle/archive, rerun, tag-mismatch, published/mismatch refusal) all pass. Full closure additionally requires a maintainer-authorized live draft fixture; Phase 8 exit is not satisfied and eggsact adoption remains blocked until then.
 
+M003c corrective closure (2026-09-26): source identity, authoritative tag-source behavior, streamed transfer, pagination, and upload URL/query findings are closed by `plans/closure/ci-release-orchestration/003c-status.md` (hosted run `36212965843`). M003b remains conditionally closed with only live draft qualification outstanding; that qualification is now ready to resume with a maintainer-authorized fixture.
+
 Unblocked by M003a closure (2026-09-25): `plans/closure/ci-release-orchestration/003a-status.md` (implementation `36f1cc1`, hosted run 36180399698 green). Final M003a CLI/provider contracts must be re-reviewed against this plan before handoff; full closure additionally requires a maintainer-authorized live draft fixture.
 
 Repository baseline: `97db44513ab7e0083fa71c5ab03aa57d63fca1be`
