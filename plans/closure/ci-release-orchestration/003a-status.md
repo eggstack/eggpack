@@ -148,3 +148,19 @@ M003b is therefore **dependency-ready**: the provider/payload hard dependency is
 ## Registry updates
 
 `plans/registry.md` reconciled: CI M003a moved to closed with this closure path and implementation/run evidence; CI M003b moved to ready (blocked only on live draft fixture for full closure plus final-interface re-review); narrative, execution graph, and next-handoff paragraphs updated to the post-close state. CI roadmap `plans/subsystems/ci-release-orchestration-roadmap.md` updated to match.
+
+
+## Post-closure corrective registration — M003c
+
+A later staging audit found medium-severity provider correctness gaps not captured by this closure:
+
+- production release-asset upload fully buffers files and duplicates full asset bytes in memory;
+- remote asset reconciliation reads only the first 100 assets despite a 1,024-asset payload bound;
+- upload host validation uses prefix matching rather than exact parsed host/origin validation;
+- asset names are interpolated into the upload query without URL encoding.
+
+The historical implementation and hosted run remain valid evidence for the behavior they exercised, but the statement that no unresolved medium-or-higher staging safety finding remained is superseded.
+
+Corrective plan: `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md`.
+
+M003a is retained as historical closure evidence with M003c active. No live-draft qualification or consumer adoption should rely on the provider path until M003c closes.
