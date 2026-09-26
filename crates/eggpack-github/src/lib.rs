@@ -1917,6 +1917,7 @@ struct FixtureInner {
     tag_objects: BTreeMap<String, (String, String)>,
     releases: Vec<FixtureReleaseState>,
     assets: BTreeMap<u64, Vec<RemoteAsset>>,
+    asset_pages: BTreeMap<(u64, u32), Vec<RemoteAsset>>,
     next_release_id: u64,
     next_asset_id: u64,
     upload_rename_next: bool,
@@ -1946,6 +1947,7 @@ impl FixtureGithub {
                 tag_objects: BTreeMap::new(),
                 releases: Vec::new(),
                 assets: BTreeMap::new(),
+                asset_pages: BTreeMap::new(),
                 next_release_id: 100,
                 next_asset_id: 1000,
                 upload_rename_next: false,
@@ -1986,6 +1988,15 @@ impl FixtureGithub {
         if id >= inner.next_release_id {
             inner.next_release_id = id + 1;
         }
+    }
+
+    /// Override one remote asset-list page for pagination edge-case tests.
+    pub fn set_asset_page(&self, release_id: u64, page: u32, assets: Vec<RemoteAsset>) {
+        self.inner
+            .lock()
+            .unwrap()
+            .asset_pages
+            .insert((release_id, page), assets);
     }
 
     /// Fail the next upload for `name` with 502.
@@ -2175,6 +2186,9 @@ impl GithubApi for FixtureGithub {
         page: u32,
     ) -> Result<Vec<RemoteAsset>, GithubError> {
         let inner = self.inner.lock().unwrap();
+        if let Some(page_assets) = inner.asset_pages.get(&(release_id, page)) {
+            return Ok(page_assets.clone());
+        }
         let all = inner.assets.get(&release_id).cloned().unwrap_or_default();
         let start = (page.saturating_sub(1) as usize).saturating_mul(ASSET_PAGE_SIZE);
         Ok(all.into_iter().skip(start).take(ASSET_PAGE_SIZE).collect())

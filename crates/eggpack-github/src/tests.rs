@@ -804,6 +804,86 @@ async fn staging_reconciles_101_assets_across_pages() {
 }
 
 #[tokio::test]
+async fn later_page_unexpected_mismatch_and_cross_page_duplicate_fail_closed() {
+    let source = "a".repeat(40);
+    let (policy, mut payload, _) = payload_for_adapter(&source);
+    let mut bytes = BTreeMap::new();
+    payload.assets.clear();
+    for id in 0..101 {
+        let name = format!("expected-{id:03}.bin");
+        let data = format!("body-{id}").into_bytes();
+        payload.assets.push(StagingAsset {
+            name: name.clone(),
+            path: name.clone(),
+            size: data.len() as u64,
+            sha256: sha_hex(&data),
+            media_type: "application/octet-stream".into(),
+            kind: StagingAssetKind::FinalizedArtifact,
+        });
+        bytes.insert(name, data);
+    }
+    let first = &payload.assets[0];
+    let last = &payload.assets[100];
+    let first_page: Vec<RemoteAsset> = payload.assets[..100]
+        .iter()
+        .enumerate()
+        .map(|(id, asset)| {
+            fixture_asset(
+                id as u64,
+                &asset.name,
+                asset.size,
+                "uploaded",
+                Some(&asset.sha256),
+            )
+        })
+        .collect();
+    let cases = [
+        (
+            "unexpected",
+            vec![fixture_asset(103, "evil.bin", 1, "uploaded", None)],
+        ),
+        (
+            "mismatch",
+            vec![fixture_asset(
+                104,
+                &last.name,
+                last.size,
+                "uploaded",
+                Some(&"0".repeat(64)),
+            )],
+        ),
+        (
+            "duplicate",
+            vec![fixture_asset(
+                105,
+                &first.name,
+                first.size,
+                "uploaded",
+                Some(&first.sha256),
+            )],
+        ),
+    ];
+    for (case, page_two) in cases {
+        let fixture = FixtureGithub::with_tag(&source);
+        fixture.seed_release(
+            fixture_release(7, "v1.2.3", "widget 1.2.3", "notes", false, true, false),
+            Vec::new(),
+        );
+        fixture.set_asset_page(7, 1, first_page.clone());
+        fixture.set_asset_page(7, 2, page_two);
+        let result = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+            bytes
+                .get(name)
+                .cloned()
+                .ok_or_else(|| fail("missing fixture bytes"))
+        })
+        .await;
+        assert!(result.is_err(), "{case} on page two must fail");
+        assert_eq!(fixture.upload_calls(), 0, "{case} must fail before upload");
+    }
+}
+
+#[tokio::test]
 async fn directory_staging_uses_opened_files_and_rejects_digest_mismatch_before_mutation() {
     let source = "a".repeat(40);
     let (policy, payload, bytes) = payload_for_adapter(&source);
