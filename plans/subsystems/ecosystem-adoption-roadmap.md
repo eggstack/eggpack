@@ -70,7 +70,7 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Core simple-direct producer prerequisites are closed, but the first consumer's full release-workflow parity still depends on Phase 8 draft staging. Eggsact baseline review is complete at `eggstack/eggsact@43971e7c1af7f936acfd876f9bff246e72866f2d`; implementation waits for CI M003b closure and a mirrored eggsact distribution/release plan.
+Core simple-direct producer prerequisites are closed, but the first consumer's full release-workflow parity still depends on a corrected Phase 8 staging path. Eggsact baseline review is complete at `eggstack/eggsact@43971e7c1af7f936acfd876f9bff246e72866f2d`; implementation waits for CI M003c closure, subsequent full M003b live-draft closure, and a mirrored eggsact distribution/release plan.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -140,7 +140,7 @@ The first migration should therefore replace producer target/artifact/checksum/q
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 eggsact direct release adoption | blocked / research complete | — | — | CI M003b full staging closure + mirrored eggsact distribution/release adoption plan; preserve Cargo fallback/latest/update product policy |
+| M001 eggsact direct release adoption | blocked / research complete | — | — | CI M003c closure + full M003b live-draft closure + mirrored eggsact distribution/release adoption plan; preserve Cargo fallback/latest/update product policy |
 | M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
