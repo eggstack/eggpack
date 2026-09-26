@@ -70,7 +70,7 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Core simple-direct producer prerequisites, including the M003c staging corrective, are closed. Eggsact baseline review is complete at `eggstack/eggsact@43971e7c1af7f936acfd876f9bff246e72866f2d`; implementation remains blocked on full M003b live-draft closure and a mirrored eggsact distribution/release plan.
+Core direct build/finalization/staging prerequisites are closed, but first-consumer review found two missing reusable seams: CI M003d for static-workflow/runtime-identity plus product-wrapper/consumer-validator composition, and Build M005 for deterministic Zig/cargo-zigbuild provisioning. Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; Eggpack Ecosystem M001 begins only after M003d and Build M005 close, and then supplies the outstanding M003b live-draft evidence itself.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -118,9 +118,9 @@ Multiple independent repos use Eggpack as producer authority with measurable red
 
 ## 12. Milestone status
 
-Core build/finalization/bootstrap/generated-CI prerequisites are closed. M001 eggsact research is complete enough to identify the migration boundary, but implementation remains blocked on the Phase 8 staging interface and a mirrored eggsact handoff.
+Core build/finalization/bootstrap/staging prerequisites through M003c are closed. M001 eggsact research and mirrored planning are complete; implementation is blocked only on the newly identified reusable consumer-composition M003d and deterministic cross-tool Build M005 prerequisites.
 
-Reviewed eggsact baseline: `eggstack/eggsact@43971e7c1af7f936acfd876f9bff246e72866f2d`.
+Reviewed eggsact baseline: `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`.
 
 Current eggsact release authority still duplicated across:
 
@@ -140,7 +140,7 @@ The first migration should therefore replace producer target/artifact/checksum/q
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 eggsact direct release adoption | blocked / research complete | — | — | Full M003b live-draft closure + mirrored eggsact distribution/release adoption plan; preserve Cargo fallback/latest/update product policy |
+| M001 eggsact direct release adoption | blocked / planned | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | — | CI M003d + Build M005 closures; mirrored eggsact M005 plan registered; M001 itself performs the real M003b draft qualification |
 | M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
