@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 001 — eggsact Direct Release Adoption and Live Draft Qualification
 
-Status: blocked / planned
+Status: ready
 
 Repository baseline: `16118c5896519ae10e3d296e77d5974869d89354`
 
@@ -18,8 +18,8 @@ Mirrored consumer plan:
 
 Hard dependencies:
 
-- CI M003d consumer release composition seam — planned, must close;
-- Build M005 deterministic cross-tool provisioning — planned, must close;
+- CI M003d consumer release composition seam — closed at `plans/closure/ci-release-orchestration/003d-status.md`;
+- Build M005 deterministic cross-tool provisioning — closed at `plans/closure/build-qualification/005-status.md` (implementation `7a206ba`, hosted run 36256831000);
 - CI M003c — closed;
 - Bootstrap M002a — closed;
 - Build/Qualification M003/M004 — closed.

@@ -70,7 +70,7 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Core direct build/finalization/staging prerequisites are closed, and CI M003d closed the static-workflow/runtime-identity plus product-wrapper/consumer-validator composition seam. The remaining first-consumer prerequisite is Build M005 deterministic Zig/cargo-zigbuild provisioning. Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; Eggpack Ecosystem M001 begins after Build M005 closes, and then supplies the outstanding M003b live-draft evidence itself.
+Core direct build/finalization/staging prerequisites are closed, CI M003d closed the static-workflow/runtime-identity plus product-wrapper/consumer-validator composition seam, and Build M005 closed deterministic Zig/cargo-zigbuild provisioning (`plans/closure/build-qualification/005-status.md`). Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; Eggpack Ecosystem M001 is now unblocked and then supplies the outstanding M003b live-draft evidence itself.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -118,7 +118,7 @@ Multiple independent repos use Eggpack as producer authority with measurable red
 
 ## 12. Milestone status
 
-Core build/finalization/bootstrap/staging prerequisites through M003d are closed. M001 eggsact research and mirrored planning are complete; implementation is blocked only on deterministic cross-tool Build M005.
+Core build/finalization/bootstrap/staging prerequisites through M003d plus Build M005 are closed. M001 eggsact research and mirrored planning are complete; implementation is unblocked.
 
 Reviewed eggsact baseline: `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`.
 
@@ -140,7 +140,7 @@ The first migration should therefore replace producer target/artifact/checksum/q
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 eggsact direct release adoption | blocked / planned | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | — | CI M003d + Build M005 closures; mirrored eggsact M005 plan registered; M001 itself performs the real M003b draft qualification |
+| M001 eggsact direct release adoption | ready | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | — | CI M003d + Build M005 closed; mirrored eggsact M005 plan registered; M001 itself performs the real M003b draft qualification |
 | M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |

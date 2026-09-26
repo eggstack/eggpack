@@ -131,7 +131,7 @@ Closed: `plans/closure/build-qualification/004-status.md`. Direct/bundle/archive
 
 ### M005 — Deterministic cross-tool provisioning
 
-Ready: first-consumer adoption requires Eggpack to provision the exact cargo-zigbuild and Zig versions/digests declared by producer policy rather than assume mutable ambient tools on hosted runners. The refined handoff pins eggsact parity at Zig 0.14.1 + cargo-zigbuild 0.23.3, binds cargo-zigbuild to the verified private Zig executable through `CARGO_ZIGBUILD_ZIG_PATH`, isolates `CARGO_ZIGBUILD_CACHE_DIR`, and keeps the existing `.2.17` CargoZigbuild command semantics unchanged. CI M003d is closed, so M005 is the sole remaining Eggpack-side prerequisite for Ecosystem M001.
+Closed: `plans/closure/build-qualification/005-status.md`. Eggpack provisions the exact cargo-zigbuild and Zig versions/digests declared by producer policy (eggsact parity: Zig 0.14.1 + cargo-zigbuild 0.23.3) rather than assuming mutable ambient tools on hosted runners. Cargo-zigbuild is bound to the verified private Zig executable through `CARGO_ZIGBUILD_ZIG_PATH`, `CARGO_ZIGBUILD_CACHE_DIR` is isolated, and the existing `.2.17` CargoZigbuild command semantics are unchanged. CI M003d was already closed, so M005 closure unblocks Ecosystem M001.
 
 Implementation plan: `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md`.
 
@@ -162,4 +162,4 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | M002a Windows qualification stability corrective | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | `plans/closure/build-qualification/002a-status.md` | three repeated hosted Windows stability runs passed |
 | M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | `plans/closure/build-qualification/003-status.md` | local verification and hosted matrix passed |
 | M004 finalization/aggregation | closed | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | `plans/closure/build-qualification/004-status.md` | Local and hosted verification passed |
-| M005 deterministic cross-tool provisioning | ready | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | — | refined at `fd7adde`, baseline-aligned at `86fa474`; exact Zig 0.14.1/cargo-zigbuild 0.23.3 provisioning, explicit verified-Zig binding/private cache; sole remaining prerequisite before eggsact M001 |
+| M005 deterministic cross-tool provisioning | closed | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | `plans/closure/build-qualification/005-status.md`; implementation `7a206ba`; hosted run 36256831000 green | exact Zig 0.14.1/cargo-zigbuild 0.23.3 provisioning, explicit verified-Zig binding/private cache; Ecosystem M001 unblocked |

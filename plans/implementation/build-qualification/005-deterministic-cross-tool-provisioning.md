@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 005 — Deterministic Cross-Tool Provisioning
 
-Status: ready for handoff
+Status: closed (closure: `plans/closure/build-qualification/005-status.md`; implementation `7a206ba`; hosted run 36256831000 green)
 
 Repository baseline: `f3b1f3e53ab1ddca7f3cee9f1bc885a965d660a7` (architecture-documentation-only successor to the reviewed `b8062dff` implementation baseline)
 
