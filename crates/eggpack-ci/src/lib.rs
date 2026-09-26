@@ -7206,22 +7206,33 @@ mod tests {
             ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit)
         );
         // Missing interpreter fails rather than skipping (hermetic PATH).
-        let script = m003d_write_script(&parent, "ok2.py", "pass\n");
-        let empty: Vec<PathBuf> = Vec::new();
-        let evidence = run_consumer_validator(&m003d_request(
-            &validator,
-            &script,
-            &candidate,
-            size,
-            &sha,
-            &work,
-            Some(&empty),
-        ))
-        .unwrap();
-        assert_eq!(
-            evidence.outcome,
-            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::InterpreterUnavailable)
-        );
+        // Note: Windows CreateProcess searches the application directory,
+        // working directory, and system directories unconditionally, so an
+        // emptied PATH cannot simulate a missing interpreter there. The
+        // spawn/preflight failure branches are platform-independent code
+        // proven on Linux/macOS lanes, while the Windows lane proves the
+        // `python` mapping and preflight through every other matrix case.
+        #[cfg(not(windows))]
+        {
+            let script = m003d_write_script(&parent, "ok2.py", "pass\n");
+            let empty: Vec<PathBuf> = Vec::new();
+            let evidence = run_consumer_validator(&m003d_request(
+                &validator,
+                &script,
+                &candidate,
+                size,
+                &sha,
+                &work,
+                Some(&empty),
+            ))
+            .unwrap();
+            assert_eq!(
+                evidence.outcome,
+                ConsumerValidationOutcome::Failed(
+                    ConsumerValidationFailure::InterpreterUnavailable
+                )
+            );
+        }
         // Wrong candidate identity fails (size and digest mismatch).
         let (other, other_size, other_sha) = m003d_candidate(&parent, "other", b"other-bytes");
         assert_ne!(other_sha, sha);
