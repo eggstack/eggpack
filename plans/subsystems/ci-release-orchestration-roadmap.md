@@ -88,6 +88,8 @@ M003b implementation plan: `plans/implementation/ci-release-orchestration/003b-g
 
 M003c corrective plan: `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md`.
 
+M003d consumer composition plan: `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md`.
+
 ## 8. Cross-cutting requirements
 
 Least privilege, pinned actions, explicit timeouts, concurrency controls, artifact provenance, no secret leakage in generated summaries.
@@ -106,7 +108,7 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001-M004, CI M001/M002/M002a, and corrective M003c are closed. M003a and M003b retain historical closure evidence with corrective annotations. M003b live draft qualification is ready to resume; Phase 8 exit and consumer adoption remain blocked on that operational evidence.
+Build/Qualification M001-M004, CI M001/M002/M002a, and corrective M003c are closed. First-consumer analysis exposed a reusable-workflow/runtime-identity plus product-wrapper/consumer-validator composition gap, now owned by M003d. M003a/M003b retain historical evidence; the eggsact live-draft qualification is deliberately sequenced after M003d and Build M005 so the operational proof exercises the actual consumer interface.
 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
@@ -118,3 +120,5 @@ Build/Qualification M001-M004, CI M001/M002/M002a, and corrective M003c are clos
 | M003b generated draft staging job + operational qualification | conditionally closed; M003c corrective closed | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | `plans/closure/ci-release-orchestration/003b-status.md` | Exact-source and tag-source defects corrected; live draft is the only remaining M003b condition |
 
 | M003c staging source identity + bounded transfer corrective | closed | `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md` | `plans/closure/ci-release-orchestration/003c-status.md`; implementation `5c28099`; hosted run 36213316240 passed all lanes | M003b live draft qualification is ready to resume; Phase 8 and consumer adoption still require its evidence |
+
+| M003d consumer release composition seam | ready | `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md` | — | reusable runtime release identity, product wrapper presentation, and bounded consumer-validator seam required before eggsact live qualification |
