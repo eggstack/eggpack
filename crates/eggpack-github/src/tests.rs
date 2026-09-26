@@ -703,7 +703,12 @@ fn upload_origin_is_exact_and_names_are_query_encoded() {
     for bad in [
         format!("https://uploads.github.com.example.invalid{expected}"),
         format!("https://user@uploads.github.com{expected}"),
+        format!("https://user:password@uploads.github.com{expected}"),
         format!("https://uploads.github.com:444{expected}"),
+        format!("http://uploads.github.com{expected}"),
+        "https://uploads.github.com/repos/acme/other/releases/7/assets".to_owned(),
+        "https://uploads.github.com/repos/acme/widget/releases/8/assets".to_owned(),
+        format!("https://uploads.github.com{expected}?other=value"),
         format!("https://uploads.github.com{expected}#fragment"),
     ] {
         assert!(
