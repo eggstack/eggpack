@@ -309,15 +309,17 @@ ConsumerValidatorV1 {
 }
 ```
 
-Initial supported interpreter is exactly `python3`.
+Initial supported semantic interpreter is exactly `Python3`. The renderer maps it finitely by host: `python3` on Linux/macOS and `python` on Windows, with a bounded `--version` preflight that must identify Python 3. No caller-provided interpreter executable is accepted.
 
 No arbitrary executable field, shell, environment map, or caller-supplied argument vector.
 
-Invocation is fixed:
+Invocation is fixed semantically:
 
 ```text
-python3 <validated-script-path> <exact-candidate-path>
+Python3 <validated-script-path> <exact-candidate-path>
 ```
+
+Provider rendering resolves `Python3` to the finite host executable mapping above; local execution uses the same mapping.
 
 This is sufficient for the proven eggsact MCP smoke while remaining materially narrower than a command DSL.
 
@@ -390,6 +392,7 @@ Required fixture:
 - timeout;
 - output-limit;
 - missing Python;
+- Windows Python3 semantic mapping via `python` and version preflight;
 - wrong candidate identity;
 - validator symlink/path escape.
 
