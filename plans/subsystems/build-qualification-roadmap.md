@@ -129,6 +129,12 @@ Closed: `plans/closure/build-qualification/003-status.md`. M003 binds BuildAttem
 
 Closed: `plans/closure/build-qualification/004-status.md`. Direct/bundle/archive, final size/hash, mixed-release guards. M003 and Manifest M002 dependencies are closed.
 
+### M005 — Deterministic cross-tool provisioning
+
+Ready: first-consumer adoption requires Eggpack to provision the exact cargo-zigbuild and Zig versions/digests declared by producer policy rather than assume mutable ambient tools on hosted runners.
+
+Implementation plan: `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md`.
+
 ## 8. Cross-cutting requirements
 
 Timeouts/output bounds, explicit tool versions, secret redaction, path safety, cancellation cleanup, deterministic plan output.
@@ -156,3 +162,4 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | M002a Windows qualification stability corrective | closed | `plans/implementation/build-qualification/002a-windows-builder-qualification-stability-corrective.md` | `plans/closure/build-qualification/002a-status.md` | three repeated hosted Windows stability runs passed |
 | M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | `plans/closure/build-qualification/003-status.md` | local verification and hosted matrix passed |
 | M004 finalization/aggregation | closed | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | `plans/closure/build-qualification/004-status.md` | Local and hosted verification passed |
+| M005 deterministic cross-tool provisioning | ready | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | — | exact Zig/cargo-zigbuild provisioning required for first real CargoZigbuild consumer; eggsact provides x86-64/AArch64 proving configuration |
