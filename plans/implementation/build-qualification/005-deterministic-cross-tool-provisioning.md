@@ -2,7 +2,7 @@
 
 Status: ready for handoff
 
-Repository baseline: `b8062dffdea96395384f37d3320e1bb47b217a60`
+Repository baseline: `f3b1f3e53ab1ddca7f3cee9f1bc885a965d660a7` (architecture-documentation-only successor to the reviewed `b8062dff` implementation baseline)
 
 Research refresh: 2026-09-26. CI M003d is closed at `plans/closure/ci-release-orchestration/003d-status.md`; M005 is now the sole remaining Eggpack-side prerequisite for the first eggsact consumer adoption.
 
