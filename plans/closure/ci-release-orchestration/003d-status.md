@@ -8,7 +8,7 @@ Roadmap: `plans/subsystems/ci-release-orchestration-roadmap.md`
 
 Reviewed baseline: plan baseline `8a451ba8f98cd058d861b3283af92c6412deec15`; implementation parent `5b2cad7` was the clean repository state reviewed before changes.
 
-Implementation commit: `946dd7a` (feat: implement CI M003d consumer composition seam).
+Implementation commits: `946dd7a` (feat: implement CI M003d consumer composition seam) and `05005bf` (test-only: gate the Windows-incompatible empty-PATH missing-interpreter simulation to non-Windows lanes; no production code changed).
 
 First proving consumer baseline (unchanged): `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`.
 
@@ -108,7 +108,7 @@ Existing M003a direct/bundle/archive payload fixtures, M003b direct/bundle/archi
 
 ## Verification executed
 
-All verification below ran against implementation commit `946dd7a` (no code changes followed it; only plans/registry/README closeout edits):
+All verification below ran against implementation commit `946dd7a`; follow-up `05005bf` is test-only (no production code changed) and re-greened the full local suite before push:
 
 ```text
 cargo fmt --all -- --check                                             passed
@@ -136,6 +136,7 @@ Hosted CI (Linux stable, Linux Rust 1.89, macos-latest, windows-latest) runs on 
 | None | No unresolved medium-or-higher consumer-composition finding. | M003d acceptance criteria satisfied. |
 | Outstanding operational condition | No real eggsact draft was created. | M003d does not require it. Live draft qualification stays the M003b/Ecosystem M001 gate after Build M005. |
 | Evidence boundary | Hosted Windows/macOS lanes exercise the new validator tests on real runners only after push. | Recorded; local Linux plus MSRV evidence is complete. |
+| Platform finding (closed, test-only) | Hosted Windows run `36219897873` showed the empty-PATH missing-interpreter simulation cannot work on Windows (CreateProcess searches system dirs unconditionally, so the runner still resolved `python`). | Closed by `05005bf`: that single case is gated to non-Windows lanes with a documented rationale; the spawn/preflight failure branches are platform-independent and proven on Linux/macOS, while Windows proves the mapping, preflight, and full matrix otherwise. No production code changed. |
 
 ## Roadmap disposition and dependency transitions
 
