@@ -127,7 +127,7 @@ cargo +1.89.0 test -p eggpack-github --all-targets --locked             passed (
 git diff --check                                                       passed
 ```
 
-Hosted CI (Linux stable, Linux Rust 1.89, macos-latest, windows-latest) runs on push via `.github/workflows/ci.yml`. Implementation commit `946dd7a` triggered hosted run `36219897873`; its outcome is recorded below once observed. Windows/macOS coverage depends on that hosted run: the validator execution tests use the real platform interpreter (`python3`/`python` with preflight), and the hermetic PATH test covers fixed-argv semantics on Linux while asserting only the mapping name on Windows.
+Hosted CI (Linux stable, Linux Rust 1.89, macos-latest, windows-latest) runs on push via `.github/workflows/ci.yml`. Implementation commit `946dd7a` triggered hosted run `36219897873`: Linux stable, Linux 1.89, and macOS passed; Windows failed one new test (see platform finding below). After test-only follow-up `05005bf`, hosted run `36220290112` passed all four lanes on first attempt ([GitHub Actions run 36220290112](https://github.com/eggstack/eggpack/actions/runs/36220290112)): `linux (stable)`, `linux (1.89.0)`, `portability (macos-latest)`, and `portability (windows-latest)` all success. Windows/macOS validator coverage is therefore observed, not merely local: the execution matrix, hermetic mapping test, and CLI end-to-end ran against the real platform interpreters.
 
 ## Unresolved findings
 
