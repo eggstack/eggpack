@@ -1,8 +1,10 @@
 # Ecosystem Adoption Milestone 001 — eggsact Direct Release Adoption and Live Draft Qualification
 
-Status: ready
+Status: blocked — §20 stop condition hit before implementation; see §22
 
 Repository baseline: `16118c5896519ae10e3d296e77d5974869d89354`
+
+Implementation review baseline: `28f3630413c1fa6ae35ca1fdfc404a64b30b3b88`
 
 Source roadmap:
 
@@ -464,3 +466,129 @@ Record:
 - unresolved findings;
 - CI M003b/Phase 8 closure disposition;
 - stegoeggo M002 readiness disposition.
+
+## 22. Stop condition recorded 2026-09-28
+
+Implementation did not start. §20 was reached during interface
+re-verification against the closed M003d and Build M005 artifacts, at the
+condition:
+
+> generated workflow cannot express all five current targets/runners
+
+### 22.1 The gap
+
+Eggpack rejects `Qualification::Native` for any `CargoZigbuild` target, so a
+producer cannot declare a cross-tool build that is natively qualified on a
+matching host. Two declaration validators enforce it:
+
+- `crates/eggpack-core/src/lib.rs` — `validate_policy`, reached via
+  `PackConfig::resolve`;
+- `crates/eggpack-ci/src/lib.rs` — `CIPlan::validate`.
+
+The qualification *execution* path does not make that coupling:
+`eggpack_core::qualification` derives its method from `Qualification` and the
+observed host, never from `policy.strategy`, and its `Qualification::Native`
+branch already refuses to execute unless the host matches the target OS and
+architecture.
+
+### 22.2 Why it blocks this specific consumer
+
+eggsact's two Linux targets are built with `CargoZigbuild` to hold a glibc 2.17
+floor while running on a natively matching runner (`ubuntu-latest` for
+x86-64, `ubuntu-24.04-arm` for AArch64), and the current release workflow
+executes `--version`, `--help`, and the MCP handshake on each candidate. The
+three macOS/Windows targets are `NativeCargo` plus native and are unaffected.
+
+No admissible configuration preserves that evidence:
+
+- `Qualification::Structural` sets `should_execute = false` and emits no smoke
+  evidence, dropping the bounded CLI-level candidate smoke this plan's §7
+  requires and weakening current release coverage;
+- `Qualification::DeferredNative` with an explicit matching
+  `qualification_host` does execute the smoke and records
+  `DeferredNativeOnNativeHost`/`Passed`, but declares "qualification is
+  deferred" for a same-job native run.
+
+The ecosystem adoption roadmap invariant is that migration cannot weaken
+current release coverage/qualification, so neither workaround was applied.
+
+### 22.3 Verification performed before stopping
+
+- Reviewed the closed M003d, Build M005, and M003b interfaces and confirmed
+  every other seam this plan depends on is present: reusable workflow shape,
+  runtime identity resolution, product-wrapper installer presentation, bounded
+  consumer validator, and deterministic cross-tool provisioning.
+- Authored a complete candidate configuration in a scratch tree
+  (`distribution.toml`, `pack.toml`, build/qualification bindings, consumer
+  validators, installer presentation, draft template, GitHub policy,
+  workflow shape) and drove it through the real `eggpack ci` renderer.
+  Everything resolved and rendered except the two Linux targets, which failed
+  exactly as described above. The scratch tree was then removed; no eggsact
+  file, config, or workflow was changed, and neither repository carries
+  uncommitted work from this review.
+- Confirmed `crates/eggpack-core/src/lib.rs` already contains a test asserting
+  that cross-tool versions are rejected on a `NativeCargo` target; that rule is
+  separate from this gap and is unaffected by the recommended fix.
+- Confirmed the repository is green at the review baseline:
+  `cargo fmt --all -- --check` clean and
+  `cargo test --workspace --all-targets --all-features --locked` reporting
+  206 passed, 7 ignored.
+
+### 22.4 Disposition
+
+- Decision request:
+  `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`
+  (`proposed`; Option A, decoupling qualification from build strategy, is
+  recommended).
+- Conditional implementation:
+  `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`
+  is registered as `proposed / not started` and requires ADR-0005 acceptance
+  before any work begins.
+- If ADR-0005 is accepted with Option A, M006 closes first and this plan
+  re-enters `ready` against the corrected Eggpack revision, at which point
+  eggsact's `eggpack_tool.revision` must be re-pointed at M006's implementation
+  because the currently reviewed pin predates the change.
+- If the maintainer selects Option B or C instead, no producer code change is
+  required and this plan resumes with the declared-intent compromise recorded
+  as a named finding in its closure.
+- Until M001 closes, CI M003b stays conditionally closed, Phase 8 does not
+  exit, and no downstream ecosystem milestone (M002 stegoeggo onward) becomes
+  eligible for planning.
+
+## 23. External baseline re-review note
+
+Per planning process §2, the mirrored consumer baseline named above requires
+re-review before implementation rather than mechanical application. Two
+material drifts were observed at `eggstack/eggsact`:
+
+1. The baseline has advanced from `174764c5c71130ec98fee18c445fcecb3e35eb25`
+   to `34aed3ab36da2637c22412f7ca65d35f1ca5021d` (17 intervening commits).
+   The five-target release matrix, Zig 0.14.1 / cargo-zigbuild 0.23.3 pair,
+   official Zig archive digests, and the drafts-only assembly intent are
+   unchanged, and `packaging/install.sh`, `packaging/install.ps1`,
+   `scripts/check-release-contract.py`, and `scripts/smoke-mcp-binary.py` are
+   intact. The mirrored plan
+   `eggstack/eggsact: plans/implementation/distribution-update-release/005-eggpack-producer-adoption-and-live-draft-qualification.md`
+   is registered and reads `blocked / planned`, consistent with its own §3
+   dependency rule.
+2. This plan's §17 assumes `src/update.rs` still owns the self-update
+   transport. eggsact has since moved that transport to the qualified
+   `eggup-eggfetch` / `eggfetch-core` crates (eggsact commit `40959b7`), and
+   `src/update.rs` no longer spawns `curl`. The §17 boundary decision — do not
+   migrate self-update to Eggpack in M001 — still holds and is unaffected, but
+   its supporting evidence must be restated in terms of the current updater
+   crates rather than the pre-migration file.
+
+Two further parity deltas were identified for the eventual implementation and
+are recorded here so the re-review does not rediscover them:
+
+- the generated workflow has no `Swatinem/rust-cache` step, because
+  `GitHubPolicy` pins a fixed action set (checkout, rust-toolchain,
+  upload-artifact, download-artifact); this is a build-time caching
+  optimization, not release evidence;
+- the legacy `windows-installer-check` job has no generated counterpart, and
+  `GitHubPolicy` applies one `timeout_minutes` value to every job where the
+  legacy workflow used 10/45/10/15 per job. Both are intentional, bounded
+  consequences of moving to generated CI and must be recorded in the closure
+  rather than silently accepted.
+

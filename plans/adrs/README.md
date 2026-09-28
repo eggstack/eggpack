@@ -35,6 +35,10 @@ Each ADR records:
 Use an ADR when a decision establishes ownership, a public compatibility contract, a durable external backend, publication authority, or a trust/signing model.
 
 
+## Proposed records
+
+- ADR-0005 — native qualification for cross-tool builds. Awaiting maintainer decision; blocks Ecosystem M001.
+
 ## Accepted records
 
 - ADR-0001 — producer/consumer release boundary;

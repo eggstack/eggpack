@@ -70,7 +70,7 @@ Evidence reviewed:
 
 ## 6. Dependency graph
 
-Core direct build/finalization/staging prerequisites are closed, CI M003d closed the static-workflow/runtime-identity plus product-wrapper/consumer-validator composition seam, and Build M005 closed deterministic Zig/cargo-zigbuild provisioning (`plans/closure/build-qualification/005-status.md`). Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; Eggpack Ecosystem M001 is now unblocked and then supplies the outstanding M003b live-draft evidence itself.
+Core direct build/finalization/staging prerequisites are closed, CI M003d closed the static-workflow/runtime-identity plus product-wrapper/consumer-validator composition seam, and Build M005 closed deterministic Zig/cargo-zigbuild provisioning (`plans/closure/build-qualification/005-status.md`). Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; M001 then stopped at its §20 condition because Eggpack cannot express eggsact's two CargoZigbuild + native-qualified Linux targets. The gap and its options are recorded in `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`, and the conditional corrective is proposed at `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`. The outstanding M003b live-draft evidence is therefore still blocked on M001.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -118,9 +118,9 @@ Multiple independent repos use Eggpack as producer authority with measurable red
 
 ## 12. Milestone status
 
-Core build/finalization/bootstrap/staging prerequisites through M003d plus Build M005 are closed. M001 eggsact research and mirrored planning are complete; implementation is unblocked.
+Core build/finalization/bootstrap/staging prerequisites through M003d plus Build M005 are closed. M001 eggsact research and mirrored planning are complete, but implementation stopped at the plan's §20 condition before any code, configuration, or workflow change landed in either repository. The blocking capability gap is that Eggpack rejects `Qualification::Native` for a `CargoZigbuild` target, while eggsact must cross-build both Linux targets for a glibc 2.17 floor and natively qualify them on matching native runners. Decision pending in `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`.
 
-Reviewed eggsact baseline: `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`.
+Reviewed eggsact baseline: `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The consumer baseline has since advanced to `34aed3ab36da2637c22412f7ca65d35f1ca5021d`; the five-target matrix, exact cross-tool versions and digests, and drafts-only assembly intent are unchanged, and the updater transport has since moved to the qualified `eggup-eggfetch` / `eggfetch-core` crates. Per planning process §2 the baseline is flagged for re-review before implementation rather than applied mechanically.
 
 Current eggsact release authority still duplicated across:
 
@@ -140,8 +140,8 @@ The first migration should therefore replace producer target/artifact/checksum/q
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 eggsact direct release adoption | ready | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | — | CI M003d + Build M005 closed; mirrored eggsact M005 plan registered; M001 itself performs the real M003b draft qualification |
-| M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting |
+| M001 eggsact direct release adoption | blocked | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | — | §20 stop condition hit before implementation: Eggpack cannot declare native qualification for a CargoZigbuild build. Pending `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`; conditional corrective proposed as `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`. M001 itself performs the real M003b draft qualification once unblocked |
+| M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting. Also inherits the same qualification gap, since stegoeggo is a direct-binary consumer |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
 | M005 CodeGG runfile bundle | blocked | — | — | prior bundle evidence + CodeGG runfile review |
