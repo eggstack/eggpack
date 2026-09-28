@@ -2399,4 +2399,276 @@ mod tests {
         .is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
+
+    #[test]
+    fn shape_generate_and_check_accept_native_qualification_for_cross_tool_targets() {
+        // The eggsact-shaped five-target matrix, driven through the real CLI
+        // entry points: two CargoZigbuild targets for a glibc 2.17 floor are
+        // natively qualified on matching native runners, one of them on a
+        // separate AArch64 qualification host, and three NativeCargo targets
+        // are natively qualified on their own runners.
+        let root = temp_root("shape-native-cross");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/eggsact-direct-targets.toml");
+        let contract_path = root.join("contract.toml");
+        std::fs::write(&contract_path, contract_text).unwrap();
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        use eggpack_core::{
+            BuildStrategy, CompatibilityFloor, HostArch, HostOs, HostRequirement, SupportTier,
+        };
+        let matrix = [
+            (
+                "aarch64-apple-darwin",
+                BuildStrategy::NativeCargo,
+                HostOs::Macos,
+                HostArch::Aarch64,
+                None,
+            ),
+            (
+                "aarch64-unknown-linux-gnu",
+                BuildStrategy::CargoZigbuild,
+                HostOs::Linux,
+                HostArch::X86_64,
+                Some(HostRequirement {
+                    os: HostOs::Linux,
+                    arch: HostArch::Aarch64,
+                }),
+            ),
+            (
+                "x86_64-apple-darwin",
+                BuildStrategy::NativeCargo,
+                HostOs::Macos,
+                HostArch::X86_64,
+                None,
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                BuildStrategy::NativeCargo,
+                HostOs::Windows,
+                HostArch::X86_64,
+                None,
+            ),
+            (
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::CargoZigbuild,
+                HostOs::Linux,
+                HostArch::X86_64,
+                None,
+            ),
+        ];
+        let targets: Vec<eggpack_core::TargetPolicy> = matrix
+            .iter()
+            .map(
+                |(target, strategy, host_os, host_arch, qualification_host)| {
+                    eggpack_core::TargetPolicy {
+                        target: (*target).into(),
+                        strategy: *strategy,
+                        host_os: *host_os,
+                        host_arch: *host_arch,
+                        qualification_host: *qualification_host,
+                        toolchain: eggpack_core::ToolchainRequirement {
+                            rust: "1.89.0".into(),
+                            cargo_zigbuild: (*strategy == BuildStrategy::CargoZigbuild)
+                                .then(|| "0.23.3".into()),
+                            zig: (*strategy == BuildStrategy::CargoZigbuild)
+                                .then(|| "0.14.1".into()),
+                        },
+                        floor: if *strategy == BuildStrategy::CargoZigbuild {
+                            CompatibilityFloor::Glibc {
+                                major: 2,
+                                minor: 17,
+                            }
+                        } else {
+                            CompatibilityFloor::None
+                        },
+                        qualification: eggpack_core::Qualification::Native,
+                        support: SupportTier::Required,
+                    }
+                },
+            )
+            .collect();
+        let selected = vec![
+            "linux-x64".to_string(),
+            "linux-arm64".to_string(),
+            "macos-arm64".to_string(),
+            "macos-x64".to_string(),
+            "windows-x64".to_string(),
+        ];
+        let build_bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: targets
+                .iter()
+                .map(|policy| {
+                    (
+                        policy.target.clone(),
+                        vec![eggpack_core::BuildBinding {
+                            selector: eggpack_core::LogicalOutputSelector::Direct,
+                            package: "eggsact".into(),
+                            binary: "eggsact".into(),
+                        }],
+                    )
+                })
+                .collect(),
+        };
+        let qualification_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: targets
+                .iter()
+                .map(|policy| {
+                    (
+                        policy.target.clone(),
+                        eggpack_core::TargetQualificationBinding {
+                            smoke: Some(eggpack_core::CandidateSmokeBinding {
+                                selector: eggpack_core::LogicalOutputSelector::Direct,
+                                argv: vec!["--version".into()],
+                                timeout_ms: 10_000,
+                                stdout_limit: 8192,
+                                stderr_limit: 8192,
+                            }),
+                        },
+                    )
+                })
+                .collect(),
+        };
+        let shape = eggpack_ci::ReleaseWorkflowShapeV1 {
+            schema_version: 1,
+            targets,
+            selected_aliases: selected.clone(),
+            build_bindings,
+            qualification_bindings,
+            consumer_validators: Default::default(),
+            staging: Some(eggpack_ci::ShapeStagingIntentV1 {
+                provider: eggpack_ci::StagingProvider::GitHubDraft,
+                tag_source: eggpack_ci::StagingTagSource::RefName,
+                required: true,
+            }),
+        };
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let runners = [
+            (HostOs::Linux, HostArch::X86_64, "ubuntu-latest"),
+            (HostOs::Linux, HostArch::Aarch64, "ubuntu-24.04-arm"),
+            (HostOs::Macos, HostArch::Aarch64, "macos-14"),
+            (HostOs::Macos, HostArch::X86_64, "macos-13"),
+            (HostOs::Windows, HostArch::X86_64, "windows-latest"),
+        ];
+        let policy = eggpack_ci::GitHubPolicy {
+            preflight_runner: "ubuntu-latest".into(),
+            runners: runners
+                .iter()
+                .map(|(os, arch, label)| eggpack_ci::RunnerMapping {
+                    os: *os,
+                    arch: *arch,
+                    label: (*label).into(),
+                    cargo_zigbuild: false,
+                    zig: false,
+                })
+                .collect(),
+            checkout: eggpack_ci::ActionPin {
+                reference: format!("actions/checkout@{sha}"),
+            },
+            rust_toolchain: eggpack_ci::ActionPin {
+                reference: format!("dtolnay/rust-toolchain@{sha}"),
+            },
+            upload_artifact: eggpack_ci::ActionPin {
+                reference: format!("actions/upload-artifact@{sha}"),
+            },
+            download_artifact: Some(eggpack_ci::ActionPin {
+                reference: format!("actions/download-artifact@{sha}"),
+            }),
+            triggers: vec![eggpack_ci::WorkflowTrigger::Push],
+            timeout_minutes: 60,
+            cancel_in_progress: true,
+            artifact_retention_days: 7,
+            eggpack_tool: Some(eggpack_ci::EggpackToolPolicy {
+                repo: "https://github.com/eggstack/eggpack".into(),
+                revision: "a".repeat(40),
+                package: "eggpack-cli".into(),
+                install_timeout_minutes: 10,
+            }),
+            release_inputs: Some(eggpack_ci::GitHubReleaseInputsV1 {
+                contract: "contracts/release.toml".into(),
+                release_plan: "plans/release-plan.json".into(),
+                build_bindings: "bindings/build.toml".into(),
+                qualification_bindings: "bindings/qualification.toml".into(),
+                ci_plan: "plans/release-ci-plan.json".into(),
+                pack_config: Some("configs/pack.toml".into()),
+                draft_template: Some("policies/github-template.json".into()),
+                installer_presentation: None,
+                consumer_validators: None,
+            }),
+            emulated_sysroots: None,
+            staging: Some(eggpack_ci::GitHubStagingPolicyV1 {
+                runner: "ubuntu-latest".into(),
+                owner: "eggstack".into(),
+                repository: "eggsact".into(),
+                tag_source: eggpack_ci::StagingTagSource::RefName,
+                inputs: eggpack_ci::GitHubStagingInputsV1 {
+                    contract: "contracts/release.toml".into(),
+                    install_policy: "policies/install.toml".into(),
+                    github_policy: "policies/github-draft.json".into(),
+                    installer_presentation: None,
+                },
+                receipt_retention_days: 7,
+            }),
+            cross_tools: Some(eggpack_ci::CrossToolProvisioningV1 {
+                cargo_install_timeout_minutes: 10,
+                zig_connect_timeout_secs: 30,
+                zig_max_time_secs: 600,
+                zig: eggpack_ci::ZigOfficialArchiveV1 {
+                    linux_x86_64_sha256:
+                        "24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c".into(),
+                    linux_aarch64_sha256:
+                        "f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b".into(),
+                },
+            }),
+        };
+        let shape_path = root.join("shape.json");
+        std::fs::write(&shape_path, shape.to_json().unwrap()).unwrap();
+        let policy_path = root.join("policy.json");
+        std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
+        let output_path = root.join("release.yml");
+        let args = [
+            "--workflow-shape".to_string(),
+            shape_path.to_string_lossy().into_owned(),
+            "--contract".to_string(),
+            contract_path.to_string_lossy().into_owned(),
+            "--github-policy".to_string(),
+            policy_path.to_string_lossy().into_owned(),
+        ];
+        let mut generate = args.to_vec();
+        generate.extend([
+            "--output".to_string(),
+            output_path.to_string_lossy().into_owned(),
+        ]);
+        ci_generate(&generate).unwrap();
+        let expected =
+            eggpack_ci::render_reusable_release_github(&contract, &shape, &policy).unwrap();
+        let generated = std::fs::read_to_string(&output_path).unwrap();
+        assert_eq!(generated, expected);
+        // `eggpack ci check` reports zero drift for the generated workflow.
+        let mut check = args.to_vec();
+        check.extend([
+            "--workflow".to_string(),
+            output_path.to_string_lossy().into_owned(),
+        ]);
+        ci_check(&check).unwrap();
+        // Any host mismatch still fails closed at the CLI boundary.
+        let mut mismatched = shape.clone();
+        mismatched
+            .targets
+            .iter_mut()
+            .find(|policy| policy.target == "aarch64-unknown-linux-gnu")
+            .unwrap()
+            .qualification_host = Some(HostRequirement {
+            os: HostOs::Linux,
+            arch: HostArch::X86_64,
+        });
+        let mismatched_path = root.join("mismatched.json");
+        std::fs::write(&mismatched_path, mismatched.to_json().unwrap()).unwrap();
+        let mut bad = check.clone();
+        bad[1] = mismatched_path.to_string_lossy().into_owned();
+        assert!(ci_check(&bad).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }

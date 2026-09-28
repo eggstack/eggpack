@@ -32,6 +32,11 @@ mismatches fail closed.
   `CompatibilityFloor::None | Glibc{major,minor} | Macos{major,minor}`;
   `Qualification::Native | DeferredNative | Emulated | Structural`;
   `SupportTier::Required | NonGating | Experimental`.
+  `strategy` (how bytes are built) and `qualification` (how those exact bytes are
+  proved) are independent axes: `validate_policy()` admits `Native` for either
+  strategy exactly when the effective qualification host matches the target
+  OS/arch, keeps the `NativeCargo` rejection of cross-tool versions, and keeps
+  the floor applicability rules.
 - `ReleasePlan{schema_version, release_id, source_revision, targets}` +
   `to_json()`; `PlannedTarget{target, policy, artifact_form}`;
   `PlannedAssetForm::Direct | Bundle | Archive`.
@@ -113,9 +118,21 @@ mismatches fail closed.
   rejection, canonical-containment, per-invocation `target/` dirs +
   `.eggpack-owner`, pre/post hash + size equality, `env_clear()` + allowlists,
   `command-group` process-group kill, typed timeout/cancel/limit outcomes.
-- Qualification gates: `Native` requires matching host and forbids zigbuild;
-  off-host `DeferredNative` → `Deferred` (never `Passed`); `Emulated` fixed
-  `qemu-* --version` preflight; `Structural` never executes.
+- Qualification gates: `Native` requires the effective qualification host
+  (`qualification_host`, else the build host) to match the target OS/arch and is
+  independent of `BuildStrategy`, so a `CargoZigbuild` candidate may be
+  qualified natively on a matching host (including a separate AArch64
+  qualification host for a cross-built candidate); it still requires a bounded
+  smoke binding, and a non-matching host yields a failed `HostMismatch` record
+  rather than a pass or a skip. Off-host `DeferredNative` → `Deferred` (never
+  `Passed`); `Emulated` fixed `qemu-* --version` preflight; `Structural` never
+  executes.
+- Producer rule: `BuildStrategy` decides how candidate bytes are constructed;
+  `Qualification` decides how those exact bytes are proved. A declared
+  `CompatibilityFloor` is a build-policy input carried into the cross-tool build
+  command — native execution on a matching host proves the candidate runs there,
+  it is not independent proof that the produced binary honours the declared
+  minimum glibc/macOS runtime.
 - Producer-side file construction only: no extract/install/publish/authenticate.
 
 ## Dependencies / dependents

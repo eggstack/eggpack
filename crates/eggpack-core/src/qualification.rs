@@ -5,8 +5,8 @@ use crate::{
         run_qemu_process, run_qualification_process, CandidateArtifact, CommandSpec,
         ProcessEvidence,
     },
-    BuildAttempt, BuildBindingsV1, BuildCancellation, BuildStrategy, HostArch, HostOs,
-    HostRequirement, LogicalOutputSelector, PlannedTarget, Qualification, ReleasePlan, SupportTier,
+    BuildAttempt, BuildBindingsV1, BuildCancellation, HostArch, HostOs, HostRequirement,
+    LogicalOutputSelector, PlannedTarget, Qualification, ReleasePlan, SupportTier,
 };
 use eggpack_contract::DistributionContract;
 use serde::{Deserialize, Serialize};
@@ -592,11 +592,6 @@ where
         .map_err(|_| qerr("BuildBindings do not exactly cover ReleasePlan"))?;
     qualification_bindings.validate_for(plan, build_bindings)?;
     validate_runtime(runtime)?;
-    if target.policy.qualification == Qualification::Native
-        && target.policy.strategy == BuildStrategy::CargoZigbuild
-    {
-        return Err(qerr("Native qualification cannot use CargoZigbuild"));
-    }
     if target.policy.qualification != Qualification::Emulated && runtime.qemu_sysroot.is_some() {
         return Err(qerr(
             "QEMU sysroot is only valid for Emulated qualification",
@@ -1729,6 +1724,144 @@ stderr_limit = 1024
         let json = serde_json::to_string(&evidence).unwrap();
         assert!(!json.contains(&attempt.candidates[0].path.to_string_lossy().to_string()));
         assert_eq!(json, serde_json::to_string(&evidence).unwrap());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Same executable candidate as `fixture`, but declared as the product of
+    /// the cross-tool builder with an explicit compatibility floor. Cross tools
+    /// change how bytes are produced, not which bytes are qualified.
+    fn cross_tool_fixture(
+        classification: Qualification,
+        candidate_bytes: &[u8],
+    ) -> (
+        DistributionContract,
+        ReleasePlan,
+        PlannedTarget,
+        BuildAttempt,
+        BuildBindingsV1,
+        QualificationBindingsV1,
+        PathBuf,
+    ) {
+        let (contract, plan, mut target, mut attempt, builds, quals, root) =
+            fixture(classification, candidate_bytes);
+        target.policy.strategy = BuildStrategy::CargoZigbuild;
+        target.policy.toolchain = ToolchainRequirement {
+            rust: "1.89.0".into(),
+            cargo_zigbuild: Some("0.23.3".into()),
+            zig: Some("0.14.1".into()),
+        };
+        target.policy.floor = if target.target.contains("-linux-gnu") {
+            crate::CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17,
+            }
+        } else {
+            crate::CompatibilityFloor::None
+        };
+        attempt.strategy = BuildStrategy::CargoZigbuild;
+        attempt.tool_summary = "rust 1.89.0 cargo-zigbuild 0.23.3 zig 0.14.1".into();
+        let plan = ReleasePlan {
+            targets: vec![target.clone()],
+            ..plan
+        };
+        (contract, plan, target, attempt, builds, quals, root)
+    }
+
+    #[test]
+    fn cross_tool_built_candidate_qualifies_natively_on_the_matching_host() {
+        let host = local_host();
+        let bytes = fs::read(std::env::current_exe().unwrap()).unwrap();
+        let (contract, plan, target, mut attempt, builds, mut quals, root) =
+            cross_tool_fixture(Qualification::Native, &bytes);
+        fs::copy(
+            std::env::current_exe().unwrap(),
+            &attempt.candidates[0].path,
+        )
+        .unwrap();
+        attempt.candidates[0].size = fs::metadata(&attempt.candidates[0].path).unwrap().len();
+        assert_eq!(target.policy.strategy, BuildStrategy::CargoZigbuild);
+        let smoke = quals
+            .targets
+            .get_mut(&target.target)
+            .unwrap()
+            .smoke
+            .as_mut()
+            .unwrap();
+        smoke.argv = vec![
+            "--exact".into(),
+            "qualification::tests::qualification_child_target".into(),
+            "--ignored".into(),
+            "--nocapture".into(),
+        ];
+        // The exact cross-tool-built candidate executes natively and is recorded
+        // as native qualification with executed process evidence.
+        let evidence = qualify_target_for_host(
+            &contract,
+            &plan,
+            &target,
+            &attempt,
+            &builds,
+            &quals,
+            &QualificationRuntime::default(),
+            &BuildCancellation::new(),
+            host,
+        )
+        .unwrap();
+        assert_eq!(evidence.status, QualificationStatus::Passed);
+        assert_eq!(evidence.method, QualificationMethod::Native);
+        assert_eq!(evidence.processes.len(), 1);
+        assert_eq!(evidence.processes[0].purpose, "candidate_smoke");
+        assert_eq!(
+            evidence.processes[0].process.outcome,
+            CommandOutcome::Success
+        );
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        // A non-matching host is still a failed HostMismatch record, never a
+        // pass and never a skip, and never an executed smoke.
+        let other_arch = HostRequirement {
+            os: host.os,
+            arch: match host.arch {
+                HostArch::X86_64 => HostArch::Aarch64,
+                _ => HostArch::X86_64,
+            },
+        };
+        let mismatched = qualify_target_for_host(
+            &contract,
+            &plan,
+            &target,
+            &attempt,
+            &builds,
+            &quals,
+            &QualificationRuntime::default(),
+            &BuildCancellation::new(),
+            other_arch,
+        )
+        .unwrap();
+        assert_eq!(
+            mismatched.status,
+            QualificationStatus::Failed(QualificationFailure::HostMismatch)
+        );
+        assert_eq!(mismatched.method, QualificationMethod::Native);
+        assert!(mismatched.processes.is_empty());
+        // The failed record is itself valid evidence: it describes exactly what
+        // happened on the observed host.
+        assert!(mismatched.validate_for(&plan, &target, &attempt).is_ok());
+        // Native qualification still requires a bounded smoke binding.
+        let mut without_smoke = quals.clone();
+        without_smoke.targets.get_mut(&target.target).unwrap().smoke = None;
+        assert!(without_smoke.validate_for(&plan, &builds).is_err());
+        assert!(qualify_target_for_host(
+            &contract,
+            &plan,
+            &target,
+            &attempt,
+            &builds,
+            &without_smoke,
+            &QualificationRuntime::default(),
+            &BuildCancellation::new(),
+            host,
+        )
+        .is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -289,14 +289,13 @@ impl CIPlan {
                 CompatibilityFloor::Macos { .. } => target.target.ends_with("-apple-darwin"),
             };
             let native_qualification_valid = if policy.qualification == Qualification::Native {
-                policy.strategy == BuildStrategy::NativeCargo
-                    && host_matches_target(
-                        policy.qualification_host.unwrap_or(HostRequirement {
-                            os: policy.host_os,
-                            arch: policy.host_arch,
-                        }),
-                        &target.target,
-                    )
+                host_matches_target(
+                    policy.qualification_host.unwrap_or(HostRequirement {
+                        os: policy.host_os,
+                        arch: policy.host_arch,
+                    }),
+                    &target.target,
+                )
             } else {
                 true
             };
@@ -8609,6 +8608,532 @@ mod tests {
             zig: false,
         }];
         (graph, policy)
+    }
+
+    // -----------------------------------------------------------------------
+    // M006 — native qualification for cross-tool builds.
+    // -----------------------------------------------------------------------
+
+    const M006_EGGSACT_CONTRACT: &str =
+        include_str!("../../eggpack-contract/tests/fixtures/eggsact-direct-targets.toml");
+
+    fn m006_policy(
+        target: &str,
+        strategy: BuildStrategy,
+        host_os: HostOs,
+        host_arch: HostArch,
+        qualification_host: Option<(HostOs, HostArch)>,
+    ) -> TargetPolicy {
+        TargetPolicy {
+            target: target.into(),
+            strategy,
+            host_os,
+            host_arch,
+            qualification_host: qualification_host.map(|(os, arch)| HostRequirement { os, arch }),
+            toolchain: match strategy {
+                BuildStrategy::NativeCargo => ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                    zig: None,
+                },
+                BuildStrategy::CargoZigbuild => ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: Some(M005_CARGO_ZIGBUILD_VERSION.into()),
+                    zig: Some(M005_ZIG_VERSION.into()),
+                },
+            },
+            floor: if strategy == BuildStrategy::CargoZigbuild {
+                CompatibilityFloor::Glibc {
+                    major: 2,
+                    minor: 17,
+                }
+            } else {
+                CompatibilityFloor::None
+            },
+            qualification: Qualification::Native,
+            support: SupportTier::Required,
+        }
+    }
+
+    /// The eggsact-shaped five-target matrix: two CargoZigbuild Linux targets
+    /// for a glibc 2.17 floor, both natively qualified on matching native
+    /// runners, plus three NativeCargo targets natively qualified.
+    ///
+    /// The AArch64 GNU/Linux target is deliberately a split-host topology: it is
+    /// cross-built on Linux x86-64 and qualified natively on Linux AArch64.
+    fn m006_shape_and_policy() -> (DistributionContract, ReleaseWorkflowShapeV1, GitHubPolicy) {
+        let contract = DistributionContract::parse_toml_str(M006_EGGSACT_CONTRACT).unwrap();
+        let targets = vec![
+            m006_policy(
+                "aarch64-apple-darwin",
+                BuildStrategy::NativeCargo,
+                HostOs::Macos,
+                HostArch::Aarch64,
+                None,
+            ),
+            m006_policy(
+                "aarch64-unknown-linux-gnu",
+                BuildStrategy::CargoZigbuild,
+                HostOs::Linux,
+                HostArch::X86_64,
+                Some((HostOs::Linux, HostArch::Aarch64)),
+            ),
+            m006_policy(
+                "x86_64-apple-darwin",
+                BuildStrategy::NativeCargo,
+                HostOs::Macos,
+                HostArch::X86_64,
+                None,
+            ),
+            m006_policy(
+                "x86_64-pc-windows-msvc",
+                BuildStrategy::NativeCargo,
+                HostOs::Windows,
+                HostArch::X86_64,
+                None,
+            ),
+            m006_policy(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::CargoZigbuild,
+                HostOs::Linux,
+                HostArch::X86_64,
+                None,
+            ),
+        ];
+        let build_bindings = BuildBindingsV1 {
+            schema_version: 1,
+            targets: targets
+                .iter()
+                .map(|policy| {
+                    (
+                        policy.target.clone(),
+                        vec![eggpack_core::BuildBinding {
+                            selector: LogicalOutputSelector::Direct,
+                            package: "eggsact".into(),
+                            binary: "eggsact".into(),
+                        }],
+                    )
+                })
+                .collect(),
+        };
+        let qualification_bindings = QualificationBindingsV1 {
+            schema_version: 1,
+            targets: targets
+                .iter()
+                .map(|policy| {
+                    (
+                        policy.target.clone(),
+                        eggpack_core::TargetQualificationBinding {
+                            smoke: Some(eggpack_core::CandidateSmokeBinding {
+                                selector: LogicalOutputSelector::Direct,
+                                argv: vec!["--version".into()],
+                                timeout_ms: 10_000,
+                                stdout_limit: 8192,
+                                stderr_limit: 8192,
+                            }),
+                        },
+                    )
+                })
+                .collect(),
+        };
+        let consumer_validators = targets
+            .iter()
+            .map(|policy| {
+                (
+                    policy.target.clone(),
+                    m003d_validator(LogicalOutputSelector::Direct),
+                )
+            })
+            .collect();
+        let shape = ReleaseWorkflowShapeV1 {
+            schema_version: 1,
+            targets,
+            selected_aliases: vec![
+                "linux-x64".into(),
+                "linux-arm64".into(),
+                "macos-arm64".into(),
+                "macos-x64".into(),
+                "windows-x64".into(),
+            ],
+            build_bindings,
+            qualification_bindings,
+            consumer_validators,
+            staging: Some(ShapeStagingIntentV1 {
+                provider: StagingProvider::GitHubDraft,
+                tag_source: StagingTagSource::RefName,
+                required: true,
+            }),
+        };
+        let mut policy = m002_golden_policy();
+        policy.runners = vec![
+            RunnerMapping {
+                os: HostOs::Linux,
+                arch: HostArch::X86_64,
+                label: "ubuntu-latest".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+            RunnerMapping {
+                os: HostOs::Linux,
+                arch: HostArch::Aarch64,
+                label: "ubuntu-24.04-arm".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+            RunnerMapping {
+                os: HostOs::Macos,
+                arch: HostArch::Aarch64,
+                label: "macos-14".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+            RunnerMapping {
+                os: HostOs::Macos,
+                arch: HostArch::X86_64,
+                label: "macos-13".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+            RunnerMapping {
+                os: HostOs::Windows,
+                arch: HostArch::X86_64,
+                label: "windows-latest".into(),
+                cargo_zigbuild: false,
+                zig: false,
+            },
+        ];
+        policy.cross_tools = Some(m005_provisioning());
+        let inputs = policy.release_inputs.as_mut().unwrap();
+        inputs.pack_config = Some("configs/pack.toml".into());
+        inputs.draft_template = Some("policies/github-template.json".into());
+        inputs.consumer_validators = Some("validators/consumer.json".into());
+        policy.staging = Some(GitHubStagingPolicyV1 {
+            runner: "ubuntu-latest".into(),
+            owner: "eggstack".into(),
+            repository: "eggsact".into(),
+            tag_source: StagingTagSource::RefName,
+            inputs: GitHubStagingInputsV1 {
+                contract: "contracts/release.toml".into(),
+                install_policy: "policies/install.toml".into(),
+                github_policy: "policies/github-draft.json".into(),
+                installer_presentation: None,
+            },
+            receipt_retention_days: 7,
+        });
+        (contract, shape, policy)
+    }
+
+    /// One rendered job as text, so a substring match can never leak from a
+    /// neighbouring job.
+    fn job_text(yaml: &str, job: &str) -> String {
+        serde_json::to_string(
+            serde_yaml::from_str::<serde_yaml::Value>(yaml)
+                .unwrap()
+                .get("jobs")
+                .and_then(|jobs| jobs.get(job))
+                .unwrap_or_else(|| panic!("missing job: {job}")),
+        )
+        .unwrap()
+    }
+
+    fn job_field(yaml: &str, job: &str, field: &str) -> serde_yaml::Value {
+        serde_yaml::from_str::<serde_yaml::Value>(yaml)
+            .unwrap()
+            .get("jobs")
+            .and_then(|jobs| jobs.get(job))
+            .and_then(|value| value.get(field))
+            .unwrap_or_else(|| panic!("missing {field} for job: {job}"))
+            .clone()
+    }
+
+    fn job_runs_on(yaml: &str, job: &str) -> String {
+        job_field(yaml, job, "runs-on")
+            .as_str()
+            .unwrap_or_else(|| panic!("runs-on is not a string for job: {job}"))
+            .to_owned()
+    }
+
+    fn job_needs(yaml: &str, job: &str) -> Vec<String> {
+        match job_field(yaml, job, "needs") {
+            serde_yaml::Value::String(one) => vec![one],
+            serde_yaml::Value::Sequence(items) => items
+                .iter()
+                .map(|item| item.as_str().expect("needs entry").to_owned())
+                .collect(),
+            other => panic!("unexpected needs shape: {other:?}"),
+        }
+    }
+    #[test]
+    fn m006_eggsact_five_target_matrix_renders_and_checks_without_drift() {
+        let (contract, shape, policy) = m006_shape_and_policy();
+        shape.validate().unwrap();
+        // Every target declares native qualification; the two cross-tool Linux
+        // targets keep their floor and exact cross-tool versions.
+        assert_eq!(shape.targets.len(), 5);
+        for policy in &shape.targets {
+            assert_eq!(policy.qualification, Qualification::Native);
+        }
+        let cross: Vec<&TargetPolicy> = shape
+            .targets
+            .iter()
+            .filter(|p| p.strategy == BuildStrategy::CargoZigbuild)
+            .collect();
+        assert_eq!(cross.len(), 2);
+        for policy in &cross {
+            assert_eq!(
+                policy.floor,
+                CompatibilityFloor::Glibc {
+                    major: 2,
+                    minor: 17
+                }
+            );
+            assert_eq!(
+                policy.toolchain.cargo_zigbuild.as_deref(),
+                Some(M005_CARGO_ZIGBUILD_VERSION)
+            );
+            assert_eq!(policy.toolchain.zig.as_deref(), Some(M005_ZIG_VERSION));
+        }
+        let release = shape
+            .pack_config()
+            .resolve(&contract, "1.2.3", &"a".repeat(40), &shape.selected_aliases)
+            .unwrap();
+        let ci_plan = project_ci_plan(&contract, &release, &shape.build_bindings).unwrap();
+        assert_eq!(ci_plan.targets.len(), 5);
+        for job in &ci_plan.targets {
+            // Qualification intent is native and still unresolved before the
+            // candidate is produced and executed.
+            assert_eq!(job.qualification.classification, Qualification::Native);
+            assert_eq!(job.qualification.state, QualificationState::Unresolved);
+        }
+        let graph = project_release_plan_with_consumer(
+            &ci_plan,
+            &shape.qualification_bindings,
+            &shape.build_bindings,
+            &release,
+            shape.consumer_validators.clone(),
+        )
+        .unwrap();
+        // Every qualification job carries the matching native host, including
+        // the split-host AArch64 case.
+        for qual in &graph.qualifications {
+            let planned = release
+                .targets
+                .iter()
+                .find(|t| t.target == qual.target)
+                .unwrap();
+            let expected = planned
+                .policy
+                .qualification_host
+                .unwrap_or(HostRequirement {
+                    os: planned.policy.host_os,
+                    arch: planned.policy.host_arch,
+                });
+            assert_eq!(qual.host, expected);
+            assert!(host_matches_target(qual.host, &qual.target));
+        }
+        let yaml = render_reusable_release_github(&contract, &shape, &policy).unwrap();
+        assert_eq!(
+            yaml,
+            render_reusable_release_github(&contract, &shape, &policy).unwrap()
+        );
+        assert!(!yaml.contains(UNRESOLVED_RELEASE_ID));
+        assert!(!yaml.contains(UNRESOLVED_SOURCE_REVISION));
+        // `eggpack ci check` sees zero drift against the generated bytes.
+        let report =
+            check_reusable_release_github(&contract, &shape, &policy, yaml.as_bytes()).unwrap();
+        assert!(report.matches);
+        assert_eq!(report.expected_bytes, report.actual_bytes);
+        assert_eq!(report.first_difference, None);
+        // Split-host topology: AArch64 is cross-built on Linux x86-64 and
+        // qualified natively on Linux AArch64 through the canonical handoff.
+        let aarch64_build = job_text(&yaml, "build_aarch64_unknown_linux_gnu");
+        assert_eq!(
+            job_runs_on(&yaml, "build_aarch64_unknown_linux_gnu"),
+            "ubuntu-latest"
+        );
+        assert!(aarch64_build.contains("'--target' 'aarch64-unknown-linux-gnu.2.17'"));
+        assert!(aarch64_build.contains(M005_CARGO_ZIGBUILD_VERSION));
+        let aarch64_qualify = job_text(&yaml, "qualify_build_aarch64_unknown_linux_gnu");
+        assert_eq!(
+            job_needs(&yaml, "qualify_build_aarch64_unknown_linux_gnu"),
+            vec!["build_aarch64_unknown_linux_gnu".to_string()]
+        );
+        assert_eq!(
+            job_runs_on(&yaml, "qualify_build_aarch64_unknown_linux_gnu"),
+            "ubuntu-24.04-arm"
+        );
+        assert!(aarch64_qualify.contains("eggpack-build-handoff-aarch64-unknown-linux-gnu"));
+        assert!(aarch64_qualify.contains("'_qualify-target'"));
+        assert!(aarch64_qualify.contains("'--target' 'aarch64-unknown-linux-gnu'"));
+        // The native qualification host needs no cross tools: it only executes
+        // the exact candidate it was handed.
+        assert!(!aarch64_qualify.contains("zig"));
+        // x86-64 Linux is cross-built and qualified on its own matching host.
+        let x86_build = job_text(&yaml, "build_x86_64_unknown_linux_gnu");
+        assert_eq!(
+            job_runs_on(&yaml, "build_x86_64_unknown_linux_gnu"),
+            "ubuntu-latest"
+        );
+        assert!(x86_build.contains("'--target' 'x86_64-unknown-linux-gnu.2.17'"));
+        let x86_qualify = job_text(&yaml, "qualify_build_x86_64_unknown_linux_gnu");
+        assert_eq!(
+            job_needs(&yaml, "qualify_build_x86_64_unknown_linux_gnu"),
+            vec!["build_x86_64_unknown_linux_gnu".to_string()]
+        );
+        assert_eq!(
+            job_runs_on(&yaml, "qualify_build_x86_64_unknown_linux_gnu"),
+            "ubuntu-latest"
+        );
+        assert!(x86_qualify.contains("eggpack-build-handoff-x86_64-unknown-linux-gnu"));
+        // The three NativeCargo targets are natively qualified on their own
+        // runners, with no cross tool provisioning anywhere in their jobs.
+        for (job, label) in [
+            ("qualify_build_aarch64_apple_darwin", "macos-14"),
+            ("qualify_build_x86_64_apple_darwin", "macos-13"),
+            ("qualify_build_x86_64_pc_windows_msvc", "windows-latest"),
+        ] {
+            assert_eq!(job_runs_on(&yaml, job), label, "{job} runner");
+            assert!(!job_text(&yaml, job).contains("zig"), "{job} cross tools");
+        }
+        for job in [
+            "build_aarch64_apple_darwin",
+            "build_x86_64_apple_darwin",
+            "build_x86_64_pc_windows_msvc",
+        ] {
+            assert!(!job_text(&yaml, job).contains("zig"), "{job} cross tools");
+        }
+        // Least privilege is unchanged by the widened declaration surface.
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+        let mut writers = Vec::new();
+        for (name, job) in jobs {
+            let contents = job
+                .get("permissions")
+                .unwrap()
+                .get("contents")
+                .unwrap()
+                .as_str()
+                .unwrap();
+            if contents == "write" {
+                writers.push(name.as_str().unwrap().to_owned());
+            }
+        }
+        assert_eq!(writers, vec!["stage".to_string()]);
+        assert!(!yaml.contains("gh release"));
+    }
+
+    #[test]
+    fn m006_native_qualification_still_fails_closed() {
+        let (contract, shape, policy) = m006_shape_and_policy();
+        // The split-host AArch64 case may not be qualified on Linux x86-64.
+        for (host, label) in [
+            ((HostOs::Linux, HostArch::X86_64), "build host arch"),
+            ((HostOs::Windows, HostArch::Aarch64), "foreign os and arch"),
+            ((HostOs::Linux, HostArch::Armv7), "build host arch"),
+        ] {
+            let mut wrong = shape.clone();
+            let target = wrong
+                .targets
+                .iter_mut()
+                .find(|p| p.target == "aarch64-unknown-linux-gnu")
+                .unwrap();
+            target.qualification_host = Some(HostRequirement {
+                os: host.0,
+                arch: host.1,
+            });
+            assert!(wrong.validate().is_ok());
+            assert!(
+                render_reusable_release_github(&contract, &wrong, &policy).is_err(),
+                "qualification host mismatch accepted: {label}"
+            );
+            assert!(wrong
+                .pack_config()
+                .resolve(&contract, "1.2.3", &"a".repeat(40), &wrong.selected_aliases)
+                .is_err());
+        }
+        // Mismatched qualification host OS/arch on the x86-64 cross-tool target.
+        for host in [
+            HostRequirement {
+                os: HostOs::Linux,
+                arch: HostArch::Aarch64,
+            },
+            HostRequirement {
+                os: HostOs::Macos,
+                arch: HostArch::X86_64,
+            },
+        ] {
+            let mut wrong = shape.clone();
+            let target = wrong
+                .targets
+                .iter_mut()
+                .find(|p| p.target == "x86_64-unknown-linux-gnu")
+                .unwrap();
+            target.qualification_host = Some(host);
+            assert!(render_reusable_release_github(&contract, &wrong, &policy).is_err());
+        }
+        // Native qualification without a smoke binding is not representable.
+        let mut without_smoke = shape.clone();
+        without_smoke
+            .qualification_bindings
+            .targets
+            .get_mut("x86_64-unknown-linux-gnu")
+            .unwrap()
+            .smoke = None;
+        assert!(render_reusable_release_github(&contract, &without_smoke, &policy).is_err());
+        // A glibc floor outside GNU/Linux and a macOS floor outside Darwin stay
+        // rejected, and CargoZigbuild may not carry a macOS floor.
+        let mut floor = shape.clone();
+        let aarch64 = floor
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-unknown-linux-gnu")
+            .unwrap();
+        aarch64.floor = CompatibilityFloor::Macos {
+            major: 13,
+            minor: 0,
+        };
+        assert!(render_reusable_release_github(&contract, &floor, &policy).is_err());
+        let mut floor = shape.clone();
+        let darwin = floor
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-apple-darwin")
+            .unwrap();
+        darwin.floor = CompatibilityFloor::Glibc {
+            major: 2,
+            minor: 17,
+        };
+        assert!(render_reusable_release_github(&contract, &floor, &policy).is_err());
+        // NativeCargo may not declare cross-tool versions.
+        let mut cross_tools_on_native = shape.clone();
+        let darwin = cross_tools_on_native
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-apple-darwin")
+            .unwrap();
+        darwin.toolchain.cargo_zigbuild = Some(M005_CARGO_ZIGBUILD_VERSION.into());
+        assert!(
+            render_reusable_release_github(&contract, &cross_tools_on_native, &policy).is_err()
+        );
+        // Structural classification may not carry a smoke binding, and a
+        // structural target never executes the candidate.
+        let mut structural_smoke = shape.clone();
+        let structural = structural_smoke
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-unknown-linux-gnu")
+            .unwrap();
+        structural.qualification = Qualification::Structural;
+        assert!(render_reusable_release_github(&contract, &structural_smoke, &policy).is_err());
+        structural_smoke
+            .qualification_bindings
+            .targets
+            .get_mut("aarch64-unknown-linux-gnu")
+            .unwrap()
+            .smoke = None;
+        let yaml = render_reusable_release_github(&contract, &structural_smoke, &policy).unwrap();
+        assert!(job_text(&yaml, "build_aarch64_unknown_linux_gnu").contains("'zigbuild'"));
+        assert!(!job_text(&yaml, "qualify_build_aarch64_unknown_linux_gnu").contains("zig"));
     }
 
     #[test]

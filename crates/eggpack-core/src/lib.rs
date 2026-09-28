@@ -153,9 +153,9 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
             os: policy.host_os,
             arch: policy.host_arch,
         });
-        if policy.strategy == BuildStrategy::CargoZigbuild || !host_matches_target(host, triple) {
+        if !host_matches_target(host, triple) {
             return Err(err(
-                "native qualification requires a matching native build/qualification host",
+                "native qualification requires a qualification host matching the target OS/arch",
             ));
         }
     }
@@ -338,6 +338,13 @@ pub enum HostArch {
 #[serde(rename_all = "snake_case")]
 pub enum Qualification {
     /// Run on matching native host.
+    ///
+    /// Native qualification describes where and how the exact produced
+    /// candidate is proved; it is independent of `BuildStrategy`. A
+    /// cross-tool-built candidate (`CargoZigbuild`) is admissible here
+    /// whenever the effective qualification host matches the target's
+    /// operating system and architecture, and it earns native qualification
+    /// only by executing on that host.
     Native,
     /// Qualification is deferred.
     DeferredNative,
@@ -424,6 +431,11 @@ pub struct TargetPolicy {
     /// Required compiler and optional cross-build tool versions.
     pub toolchain: ToolchainRequirement,
     /// Compatibility/deployment floor asserted by producer policy.
+    ///
+    /// The floor is a build-policy input carried into the cross-tool build
+    /// command. Native qualification evidence proves that the exact candidate
+    /// executes on the qualifying native host; it is not independent proof that
+    /// the produced binary honours this declared minimum runtime.
     pub floor: CompatibilityFloor,
     /// Qualification intent.
     pub qualification: Qualification,
@@ -657,6 +669,142 @@ support="required"
         assert!(
             PackConfig::from_toml(&source.replace("schema_version=1", "schema_version=2")).is_err()
         );
+    }
+    #[test]
+    fn native_qualification_is_admitted_for_cross_tool_builds_on_a_matching_host() {
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let selected = vec!["linux-x64".into()];
+        let cross = TargetPolicy {
+            target: "x86_64-unknown-linux-gnu".into(),
+            strategy: BuildStrategy::CargoZigbuild,
+            host_os: HostOs::Linux,
+            host_arch: HostArch::X86_64,
+            qualification_host: None,
+            toolchain: ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some("0.23.3".into()),
+                zig: Some("0.14.1".into()),
+            },
+            floor: CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17,
+            },
+            qualification: Qualification::Native,
+            support: SupportTier::Required,
+        };
+        let resolve = |policy: &TargetPolicy| {
+            PackConfig {
+                schema_version: 1,
+                targets: vec![policy.clone()],
+            }
+            .resolve(&contract, "1.2.6", "abc", &selected)
+        };
+        // Cross-tool builder, declared glibc floor, native qualification on the
+        // matching host: admissible, and the plan preserves the exact producer
+        // policy rather than weakening it to a non-executing classification.
+        let release = resolve(&cross).unwrap();
+        let planned = &release.targets[0];
+        assert_eq!(planned.target, "x86_64-unknown-linux-gnu");
+        assert_eq!(planned.policy.strategy, BuildStrategy::CargoZigbuild);
+        assert_eq!(planned.policy.qualification, Qualification::Native);
+        assert_eq!(
+            planned.policy.floor,
+            CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17
+            }
+        );
+        assert_eq!(
+            planned.policy.toolchain.cargo_zigbuild.as_deref(),
+            Some("0.23.3")
+        );
+        assert_eq!(planned.policy.toolchain.zig.as_deref(), Some("0.14.1"));
+        // An explicit matching qualification host is equally admissible; the
+        // effective host is the same either way, and the plan preserves the
+        // declaration verbatim.
+        let mut explicit = cross.clone();
+        explicit.qualification_host = Some(HostRequirement {
+            os: HostOs::Linux,
+            arch: HostArch::X86_64,
+        });
+        let explicit = resolve(&explicit).unwrap();
+        assert_eq!(
+            explicit.targets[0].policy.qualification_host,
+            Some(HostRequirement {
+                os: HostOs::Linux,
+                arch: HostArch::X86_64,
+            })
+        );
+        assert!(host_matches_target(
+            explicit.targets[0]
+                .policy
+                .qualification_host
+                .expect("explicit qualification host"),
+            &explicit.targets[0].target
+        ));
+        // A non-matching qualification host architecture is still rejected.
+        let mut wrong_arch = cross.clone();
+        wrong_arch.qualification_host = Some(HostRequirement {
+            os: HostOs::Linux,
+            arch: HostArch::Aarch64,
+        });
+        assert!(resolve(&wrong_arch).is_err());
+        let mut wrong_build_arch = cross.clone();
+        wrong_build_arch.host_arch = HostArch::Aarch64;
+        assert!(resolve(&wrong_build_arch).is_err());
+        // A non-matching qualification host OS is still rejected.
+        let mut wrong_os = cross.clone();
+        wrong_os.qualification_host = Some(HostRequirement {
+            os: HostOs::Macos,
+            arch: HostArch::X86_64,
+        });
+        assert!(resolve(&wrong_os).is_err());
+        // `NativeCargo` still refuses every cross-tool version, including on a
+        // natively qualified target.
+        for toolchain in [
+            ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some("0.23.3".into()),
+                zig: None,
+            },
+            ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: None,
+                zig: Some("0.14.1".into()),
+            },
+            ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: Some("0.23.3".into()),
+                zig: Some("0.14.1".into()),
+            },
+        ] {
+            let mut native = cross.clone();
+            native.strategy = BuildStrategy::NativeCargo;
+            native.floor = CompatibilityFloor::None;
+            native.toolchain = toolchain;
+            assert!(resolve(&native).is_err());
+        }
+        // Floor applicability is unchanged: glibc is GNU/Linux-only and the
+        // macOS floor is Darwin-only, whatever the strategy.
+        let mut glibc_on_macos = cross.clone();
+        glibc_on_macos.target = "aarch64-apple-darwin".into();
+        glibc_on_macos.host_os = HostOs::Macos;
+        glibc_on_macos.host_arch = HostArch::Aarch64;
+        assert!(PackConfig {
+            schema_version: 1,
+            targets: vec![glibc_on_macos],
+        }
+        .resolve(&contract, "1.2.6", "abc", &["macos-arm64".into()])
+        .is_err());
+        let mut macos_floor_on_linux = cross.clone();
+        macos_floor_on_linux.floor = CompatibilityFloor::Macos {
+            major: 13,
+            minor: 0,
+        };
+        assert!(resolve(&macos_floor_on_linux).is_err());
     }
     #[test]
     fn zig_version_is_required_for_zigbuild_and_forbidden_for_native() {
