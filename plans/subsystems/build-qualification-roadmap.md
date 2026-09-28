@@ -14,7 +14,7 @@ Related ADRs:
 
 - ADR-0001;
 - `plans/adrs/ADR-0004-first-party-native-cargo-build-adapter.md`;
-- `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md` (proposed).
+- `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md` (accepted; Option A).
 
 ## 1. Purpose and ownership boundary
 
@@ -132,7 +132,7 @@ Closed: `plans/closure/build-qualification/004-status.md`. Direct/bundle/archive
 
 ### M005 — Deterministic cross-tool provisioning
 
-Closed: `plans/closure/build-qualification/005-status.md`. Eggpack provisions the exact cargo-zigbuild and Zig versions/digests declared by producer policy (eggsact parity: Zig 0.14.1 + cargo-zigbuild 0.23.3) rather than assuming mutable ambient tools on hosted runners. Cargo-zigbuild is bound to the verified private Zig executable through `CARGO_ZIGBUILD_ZIG_PATH`, `CARGO_ZIGBUILD_CACHE_DIR` is isolated, and the existing `.2.17` CargoZigbuild command semantics are unchanged. CI M003d was already closed, so M005 closure unblocks Ecosystem M001.
+Closed: `plans/closure/build-qualification/005-status.md`. Eggpack provisions the exact cargo-zigbuild and Zig versions/digests declared by producer policy (eggsact parity: Zig 0.14.1 + cargo-zigbuild 0.23.3) rather than assuming mutable ambient tools on hosted runners. Cargo-zigbuild is bound to the verified private Zig executable through `CARGO_ZIGBUILD_ZIG_PATH`, `CARGO_ZIGBUILD_CACHE_DIR` is isolated, and the existing `.2.17` CargoZigbuild command semantics are unchanged. CI M003d was already closed. M005 satisfied the provisioning prerequisite for Ecosystem M001; first-consumer review then exposed the separate native-qualification policy gap now governed by accepted ADR-0005 and ready M006.
 
 Implementation plan: `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md`.
 
@@ -154,7 +154,7 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contract M001/M002 are closed. Backend-evaluation evidence is closed with disposition C, which does not authorize a backend. M005 is closed, but its provisioning half exposed a producer-policy gap: `Qualification::Native` remains inadmissible for a `CargoZigbuild` target, which blocks the first consumer. That correction is proposed as M006 and awaits the ADR-0005 decision.
+M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contract M001/M002 are closed. Backend-evaluation evidence is closed with disposition C, which does not authorize a backend. M005 is closed, but first-consumer review exposed a producer-policy gap: `Qualification::Native` remains inadmissible for a `CargoZigbuild` target. ADR-0005 is accepted with Option A, and M006 is now ready to implement that correction. Ecosystem M001 remains blocked until M006 closes.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
@@ -164,4 +164,4 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | `plans/closure/build-qualification/003-status.md` | local verification and hosted matrix passed |
 | M004 finalization/aggregation | closed | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | `plans/closure/build-qualification/004-status.md` | Local and hosted verification passed |
 | M005 deterministic cross-tool provisioning | closed | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | `plans/closure/build-qualification/005-status.md`; implementation `7a206ba`; hosted run 36256831000 green | exact Zig 0.14.1/cargo-zigbuild 0.23.3 provisioning, explicit verified-Zig binding/private cache |
-| M006 native qualification for cross-tool builds | proposed / not started | `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md` | — | blocked on the ADR-0005 decision. M005 provisioned CargoZigbuild but left `Qualification::Native` inadmissible for a cross-tool build, so Ecosystem M001 cannot express eggsact's two glibc-2.17-floored, natively qualified Linux targets. Option A is recommended |
+| M006 native qualification for cross-tool builds | ready / not started | `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md` | — | ADR-0005 accepted with Option A. Implement independent build-strategy/native-qualification axes, including split-host qualification coverage; Ecosystem M001 remains blocked until closure |
