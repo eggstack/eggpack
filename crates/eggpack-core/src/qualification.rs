@@ -1816,6 +1816,29 @@ stderr_limit = 1024
             CommandOutcome::Success
         );
         assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        // The public entry point, using the observed local host, reaches the
+        // same native result for the same cross-tool-built candidate.
+        let runtime = QualificationRuntime::default();
+        let cancellation = BuildCancellation::new();
+        let observed = qualify_target(QualificationRequest {
+            contract: &contract,
+            plan: &plan,
+            target: &target,
+            attempt: &attempt,
+            build_bindings: &builds,
+            qualification_bindings: &quals,
+            runtime: &runtime,
+            cancellation: &cancellation,
+        })
+        .unwrap();
+        assert_eq!(observed.status, QualificationStatus::Passed);
+        assert_eq!(observed.method, QualificationMethod::Native);
+        assert_eq!(observed.processes.len(), 1);
+        assert_eq!(
+            observed.processes[0].process.outcome,
+            CommandOutcome::Success
+        );
+        assert_eq!(observed.actual_host, host);
         // A non-matching host is still a failed HostMismatch record, never a
         // pass and never a skip, and never an executed smoke.
         let other_arch = HostRequirement {
