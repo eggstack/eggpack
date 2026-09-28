@@ -1,6 +1,6 @@
 # Build and Qualification Milestone 006 — Native Qualification for Cross-Tool Builds
 
-Status: proposed / not started (blocked on the ADR-0005 decision)
+Status: ready / not started
 
 Repository baseline: `28f3630413c1fa6ae35ca1fdfc404a64b30b3b88`
 
@@ -10,9 +10,9 @@ Source roadmaps:
 - `plans/subsystems/ci-release-orchestration-roadmap.md`
 - `plans/subsystems/ecosystem-adoption-roadmap.md`
 
-Blocking decision:
+Accepted decision:
 
-- `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md` (proposed; Option A recommended)
+- `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md` (accepted; Option A)
 
 Blocked milestone:
 
@@ -52,19 +52,19 @@ observed host, never from `policy.strategy`, and its `Qualification::Native`
 branch already refuses to execute unless the host matches the target OS and
 architecture.
 
-The full diagnosis, options, and decision request are in ADR-0005. This plan
-describes the implementation **if and only if** ADR-0005 is accepted with
-Option A.
+The full diagnosis and accepted architecture are in ADR-0005. This plan is
+the authorized implementation/qualification pass for Option A.
 
 ## 2. Preconditions
 
-Do not start until:
+Before implementation:
 
-1. ADR-0005 is `accepted` with Option A;
-2. ADR-0005 Option B or C was not selected — those require no producer code
-   change and instead record a declared-intent compromise in the Ecosystem
-   M001 closure;
-3. the reviewed baseline above is still the parent of the working tree.
+1. confirm ADR-0005 remains `accepted` with Option A;
+2. re-review the current code baseline if production code has advanced beyond
+   the reviewed M001 stop-condition baseline; planning-only descendants do not
+   invalidate this plan;
+3. preserve all closed M001-M005 and CI M003d interfaces unless a stop
+   condition in this plan is reached.
 
 ## 3. Objective
 
@@ -94,7 +94,11 @@ operating system and architecture.
 - regression tests covering acceptance and every rejection path in §8;
 - a reusable-workflow render/check test using an eggsact-shaped five-target
   configuration with two CargoZigbuild + native targets;
-- documentation updates naming the corrected rule;
+- an explicit split-host topology test proving a Linux x86-64 CargoZigbuild
+  build can hand the exact AArch64 candidate to a Linux AArch64 native
+  qualification job;
+- documentation updates naming the corrected rule and the compatibility-floor
+  evidence boundary;
 - closure record with hosted CI evidence.
 
 ## 6. Out of scope
@@ -105,7 +109,10 @@ operating system and architecture.
 - any eggsact repository change, including its `eggpack_tool.revision` pin,
   which Ecosystem M001 re-points after this milestone closes;
 - adding unsupported host emulation to reduce runner counts;
-- generalizing build/CI configuration into a DSL.
+- generalizing build/CI configuration into a DSL;
+- independent ELF GLIBC-symbol-floor verification. M006 preserves the
+  declared/build-policy floor but does not treat native execution on a modern
+  host as direct proof of the minimum glibc runtime.
 
 ## 7. Required production changes
 
@@ -138,7 +145,10 @@ rejection — remain unchanged.
 - `crates/eggpack-core/README.md` — state that native qualification requires a
   matching native host and does not depend on build strategy;
 - `architecture/core.md` — record the corrected producer rule alongside
-  `BuildStrategy`.
+  `BuildStrategy`;
+- document that a declared glibc/deployment floor is separate from native
+  execution evidence; M006 must not imply that smoke execution on a newer host
+  proves the floor.
 
 ## 8. Tests
 
@@ -153,13 +163,18 @@ Acceptance:
   drift;
 - `qualify_target` on a CargoZigbuild-built candidate at a matching native host
   yields `QualificationMethod::Native`, `QualificationStatus::Passed`, and
-  executed process outcomes.
+  executed process outcomes;
+- split-host topology: an `aarch64-unknown-linux-gnu` target built with
+  `CargoZigbuild` on Linux x86-64 resolves to a separate Linux AArch64
+  qualification job, transfers the canonical candidate handoff, and executes
+  the exact candidate natively there.
 
 Rejection (each must still fail):
 
 - `CargoZigbuild` + `Qualification::Native` with a mismatched qualification
   host architecture;
 - `CargoZigbuild` + `Qualification::Native` with a mismatched host OS;
+- the split-host AArch64 case with Linux x86-64 as the qualification host;
 - `Qualification::Native` without a smoke binding;
 - `NativeCargo` with `cargo_zigbuild` and/or `zig` set;
 - glibc floor on a non-GNU/Linux target and macOS floor on a non-Darwin
@@ -196,6 +211,8 @@ Plus hosted CI green on every lane, with the run id recorded in the closure.
 - `qualify_target` executes and records `QualificationMethod::Native` for a
   cross-tool-built candidate on a matching native host;
 - existing goldens and cross-tool rules unchanged;
+- native qualification evidence is not represented as direct proof of a
+  declared glibc/deployment floor;
 - no schema version bump and no historical closure rewritten;
 - full local verification and hosted CI green;
 - closure record written to `plans/closure/build-qualification/006-status.md`.
@@ -224,4 +241,5 @@ Create `plans/closure/build-qualification/006-status.md` recording:
 - confirmation that no golden, schema version, or historical closure changed;
 - exact verification run, including hosted run id and per-lane results;
 - unresolved findings by severity;
-- disposition for Ecosystem M001 and the eggsact tool pin re-point.
+- disposition for Ecosystem M001 and the eggsact tool pin re-point;
+- residual-risk note for independent compatibility-floor verification.
