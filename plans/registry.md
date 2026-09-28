@@ -29,12 +29,7 @@ This file is the compact control surface for active interim planning. Detailed r
 | `ADR-0002-contract-plan-manifest-separation.md` | DistributionContract, ReleasePlan, ReleaseManifest, and Eggup InstallReceipt are distinct authorities. |
 | `ADR-0003-checked-in-generated-ci-and-publication-gate.md` | Generated CI is checked in/reviewable; release publication remains explicit. |
 | `ADR-0004-first-party-native-cargo-build-adapter.md` | Initial native execution uses first-party Cargo/cargo-zigbuild adapters; no dist backend or generic command DSL is authorized. |
-
-Proposed, awaiting maintainer decision:
-
-| ADR | Question |
-|---|---|
-| `ADR-0005-native-qualification-for-cross-tool-builds.md` | May a producer declare `Qualification::Native` for a `CargoZigbuild` target when the qualification host matches the target OS/arch? Option A (decouple qualification from build strategy) is recommended. Blocks Ecosystem M001. |
+| `ADR-0005-native-qualification-for-cross-tool-builds.md` | Build strategy and qualification intent are independent axes; `Qualification::Native` is valid for cross-tool-built candidates only when the effective qualification host matches the target OS/architecture and the exact candidate passes native qualification. |
 
 ## Current evidence baselines
 
@@ -52,7 +47,7 @@ Proposed, awaiting maintainer decision:
 - operational producer handoffs registered: ADR-0004 `e8bc338ab193fa8ed5fc7debb0cd68b54ebf586b`, Build/Qualification M002 plan `1666df9ac68062f7a1be4ed757a4f1ccc21aad5b`, CI Orchestration M001 plan `b7270df591efd4b6a3b8c8e02af70d3960c72f0f`; post-closure Windows stability corrective M002a plan `59bf3621da94b7b6ae5d64c357dee21bb27b7527`;
 - Build/Qualification M005 deterministic cross-tool provisioning is closed at `plans/closure/build-qualification/005-status.md` (implementation `7a206ba`, hosted run 36256831000 green); exact Zig 0.14.1 / cargo-zigbuild 0.23.3 provisioning, verified Zig path binding, and private cargo-zigbuild cache are landed; the handoff baseline was aligned at `86fa474d936b6041a06110b48e8b1c5d12f9ac33` and the roadmap registered at `2a53a43df627269844794c48b28c7a2035f44f15`;
 - canonical architecture commit: `2022f44f4df9b0c2518ff22a53d87fd77f63992a`;
-- Ecosystem M001 review baseline: `28f3630413c1fa6ae35ca1fdfc404a64b30b3b88`. M001 stopped at its §20 condition before implementation and landed no code, configuration, or workflow change in either repository. The blocking gap is that `Qualification::Native` is inadmissible for a `CargoZigbuild` target (`crates/eggpack-core/src/lib.rs` `validate_policy`; `crates/eggpack-ci/src/lib.rs` `CIPlan::validate`), which is exactly eggsact's two glibc-2.17-floored, natively qualified Linux targets. A candidate five-target configuration was authored in a scratch tree and driven through the real `eggpack ci` renderer: everything resolved except those two targets, then the scratch tree was removed. Repository green at this baseline (`cargo fmt --all -- --check`; `cargo test --workspace --all-targets --all-features --locked` -> 206 passed, 7 ignored). Decision requested in `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`; conditional corrective proposed at `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`;
+- Ecosystem M001 review baseline: `28f3630413c1fa6ae35ca1fdfc404a64b30b3b88`. M001 stopped at its §20 condition before implementation and landed no code, configuration, or workflow change in either repository. The blocking gap is that `Qualification::Native` is inadmissible for a `CargoZigbuild` target (`crates/eggpack-core/src/lib.rs` `validate_policy`; `crates/eggpack-ci/src/lib.rs` `CIPlan::validate`), which is exactly eggsact's two glibc-2.17-floored, natively qualified Linux targets. A candidate five-target configuration was authored in a scratch tree and driven through the real `eggpack ci` renderer: everything resolved except those two targets, then the scratch tree was removed. Repository green at this baseline (`cargo fmt --all -- --check`; `cargo test --workspace --all-targets --all-features --locked` -> 206 passed, 7 ignored). ADR-0005 is accepted with Option A; Build/Qualification M006 is ready / not started and is now the required producer correction before M001 can resume. Native smoke remains distinct from independent proof of a declared glibc deployment floor; M006 records that residual boundary explicitly;
 - eggsact consumer baseline re-review: the mirrored baseline `174764c5c71130ec98fee18c445fcecb3e35eb25` has advanced to `34aed3ab36da2637c22412f7ca65d35f1ca5021d` (17 commits). The five-target matrix, Zig 0.14.1 / cargo-zigbuild 0.23.3, official Zig archive digests, drafts-only assembly intent, and the mirrored plan's `blocked / planned` status are unchanged. eggsact has since moved the self-update transport to the qualified `eggup-eggfetch` / `eggfetch-core` crates (eggsact `40959b7`), so M001 §17's evidence must be restated in terms of the current updater crates. Per planning process §2 the baseline is flagged for re-review before implementation.
 
 ### Eggup predecessor
@@ -82,11 +77,11 @@ Distribution predecessor evidence:
 | Contract and conformance | active | `plans/subsystems/contract-conformance-roadmap.md` | M002 closed; M003 planned | Eggup M004 retirement closed; consumer evidence gates M003 |
 | External backend evaluation | closed | `plans/subsystems/external-backend-evaluation-roadmap.md` | M001 closed (C) | no production backend adopted; new evidence/plan required to reopen |
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
-| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001-M005 closed; M006 proposed | M005 closed on `7a206ba` + run 36256831000; M006 proposed and blocked on the ADR-0005 decision |
+| Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001-M005 closed; M006 ready | M005 closed on `7a206ba` + run 36256831000; ADR-0005 accepted Option A; M006 is dependency-ready |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 historical; M002a closed | M002a closed on `4d2270a` + run 36154905956; M003 blocked on adoption evidence/candidate review |
-| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003d closed | reusable runtime identity + product-wrapper/consumer-validator composition landed; M003b live-draft proof is blocked behind Ecosystem M001, which is blocked on ADR-0005 |
+| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003d closed | reusable runtime identity + product-wrapper/consumer-validator composition landed; M003b live-draft proof is blocked behind Ecosystem M001, which requires Build M006 closure |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
-| Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 blocked | M001 hit its §20 stop condition before implementation; blocked on the ADR-0005 native-qualification decision. Mirrored eggsact M005 plan registered and `blocked / planned` |
+| Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 blocked | M001 hit its §20 stop condition before implementation; ADR-0005 is resolved, but M001 remains blocked until ready Build M006 closes. Mirrored eggsact M005 plan remains `blocked / planned` |
 
 ## Dependency-ready implementation work
 
@@ -101,6 +96,7 @@ Current dependency-ready implementation work:
 | Build and qualification | M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | Closure `plans/closure/build-qualification/003-status.md`; hosted run 36095915717 |
 | Build and qualification | M004 finalization/aggregation | closed | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | Closure `plans/closure/build-qualification/004-status.md`; hosted run 36098072913 |
 | Build and qualification | M005 deterministic cross-tool provisioning | closed | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | Closure `plans/closure/build-qualification/005-status.md`; implementation `7a206ba`; hosted run 36256831000 green; exact Zig 0.14.1 / cargo-zigbuild 0.23.3 provisioning, verified Zig path binding, private cargo-zigbuild cache |
+| Build and qualification | M006 native qualification for cross-tool builds | ready / not started | `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md` | ADR-0005 accepted Option A; implement host-matched native qualification independent of builder, including split-host topology coverage |
 | Bootstrap installers | M001 generator/direct fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | Closure `plans/closure/bootstrap-installers/001-status.md` |
 | CI orchestration | M001 CIPlan/GitHub renderer | closed | `plans/implementation/ci-release-orchestration/001-ci-plan-and-github-renderer.md` | Closure `plans/closure/ci-release-orchestration/001-status.md`; hosted run 36040032768 passes all lanes |
 | CI orchestration | M002 qualification/aggregation gates + drift CLI | closed historically; corrective closed | `plans/implementation/ci-release-orchestration/002-qualification-aggregation-gates-and-drift-cli.md` | Historical closure retained; executable generated-workflow defect corrected and qualified by M002a (`plans/closure/ci-release-orchestration/002a-status.md`) |
@@ -119,18 +115,17 @@ Current dependency-ready implementation work:
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 
-| CI orchestration | M003b generated draft staging + live qualification | blocked | M003c/M003d and Build M005 closed, but the live proof runs inside eggsact M001 (Ecosystem M001), which stopped at its §20 condition and is blocked on the ADR-0005 decision |
+| CI orchestration | M003b generated draft staging + live qualification | blocked | M003c/M003d and Build M005 closed, but the live proof runs inside eggsact M001 (Ecosystem M001), which remains blocked until Build M006 closes |
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | blocked | real adoption evidence/candidate review (M002a precondition satisfied) |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
-| Build/Qualification | M006 native qualification for cross-tool builds | proposed / not started | `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`; requires the ADR-0005 decision before any work begins |
 | Eggup interoperability | M003 real-consumer adoption | ready to plan | select a real consumer currently owning duplicated manifest-to-update mapping |
-| Ecosystem adoption | M001 eggsact direct release adoption | blocked | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`; §20 stop condition hit before implementation (no checked-in configuration, no generated workflow, no eggsact change). Blocked on `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`. Mirrored eggsact M005 plan registered at baseline `174764c`, consumer since advanced to `34aed3a` and flagged for re-review |
+| Ecosystem adoption | M001 eggsact direct release adoption | blocked | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`; §20 stop condition hit before implementation (no checked-in configuration, no generated workflow, no eggsact change). ADR-0005 accepted Option A; blocked on Build M006 closure. Mirrored eggsact M005 plan registered at baseline `174764c`, consumer since advanced to `34aed3a` and flagged for re-review |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
 Build/Qualification M002a/M003/M004/M005 remain closed with hosted cross-platform evidence. CI M002 and Bootstrap M002 retain their historical implementation/closure records. Both M002a correctives are closed on implementation `4d2270a` with hosted run 36154905956 green. CI M003a/M003b retain their historical evidence (`36f1cc1`/36180399698 and `84e4e4f`/36193654633); M003c corrected their post-closure source-integrity and transfer findings in `5c28099`, qualified by hosted run 36213316240 (all four lanes green). CI M003d then closed the reusable consumer-composition/runtime-identity seam, and Build M005 closed deterministic cross-tool provisioning on `7a206ba` with hosted run 36256831000 green.
 
-Ecosystem M001 eggsact then stopped at its §20 condition before implementation, so the chain no longer reaches the M003b real-draft/rerun proof. Build M005 provisioned the cross tools but left `Qualification::Native` inadmissible for a `CargoZigbuild` target, and eggsact must cross-build both Linux targets for a glibc 2.17 floor while qualifying them natively on matching runners. `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md` is proposed with Option A recommended, and `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md` is registered as proposed/not started behind it. Bootstrap M003 remains blocked on adoption evidence/candidate review.
+Ecosystem M001 eggsact then stopped at its §20 condition before implementation, so the chain no longer reaches the M003b real-draft/rerun proof. Build M005 provisioned the cross tools but left `Qualification::Native` inadmissible for a `CargoZigbuild` target, and eggsact must cross-build both Linux targets for a glibc 2.17 floor while qualifying them natively on matching runners. ADR-0005 is now accepted with Option A, and Build M006 is dependency-ready to implement the correction. Bootstrap M003 remains blocked on adoption evidence/candidate review.
 
 ## Immediate execution graph
 
@@ -184,19 +179,13 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
          |                                                                                                 |
          |              Build M004 [CLOSED] --> Build M005 [CLOSED] ---------------------+
          |                                                                                                 v
-         |                                                                      ADR-0005 [PROPOSED: DECISION GATE]
+         |                                                                      ADR-0005 [ACCEPTED: OPTION A]
          |                                                                                     |
-         |                                            +----------------------------------------+---------+
-         |                                            |                                                 |
-         |                                 Option A (recommended)                          Option B or Option C
-         |                                            |                                   (no producer change)
-         |                                            v                                                 |
-         |                                  Build M006 [PROPOSED]                                     |
-         |                                            |                                                 |
-         |                                            v                                                 |
-         |                                  Build M006 [CLOSED]                                       |
-         |                                            |                                                 |
-         |                                            +----------------------------------------+----------+
+         |                                                                                     v
+         |                                                                          Build M006 [READY]
+         |                                                                                     |
+         |                                                                                     v
+         |                                                                          Build M006 [CLOSED]
          |                                                                                     |
          |                                                                                     v
          |                                                                          eggsact M001 [BLOCKED]
@@ -238,7 +227,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 Manifest M002, Build/Qualification M001-M005, CI M001/M002/M002a/M003a/M003b/M003c/M003d, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records.
 
-There is no dependency-ready implementation milestone right now. The next action is a **decision**, not implementation: accept or reject `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`. Accepting it with Option A authorizes `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`; that milestone must close before Ecosystem M001 (`plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`) returns to `ready`, and M001 must re-pin eggsact's `eggpack_tool.revision` at the corrected revision.
+The next dependency-ready implementation milestone is **Build/Qualification M006**: `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`. ADR-0005 has been accepted with Option A. M006 must close before Ecosystem M001 (`plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`) returns to `ready`; M001 must then re-review the current eggsact baseline and re-pin `eggpack_tool.revision` at the corrected Eggpack revision.
 
 Eggup Interoperability M003 remains independently ready to plan.
 
@@ -248,12 +237,12 @@ Answering the standing question for this pass: **no future plan is unblocked by 
 
 | Plan | Disposition |
 |---|---|
-| CI M003b full closure | Stays conditionally closed. Its sole remaining condition is the real draft/rerun proof, which runs inside M001 and is blocked on ADR-0005. |
+| CI M003b full closure | Stays conditionally closed. Its sole remaining condition is the real draft/rerun proof, which runs inside M001 after Build M006 closes. |
 | Phase 8 exit | Stays open. Exit criteria require a maintainer-inspectable fully qualified draft release. |
-| Ecosystem M002 stegoeggo | Stays blocked on M001 closure, and additionally inherits the same native-qualification gap as a direct-binary consumer. |
+| Ecosystem M002 stegoeggo | Stays blocked on M001 closure. Build M006 is expected to resolve the shared native-qualification gap before M002 is planned. |
 | Ecosystem M003 onward | Stays blocked on M001/M002 evidence. |
 | Bootstrap M003 | Stays blocked on real adoption evidence/candidate review. |
-| Build/Qualification M006 | Newly registered as proposed; becomes ready only if ADR-0005 is accepted with Option A. |
+| Build/Qualification M006 | Ready / not started under accepted ADR-0005 Option A; this is the immediate implementation handoff. |
 | Eggup Interoperability M003 | Unaffected; remains ready to plan on its own merits. |
 
 ## Registry update rule
