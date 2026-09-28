@@ -1,6 +1,6 @@
 # ADR-0005: Native Qualification for Cross-Tool Builds
 
-Status: proposed
+Status: accepted
 
 Date: 2026-09-28
 
@@ -24,15 +24,16 @@ Affected subsystem roadmaps:
 
 ## 1. Status note
 
-This record is **proposed**, not accepted. It documents an unresolved
-producer-contract question that currently blocks Ecosystem M001
-(`plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`).
+This record is **accepted** with Option A. The maintainer decision decouples
+qualification intent from build strategy: `Qualification::Native` describes
+where and how the produced candidate is proved, not which builder/linker
+produced it.
 
-No decision in this record has been implemented. No producer behavior has
-changed. The finding is recorded so the maintainer can choose an option; the
-companion corrective plan
+No producer behavior has changed merely by accepting this ADR. The companion
+corrective plan
 `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`
-stays unstarted and unapproved until this ADR is accepted.
+is now dependency-ready and must implement and qualify the accepted rule before
+Ecosystem M001 resumes.
 
 ## 2. Context
 
@@ -127,8 +128,8 @@ validators and keep every host-matching and smoke requirement.
 Strengths:
 
 - restores the true independence of the two axes;
-- preserves all current eggsact release evidence exactly, including the core
-  CLI-level smoke on both Linux targets;
+- preserves eggsact's current build and native-execution/smoke evidence,
+  including the core CLI-level smoke on both Linux targets;
 - the execution path needs no behavior change, so the blast radius is two
   validation predicates plus tests;
 - the existing `host_matches_target` / `target_matches_host` guards and the
@@ -181,15 +182,26 @@ practice.
 
 ## 5. Decision
 
-**Undecided. Option A is recommended.**
+**Accepted: Option A — decouple qualification from build strategy.**
 
-This ADR is accepted only when the maintainer selects an option. Selecting
-Option A authorizes
-`plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`
-to start. Selecting Option B or C requires no producer code change and instead
-records the declared-intent compromise in the Ecosystem M001 closure.
+`BuildStrategy` remains the finite producer choice describing how candidate
+bytes are constructed. `Qualification` remains the independent producer
+choice describing how those exact bytes are proved. A
+`Qualification::Native` target is admissible when its effective
+qualification host matches the target OS/architecture, regardless of whether
+the candidate was produced with `NativeCargo` or `CargoZigbuild`.
 
-## 6. Consequences of Option A, if accepted
+Compilation never confers native qualification. Native qualification is earned
+only when the exact candidate reaches the qualification stage, passes the
+existing structural/identity checks, executes on the matching native host, and
+passes its required bounded smoke binding. This preserves the long-term
+specification requirement that a target must not claim native qualification
+merely because compilation succeeded on another architecture.
+
+This decision authorizes
+`plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`.
+
+## 6. Consequences
 
 - `PackConfig` admits `Qualification::Native` with `CargoZigbuild` when the
   qualification host matches the target OS/arch. Documents that previously
@@ -240,7 +252,7 @@ risk:
 No new network, credential, archive, publication, or privilege surface is
 introduced.
 
-## 9. Verification required before acceptance is recorded as achieved
+## 9. Verification required for implementation closure
 
 - negative test: `Qualification::Native` with `CargoZigbuild` and a
   non-matching qualification host still fails to resolve;
@@ -251,13 +263,28 @@ introduced.
 - positive test: `qualify_target` on a CargoZigbuild-built candidate at a
   matching native host yields `QualificationMethod::Native` with executed
   processes;
-- existing `NativeCargo`/cross-tool rejection and glibc-floor rules stay green;
+- positive topology test: an AArch64 GNU/Linux candidate may be built with
+  `CargoZigbuild` on Linux x86-64, handed off unchanged, then qualified
+  natively on Linux AArch64; the corresponding x86-64 qualification-host
+  mismatch remains rejected;
+- existing `NativeCargo`/cross-tool rejection and glibc-floor applicability
+  rules stay green;
 - full workspace `cargo fmt`, `cargo test --workspace --all-targets
   --all-features --locked`, and `./scripts/check-local.sh` green;
 - hosted CI green on all lanes.
 
+### Compatibility-floor evidence boundary
+
+This ADR does **not** define native execution as proof of a declared libc or
+deployment floor. A modern matching host can prove that the candidate executes
+natively while still being newer than the declared minimum runtime. Eggpack's
+current glibc floor is a build-policy input carried into
+`cargo zigbuild --target <triple>.<floor>`; independently verifying the final
+ELF's required GLIBC symbol versions is separate qualification hardening and
+must be planned independently before Eggpack claims direct evidence for the
+floor itself. M006 must preserve this distinction and must not report native
+smoke success as compatibility-floor proof.
+
 ## 10. Supersession
 
-Superseded only by a later accepted ADR. If Option A is rejected in favor of
-Option D, this record is superseded by the Option D ADR and the accepted
-options are not rewritten.
+Superseded only by a later accepted ADR.
