@@ -536,21 +536,16 @@ current release coverage/qualification, so neither workaround was applied.
 
 ### 22.4 Disposition
 
-- Decision request:
-  `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md`
-  (`proposed`; Option A, decoupling qualification from build strategy, is
-  recommended).
-- Conditional implementation:
+- Architecture decision:
+  `plans/adrs/ADR-0005-native-qualification-for-cross-tool-builds.md` is
+  accepted with Option A, decoupling qualification intent from build strategy.
+- Required producer correction:
   `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`
-  is registered as `proposed / not started` and requires ADR-0005 acceptance
-  before any work begins.
-- If ADR-0005 is accepted with Option A, M006 closes first and this plan
-  re-enters `ready` against the corrected Eggpack revision, at which point
-  eggsact's `eggpack_tool.revision` must be re-pointed at M006's implementation
-  because the currently reviewed pin predates the change.
-- If the maintainer selects Option B or C instead, no producer code change is
-  required and this plan resumes with the declared-intent compromise recorded
-  as a named finding in its closure.
+  is registered as `ready / not started`.
+- M006 closes first. This plan then re-enters `ready` against the corrected
+  Eggpack revision, re-reviews the current eggsact baseline, and re-points
+  `eggpack_tool.revision` at the M006 implementation because the currently
+  reviewed pin predates the change.
 - Until M001 closes, CI M003b stays conditionally closed, Phase 8 does not
   exit, and no downstream ecosystem milestone (M002 stegoeggo onward) becomes
   eligible for planning.
