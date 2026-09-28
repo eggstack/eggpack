@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 001 — eggsact Direct Release Adoption and Live Draft Qualification
 
-Status: blocked — §20 stop condition hit before implementation; see §22
+Status: ready — §20 stop condition resolved by closed Build M006; see §22 and §24
 
 Repository baseline: `16118c5896519ae10e3d296e77d5974869d89354`
 
@@ -541,11 +541,9 @@ current release coverage/qualification, so neither workaround was applied.
   accepted with Option A, decoupling qualification intent from build strategy.
 - Required producer correction:
   `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`
-  is registered as `ready / not started`.
-- M006 closes first. This plan then re-enters `ready` against the corrected
-  Eggpack revision, re-reviews the current eggsact baseline, and re-points
-  `eggpack_tool.revision` at the M006 implementation because the currently
-  reviewed pin predates the change.
+  is now closed at `plans/closure/build-qualification/006-status.md`.
+- M006 closed first. This plan has re-entered `ready` against the corrected
+  Eggpack revision; see §24 for the exact re-pin target and remaining gates.
 - Until M001 closes, CI M003b stays conditionally closed, Phase 8 does not
   exit, and no downstream ecosystem milestone (M002 stegoeggo onward) becomes
   eligible for planning.
@@ -587,3 +585,39 @@ are recorded here so the re-review does not rediscover them:
   consequences of moving to generated CI and must be recorded in the closure
   rather than silently accepted.
 
+## 24. Unblocked by closed Build M006
+
+Build/Qualification M006 is closed at `plans/closure/build-qualification/006-status.md`
+(implementation `398cd43`, hosted run 36484758546 green on all four lanes). It
+implements accepted ADR-0005 Option A, so the exact §20 condition recorded in
+§22.2 no longer holds: `Qualification::Native` is now admissible for a
+`CargoZigbuild` target whose effective qualification host matches the target
+OS/architecture, and the bounded candidate smoke still executes there.
+
+M006 proved the five-target eggsact shape in the Eggpack repository itself: two
+glibc-2.17 CargoZigbuild Linux targets natively qualified, three NativeCargo
+targets natively qualified, the AArch64 candidate cross-built on Linux x86-64
+and handed off unchanged to a Linux AArch64 qualification job, all rendering
+with zero `ci check` drift. That removes the producer-side blocker; it does not
+by itself prove the consumer configuration.
+
+Implementation preconditions for this plan, restated:
+
+- re-review the current eggsact baseline per §23 and planning process §2; the
+  reviewed pin `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25` has
+  advanced to `34aed3ab36da2637c22412f7ca65d35f1ca5021d`, and §17 evidence must
+  be restated in terms of the current `eggup-eggfetch` / `eggfetch-core` updater
+  crates;
+- re-point `eggpack_tool.revision` from the currently reviewed pin to the M006
+  implementation revision `398cd43bf1597ba49bfc35b5334611aa04b16600`, confirmed
+  with `git rev-parse` at implementation time before writing the consumer
+  configuration, and record the pin in this plan's closure;
+- re-run this plan's §7 configuration through the real `eggpack ci` renderer at
+  the M006 revision, since the two Linux targets that previously failed to
+  resolve must now resolve and render, and record the render evidence in the
+  closure.
+
+No eggsact repository change is claimed by M006's closure. The only remaining
+non-capability gate is the operational dependency already named at the top of
+this plan: one maintainer-authorized real eggsact version tag created through
+the normal crates.io-first release process.

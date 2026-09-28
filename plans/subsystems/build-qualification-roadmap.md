@@ -132,9 +132,29 @@ Closed: `plans/closure/build-qualification/004-status.md`. Direct/bundle/archive
 
 ### M005 — Deterministic cross-tool provisioning
 
-Closed: `plans/closure/build-qualification/005-status.md`. Eggpack provisions the exact cargo-zigbuild and Zig versions/digests declared by producer policy (eggsact parity: Zig 0.14.1 + cargo-zigbuild 0.23.3) rather than assuming mutable ambient tools on hosted runners. Cargo-zigbuild is bound to the verified private Zig executable through `CARGO_ZIGBUILD_ZIG_PATH`, `CARGO_ZIGBUILD_CACHE_DIR` is isolated, and the existing `.2.17` CargoZigbuild command semantics are unchanged. CI M003d was already closed. M005 satisfied the provisioning prerequisite for Ecosystem M001; first-consumer review then exposed the separate native-qualification policy gap now governed by accepted ADR-0005 and ready M006.
+Closed: `plans/closure/build-qualification/005-status.md`. Eggpack provisions the exact cargo-zigbuild and Zig versions/digests declared by producer policy (eggsact parity: Zig 0.14.1 + cargo-zigbuild 0.23.3) rather than assuming mutable ambient tools on hosted runners. Cargo-zigbuild is bound to the verified private Zig executable through `CARGO_ZIGBUILD_ZIG_PATH`, `CARGO_ZIGBUILD_CACHE_DIR` is isolated, and the existing `.2.17` CargoZigbuild command semantics are unchanged. CI M003d was already closed. M005 satisfied the provisioning prerequisite for Ecosystem M001; first-consumer review then exposed the separate native-qualification policy gap governed by accepted ADR-0005, corrected and closed by M006.
 
 Implementation plan: `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md`.
+
+### M006 — Native qualification for cross-tool builds
+
+Closed: `plans/closure/build-qualification/006-status.md`. Under accepted
+ADR-0005 Option A, build strategy and qualification intent are independent
+producer axes. `validate_policy` and `CIPlan::validate` now admit
+`Qualification::Native` for a `CargoZigbuild` target exactly when the effective
+qualification host (`qualification_host`, else the build host) matches the
+target OS/architecture, and `qualify_target` no longer refuses that
+combination. Every retained guard is unchanged: a non-matching host still fails
+closed (failed `HostMismatch` evidence, never a pass or a skip), every executing
+classification still requires a bounded smoke binding, `NativeCargo` still
+rejects any cross-tool version, and glibc/macOS floor applicability is
+untouched. The eggsact-shaped five-target shape renders, passes `ci check` with
+zero drift, and covers a split-host AArch64 candidate cross-built on Linux
+x86-64 and qualified natively on Linux AArch64. No schema version bump, no
+golden change, no `Qualification` enum growth. Native execution evidence is
+explicitly not treated as independent proof of a declared compatibility floor.
+
+Implementation plan: `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md`.
 
 ## 8. Cross-cutting requirements
 
@@ -154,7 +174,7 @@ Eggpack can construct and qualify real direct/bundle/archive native releases loc
 
 ## 12. Milestone status
 
-M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contract M001/M002 are closed. Backend-evaluation evidence is closed with disposition C, which does not authorize a backend. M005 is closed, but first-consumer review exposed a producer-policy gap: `Qualification::Native` remains inadmissible for a `CargoZigbuild` target. ADR-0005 is accepted with Option A, and M006 is now ready to implement that correction. Ecosystem M001 remains blocked until M006 closes.
+M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contract M001/M002 are closed. Backend-evaluation evidence is closed with disposition C, which does not authorize a backend. M005 closed the provisioning prerequisite; M006 then closed the producer-policy gap that first-consumer review exposed, so `Qualification::Native` is now admissible for a `CargoZigbuild` candidate on a matching host. The build/qualification milestone chain through M006 is closed. Ecosystem M001 is unblocked and must re-review the current eggsact baseline and re-pin `eggpack_tool.revision` at the M006 implementation before it implements. Independent verification that a produced binary honours a declared glibc/macOS floor remains unplanned and is not claimed by M006.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
@@ -164,4 +184,4 @@ M001 PackConfig and ReleasePlan is closed. Release Manifest M001/M001a and Contr
 | M003 qualification execution | closed | `plans/implementation/build-qualification/003-qualification-execution-and-evidence.md` | `plans/closure/build-qualification/003-status.md` | local verification and hosted matrix passed |
 | M004 finalization/aggregation | closed | `plans/implementation/build-qualification/004-finalization-and-local-aggregation.md` | `plans/closure/build-qualification/004-status.md` | Local and hosted verification passed |
 | M005 deterministic cross-tool provisioning | closed | `plans/implementation/build-qualification/005-deterministic-cross-tool-provisioning.md` | `plans/closure/build-qualification/005-status.md`; implementation `7a206ba`; hosted run 36256831000 green | exact Zig 0.14.1/cargo-zigbuild 0.23.3 provisioning, explicit verified-Zig binding/private cache |
-| M006 native qualification for cross-tool builds | ready / not started | `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md` | — | ADR-0005 accepted with Option A. Implement independent build-strategy/native-qualification axes, including split-host qualification coverage; Ecosystem M001 remains blocked until closure |
+| M006 native qualification for cross-tool builds | closed | `plans/implementation/build-qualification/006-native-qualification-for-cross-tool-builds.md` | `plans/closure/build-qualification/006-status.md`; implementation `398cd43`; hosted run 36484758546 green | ADR-0005 Option A implemented; host-matched native qualification is independent of builder, including split-host qualification; Ecosystem M001 unblocked |

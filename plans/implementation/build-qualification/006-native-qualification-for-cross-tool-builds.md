@@ -1,6 +1,8 @@
 # Build and Qualification Milestone 006 — Native Qualification for Cross-Tool Builds
 
-Status: ready / not started
+Status: closed
+
+Closure record: `plans/closure/build-qualification/006-status.md`
 
 Repository baseline: `28f3630413c1fa6ae35ca1fdfc404a64b30b3b88`
 
