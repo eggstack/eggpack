@@ -1,6 +1,6 @@
 # CI and Release Orchestration Milestone 003e — Generated Release Execution Wiring Corrective
 
-Status: active
+Status: closed — see `plans/closure/ci-release-orchestration/003e-status.md` (implementation `b9062d4`, hosted run 36572608484 green)
 
 Repository baseline: `3f95af43f99224755c97161e0c1102a84e713e35`
 

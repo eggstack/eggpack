@@ -79,7 +79,7 @@ Distribution predecessor evidence:
 | Release manifest | active | `plans/subsystems/release-manifest-roadmap.md` | M002 closed; M003 planned | M003 requires a real consumer |
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001-M006 closed | M006 closed on `398cd43` + run 36484758546 under accepted ADR-0005 Option A; the milestone chain is closed and later work needs new evidence |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 historical; M002a closed | M002a closed on `4d2270a` + run 36154905956; M003 blocked on adoption evidence/candidate review |
-| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003d closed; M003e active | reusable runtime identity + product-wrapper/consumer-validator composition landed; first-consumer end-to-end review proved no generated workflow can execute (M003e corrective in progress); M003b live-draft proof is blocked behind M003e then Ecosystem M001 implementation |
+| CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003d closed; M003e closed | reusable runtime identity + product-wrapper/consumer-validator composition landed; first-consumer end-to-end review proved no generated workflow can execute (M003e corrective closed at `b9062d4`, hosted run 36572608484 green); M003b live-draft proof now waits on Ecosystem M001 implementation |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
 | Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 ready (unblocked) | M001 hit its §20 stop condition before implementation; Build M006 is now closed, so M001 is ready subject to its own consumer-baseline re-review and re-pin. Mirrored eggsact M005 plan remains `blocked / planned` |
 
@@ -105,7 +105,7 @@ Current dependency-ready implementation work:
 | CI orchestration | M003b generated draft staging job + operational qualification | conditionally closed; corrective closed | `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md` | Source identity/tag-source findings corrected; live draft is its only remaining condition |
 | CI orchestration | M003c staging source identity + bounded transfer corrective | closed | `plans/implementation/ci-release-orchestration/003c-staging-source-identity-and-bounded-transfer-corrective.md` | Closure `plans/closure/ci-release-orchestration/003c-status.md`; implementation `5c28099`; hosted run 36213316240 green |
 | CI orchestration | M003d consumer release composition seam | closed | `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md` | Closure `plans/closure/ci-release-orchestration/003d-status.md`; reusable static workflow/runtime identity, public product wrappers + generated exact installers, bounded Python3 consumer validator |
-| CI orchestration | M003e generated release execution wiring | active | `plans/implementation/ci-release-orchestration/003e-generated-release-execution-wiring-corrective.md` | First-consumer end-to-end review proved no generated workflow can execute (preflight tool/plan, four missing output dirs, relative aggregate root, relative qualify dir); renderer + CLI adapter corrective in progress |
+| CI orchestration | M003e generated release execution wiring | closed | `plans/implementation/ci-release-orchestration/003e-generated-release-execution-wiring-corrective.md` | Closure `plans/closure/ci-release-orchestration/003e-status.md`; implementation `b9062d4`; hosted run 36572608484 green; renderer installs tool before use and creates output dirs, CLI absolutizes generated relative paths |
 | Bootstrap installers | M002 bundle/archive bootstrap safety | closed historically; corrective closed | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | Historical closure retained; PowerShell archive runtime evidence gap corrected and qualified by M002a (`plans/closure/bootstrap-installers/002a-status.md`) |
 | Bootstrap installers | M002a PowerShell archive runtime evidence | closed | `plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md` | Closure `plans/closure/bootstrap-installers/002a-status.md`; implementation `4d2270a`; hosted run 36154905956 (attempt 1, all lanes green) |
 | Eggup interoperability | M001 Eggpack interface/fixtures | closed (historical) | `plans/implementation/eggup-interoperability/001-manifest-consumer-contract-and-fixtures.md` | Closure `plans/closure/eggup-interoperability/001-status.md`; post-closure projection defect tracked by M001a |
@@ -116,12 +116,12 @@ Current dependency-ready implementation work:
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
 
-| CI orchestration | M003b generated draft staging + live qualification | blocked | M003c/M003d, Build M005, and Build M006 are closed, but the live proof runs inside eggsact M001 (Ecosystem M001), which must now close M003e, re-review its consumer baseline, and re-pin before implementing |
-| CI orchestration | M003e generated release execution wiring | active | renderer + CLI adapter corrective for seven execution findings; Ecosystem M001 re-pins to the M003e implementation |
+| CI orchestration | M003b generated draft staging + live qualification | blocked | M003c/M003d, Build M005, Build M006, and M003e are closed, but the live proof runs inside eggsact M001 (Ecosystem M001), which must re-review its consumer baseline and re-pin to the M003e implementation before implementing |
+| CI orchestration | M003e generated release execution wiring | closed | Closure `plans/closure/ci-release-orchestration/003e-status.md`; implementation `b9062d4`; Ecosystem M001 re-pins to the M003e implementation |
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | blocked | real adoption evidence/candidate review (M002a precondition satisfied) |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
 | Eggup interoperability | M003 real-consumer adoption | ready to plan | select a real consumer currently owning duplicated manifest-to-update mapping |
-| Ecosystem adoption | M001 eggsact direct release adoption | ready (unblocked) | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`; §20 stop condition hit before implementation (no checked-in configuration, no generated workflow, no eggsact change) and is now resolved by `plans/closure/build-qualification/006-status.md`. Remaining gates: re-review the advanced consumer baseline, re-pin `eggpack_tool.revision` to `398cd43`, and one maintainer-authorized real release tag. Mirrored eggsact M005 plan registered at baseline `174764c`, consumer since advanced to `34aed3a` |
+| Ecosystem adoption | M001 eggsact direct release adoption | ready (unblocked) | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`; §20 stop condition hit before implementation (no checked-in configuration, no generated workflow, no eggsact change) and is now resolved by `plans/closure/build-qualification/006-status.md`. Remaining gates: re-review the advanced consumer baseline, re-pin `eggpack_tool.revision` to the M003e implementation `b9062d4`, and one maintainer-authorized real release tag. Mirrored eggsact M005 plan registered at baseline `174764c`, consumer since advanced to `34aed3a` |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
@@ -226,20 +226,20 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 Manifest M002, Build/Qualification M001-M005, CI M001/M002/M002a/M003a/M003b/M003c/M003d, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records.
 
-Build/Qualification M006 is closed at `plans/closure/build-qualification/006-status.md` (implementation `398cd43`, hosted run 36484758546) under accepted ADR-0005 Option A, which completes the build/qualification milestone chain through M006. The next dependency-ready implementation milestone is **Ecosystem M001**: `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`, now `ready`. M001 must re-review the current eggsact baseline, re-pin `eggpack_tool.revision` at the M006 implementation, and then perform the real M003b draft qualification.
+Build/Qualification M006 is closed at `plans/closure/build-qualification/006-status.md` (implementation `398cd43`, hosted run 36484758546) under accepted ADR-0005 Option A, which completes the build/qualification milestone chain through M006. CI M003e is closed at `plans/closure/ci-release-orchestration/003e-status.md` (implementation `b9062d4`, hosted run 36572608484), which corrects the generated-workflow execution wiring the first-consumer review proved broken. The next dependency-ready implementation milestone is **Ecosystem M001**: `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md`, now `ready`. M001 must re-review the current eggsact baseline, re-pin `eggpack_tool.revision` at the M003e implementation `b9062d4`, and then perform the real M003b draft qualification.
 
 Eggup Interoperability M003 remains independently ready to plan.
 
 ## Downstream unblock disposition
 
-Answering the standing question for this pass: **closing Build/Qualification M006
-unblocks Ecosystem M001 and removes the producer-side blocker that had stopped
-it. M001 itself still has not closed, so no later ecosystem milestone is
+Answering the standing question for this pass: **closing CI M003e
+unblocks Ecosystem M001 and removes the execution-wiring blocker the
+first-consumer review proved. M001 itself still has not closed, so no later ecosystem milestone is
 unblocked by this pass.**
 
 | Plan | Disposition |
 |---|---|
-| Ecosystem M001 eggsact adoption | Ready / unblocked. Its §20 stop condition is resolved by `plans/closure/build-qualification/006-status.md`; remaining gates are its own consumer-baseline re-review, the `eggpack_tool.revision` re-pin to `398cd43`, and one maintainer-authorized real release tag. |
+| Ecosystem M001 eggsact adoption | Ready / unblocked. Its §20 stop condition is resolved by `plans/closure/build-qualification/006-status.md` and its execution-wiring blocker by `plans/closure/ci-release-orchestration/003e-status.md`; remaining gates are its own consumer-baseline re-review, the `eggpack_tool.revision` re-pin to `b9062d4`, and one maintainer-authorized real release tag. |
 | CI M003b full closure | Stays conditionally closed. Its sole remaining condition is the real draft/rerun proof, which runs inside M001; M001's producer blocker is gone. |
 | Phase 8 exit | Stays open. Exit criteria require a maintainer-inspectable fully qualified draft release. |
 | Ecosystem M002 stegoeggo | Stays blocked on M001 closure. The shared native-qualification gap it expected Build M006 to resolve is now resolved. |
