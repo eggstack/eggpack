@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 001 — eggsact Direct Release Adoption and Live Draft Qualification
 
-Status: ready — §20 stop condition resolved by closed Build M006; see §22 and §24
+Status: ready — §20 stop condition resolved by closed Build M006; execution wiring corrected by closed CI M003e; see §22 and §24
 
 Repository baseline: `16118c5896519ae10e3d296e77d5974869d89354`
 
@@ -246,7 +246,7 @@ Eggpack must never infer the release from the dispatch branch.
 
 ## 11. Eggpack tool pin
 
-Generated eggsact workflow pins Eggpack to the exact M003d/Build-M005-qualified implementation revision.
+Generated eggsact workflow pins Eggpack to the exact M003e implementation revision `b9062d48498a5d3511f3651e385bb97df1ec0621` (closure `plans/closure/ci-release-orchestration/003e-status.md`, hosted run 36572608484 green).
 
 No floating main branch, tag, or crate version.
 
@@ -608,12 +608,12 @@ Implementation preconditions for this plan, restated:
   advanced to `34aed3ab36da2637c22412f7ca65d35f1ca5021d`, and §17 evidence must
   be restated in terms of the current `eggup-eggfetch` / `eggfetch-core` updater
   crates;
-- re-point `eggpack_tool.revision` from the currently reviewed pin to the M006
-  implementation revision `398cd43bf1597ba49bfc35b5334611aa04b16600`, confirmed
+- re-point `eggpack_tool.revision` from the currently reviewed pin to the M003e
+  implementation revision `b9062d48498a5d3511f3651e385bb97df1ec0621`, confirmed
   with `git rev-parse` at implementation time before writing the consumer
   configuration, and record the pin in this plan's closure;
 - re-run this plan's §7 configuration through the real `eggpack ci` renderer at
-  the M006 revision, since the two Linux targets that previously failed to
+  the M003e revision, since the two Linux targets that previously failed to
   resolve must now resolve and render, and record the render evidence in the
   closure.
 
