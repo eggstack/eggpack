@@ -246,7 +246,7 @@ Eggpack must never infer the release from the dispatch branch.
 
 ## 11. Eggpack tool pin
 
-Generated eggsact workflow pins Eggpack to the exact M003e implementation revision `b9062d48498a5d3511f3651e385bb97df1ec0621` (closure `plans/closure/ci-release-orchestration/003e-status.md`, hosted run 36572608484 green).
+Generated eggsact workflow pins Eggpack to the exact M003f implementation revision `c190e7740ac94421bd880c9d239b91b5c958b32b` (closure `plans/closure/ci-release-orchestration/003f-status.md`, hosted run 36632209736 green).
 
 No floating main branch, tag, or crate version.
 
@@ -609,7 +609,7 @@ Implementation preconditions for this plan, restated:
   be restated in terms of the current `eggup-eggfetch` / `eggfetch-core` updater
   crates;
 - re-point `eggpack_tool.revision` from the currently reviewed pin to the M003e
-  implementation revision `b9062d48498a5d3511f3651e385bb97df1ec0621`, confirmed
+  implementation revision `c190e7740ac94421bd880c9d239b91b5c958b32b`, confirmed
   with `git rev-parse` at implementation time before writing the consumer
   configuration, and record the pin in this plan's closure;
 - re-run this plan's §7 configuration through the real `eggpack ci` renderer at

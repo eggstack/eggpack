@@ -1,6 +1,6 @@
 # CI M003f Corrective — Generated Tool-Install Command Is Rejected by Cargo
 
-Status: active
+Status: closed — see `plans/closure/ci-release-orchestration/003f-status.md` (implementation `c190e77`, hosted run 36632209736 green)
 
 Source finding: Ecosystem M001 live-draft first dispatch (eggsact run `36630837644`, tag `v1.2.7`) failed in every job's first step: `cargo install --git <repo> --rev <rev> --locked -p <package>` exits 1 with `error: unexpected argument '-p' found`. `cargo install` has no `-p/--package` flag for git sources; the package is selected positionally. Cargo's own error prescribes the form: `cargo install --git <repo> --rev <rev> --locked <package>`.
 
