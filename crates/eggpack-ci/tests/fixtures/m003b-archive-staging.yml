@@ -22,7 +22,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
-          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked eggpack-cli
           eggpack --version
       - name: Verify checked-out release source
         shell: bash
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
-          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked eggpack-cli
           eggpack --version
       - name: Verify checked-out release source
         shell: bash
@@ -95,7 +95,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
-          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked eggpack-cli
           eggpack --version
       - name: Verify checked-out release source
         shell: bash
@@ -130,7 +130,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
-          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked eggpack-cli
           eggpack --version
       - name: Verify checked-out release source
         shell: bash
@@ -161,7 +161,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
-          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked eggpack-cli
           eggpack --version
       - name: Verify checked-out release source
         shell: bash
@@ -203,7 +203,7 @@ jobs:
         shell: bash
         timeout-minutes: 10
         run: |
-          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked eggpack-cli
           eggpack --version
       - name: Verify checked-out release source
         shell: bash

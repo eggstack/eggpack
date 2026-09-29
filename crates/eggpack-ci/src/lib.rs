@@ -2860,7 +2860,7 @@ fn mkdir_step(out: &mut String, name: &str, dir: &str) {
 
 fn tool_install_snippet(tool: &EggpackToolPolicy) -> String {
     format!(
-        "      - name: Install pinned Eggpack tool\n        shell: bash\n        timeout-minutes: {timeout}\n        run: |\n          cargo install --git {repo} --rev {rev} --locked -p {package}\n          eggpack --version\n",
+        "      - name: Install pinned Eggpack tool\n        shell: bash\n        timeout-minutes: {timeout}\n        run: |\n          cargo install --git {repo} --rev {rev} --locked {package}\n          eggpack --version\n",
         timeout = tool.install_timeout_minutes,
         repo = tool.repo,
         rev = tool.revision,
@@ -5672,7 +5672,7 @@ mod tests {
         assert!(!first.contains("id-token: write"));
         // Pinned Eggpack tooling.
         assert!(first.contains("cargo install --git https://github.com/eggstack/eggpack --rev"));
-        assert!(first.contains("--locked -p eggpack-cli"));
+        assert!(first.contains("--locked eggpack-cli"));
         assert!(first.contains("eggpack --version"));
         // Exact gate dependencies and no release API.
         assert!(first.contains("required_gate"));
@@ -9413,6 +9413,30 @@ mod tests {
             .position(|(name, _)| name == "Install pinned Eggpack tool")
             .expect("preflight tool install");
         assert!(install < step_position(&steps, "'_verify-source'"));
+    }
+
+    #[test]
+    fn m003f_tool_install_uses_positional_package() {
+        // F8: `cargo install` has no `-p/--package` flag for git sources;
+        // the package is selected positionally. This guards the exact
+        // command text because ordering tests cannot catch a rejected flag.
+        let tool = EggpackToolPolicy {
+            repo: "https://github.com/eggstack/eggpack".into(),
+            revision: "b".repeat(40),
+            package: "eggpack-cli".into(),
+            install_timeout_minutes: 10,
+        };
+        let snippet = tool_install_snippet(&tool);
+        assert!(
+            snippet.contains("--locked eggpack-cli\n"),
+            "install must select the package positionally: {snippet}"
+        );
+        assert!(snippet.contains(&format!("--rev {}", "b".repeat(40))));
+        assert!(snippet.contains("eggpack --version"));
+        assert!(
+            !snippet.contains("-p "),
+            "install must not pass -p/--package to cargo install: {snippet}"
+        );
     }
 
     #[test]
