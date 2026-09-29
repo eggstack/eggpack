@@ -2835,6 +2835,29 @@ pub fn aggregate_finalize(
         .map_err(|_| CiError("finalization rejected complete evidence".into()))
 }
 
+/// Emit a private working-directory creation step for generated release jobs.
+///
+/// Directory names are renderer constants drawn from the same job's CLI argv;
+/// no caller input ever reaches the shell. The assertion documents that only
+/// fixed safe relative paths are representable here.
+fn mkdir_step(out: &mut String, name: &str, dir: &str) {
+    assert!(
+        !dir.is_empty()
+            && dir.len() <= 128
+            && dir
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"./-_".contains(&b))
+            && !dir.starts_with('/')
+            && !dir.contains(".."),
+        "generated mkdir directory is not a fixed safe relative path"
+    );
+    out.push_str("      - name: ");
+    out.push_str(name);
+    out.push_str("\n        shell: bash\n        run: ");
+    out.push_str(&yaml_scalar(&format!("mkdir -p '{dir}'")));
+    out.push('\n');
+}
+
 fn tool_install_snippet(tool: &EggpackToolPolicy) -> String {
     format!(
         "      - name: Install pinned Eggpack tool\n        shell: bash\n        timeout-minutes: {timeout}\n        run: |\n          cargo install --git {repo} --rev {rev} --locked -p {package}\n          eggpack --version\n",
@@ -3156,7 +3179,20 @@ fn render_release_github_inner(
     out.push_str(&policy.timeout_minutes.to_string());
     out.push_str("\n    steps:\n");
     checkout_snippet(&mut out, policy, staging_enabled);
-    source_verify_snippet(&mut out, inputs, staging_enabled);
+    // M003e: exact staging renders verify the checked-in release plan in
+    // preflight, but only after installing the pinned tool — no earlier step
+    // provides it. Reusable renders carry no Eggpack invocation in preflight:
+    // the runtime plan does not exist yet (`resolve` produces it), `resolve`
+    // verifies HEAD during `_resolve-release`, and every later job
+    // re-verifies against the downloaded runtime identity.
+    if staging_enabled {
+        if runtime.is_none() {
+            out.push_str(&tool_install_snippet(tool));
+            source_verify_snippet(&mut out, inputs, staging_enabled);
+        }
+    } else {
+        source_verify_snippet(&mut out, inputs, staging_enabled);
+    }
     out.push_str("      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
 
     // Runtime identity preflight (reusable mode only, M003d section 4D):
@@ -3182,6 +3218,13 @@ fn render_release_github_inner(
         }));
         out.push('\n');
         out.push_str(&tool_install_snippet(tool));
+        // M003e: the runtime identity directory must exist before
+        // `_resolve-release` writes the three invocation-local documents.
+        mkdir_step(
+            &mut out,
+            "Create runtime identity directory",
+            &format!("./{RUNTIME_IDENTITY_DIR}"),
+        );
         out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
         out.push_str(&runtime.resolve.to_shell());
         out.push('\n');
@@ -3244,7 +3287,6 @@ fn render_release_github_inner(
         out.push_str("    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str("      - name: Set up Rust toolchain\n        uses: ");
         out.push_str(&yaml_scalar(&policy.rust_toolchain.reference));
         out.push_str("\n        with:\n          toolchain: ");
@@ -3262,6 +3304,11 @@ fn render_release_github_inner(
                 out.push_str(&cross_tools_section(policy, &job.planned)?);
             }
         }
+        // M003e: the pinned tool is installed before any Eggpack invocation.
+        // Source verification runs here — after the toolchain the install
+        // relies on, before any release work — instead of ahead of the tool.
+        out.push_str(&tool_install_snippet(tool));
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         let provisioned = policy.cross_tools.is_some()
             && job.planned.policy.strategy == BuildStrategy::CargoZigbuild;
         for output in &job.outputs {
@@ -3301,7 +3348,6 @@ fn render_release_github_inner(
             .iter()
             .find(|q| q.build_job_id == job.job_id)
             .ok_or_else(|| fail("qualification job missing for build target"))?;
-        out.push_str(&tool_install_snippet(tool));
         out.push_str(
             "      - name: Capture canonical build handoff\n        shell: bash\n        run: ",
         );
@@ -3358,8 +3404,9 @@ fn render_release_github_inner(
         out.push_str("    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         out.push_str("      - name: Download build handoff\n        uses: ");
         out.push_str(&yaml_scalar(&download_pin.reference));
         out.push_str("\n        with:\n          name: ");
@@ -3435,8 +3482,9 @@ fn render_release_github_inner(
             out.push_str("    steps:\n");
             checkout_snippet(&mut out, policy, staging_enabled);
             runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-            source_verify_snippet(&mut out, inputs, staging_enabled);
+            // M003e: install before any Eggpack invocation; verify right after.
             out.push_str(&tool_install_snippet(tool));
+            source_verify_snippet(&mut out, inputs, staging_enabled);
             out.push_str("      - name: Download qualification handoff\n        uses: ");
             out.push_str(&yaml_scalar(&download_pin.reference));
             out.push_str("\n        with:\n          name: ");
@@ -3446,7 +3494,15 @@ fn render_release_github_inner(
                 "./eggpack-handoff/{}",
                 qual.build_job_id
             )));
-            out.push_str("\n      - name: Validate exact candidate (consumer)\n        shell: bash\n        run: ");
+            // M003e: the consumer evidence directory must exist before
+            // `_validate-consumer` writes the per-target evidence file.
+            out.push('\n');
+            mkdir_step(
+                &mut out,
+                "Create consumer evidence directory",
+                &format!("./eggpack-consumer/{}", qual.build_job_id),
+            );
+            out.push_str("      - name: Validate exact candidate (consumer)\n        shell: bash\n        run: ");
             out.push_str(&yaml_scalar(&validate.to_shell()));
             out.push('\n');
             out.push_str("      - name: Upload consumer validation evidence\n        uses: ");
@@ -3497,8 +3553,9 @@ fn render_release_github_inner(
         out.push_str("\n    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         for qual in &graph.qualifications {
             out.push_str("      - name: Download qualification ");
             out.push_str(&yaml_scalar(&qual.target));
@@ -3526,6 +3583,9 @@ fn render_release_github_inner(
             out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
             out.push('\n');
         }
+        // M003e: the gate outcome directory must exist before
+        // `_evaluate-gate` writes the outcome file.
+        mkdir_step(&mut out, "Create gate outcome directory", "./eggpack-gate");
         out.push_str("      - name: Evaluate required qualification gate\n        shell: bash\n        run: ");
         out.push_str(&yaml_scalar(&gate_cmd.to_shell()));
         out.push('\n');
@@ -3555,8 +3615,9 @@ fn render_release_github_inner(
         out.push_str("\n    steps:\n");
         checkout_snippet(&mut out, policy, staging_enabled);
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
+        source_verify_snippet(&mut out, inputs, staging_enabled);
         for qual in &graph.qualifications {
             out.push_str("      - name: Download qualification ");
             out.push_str(&yaml_scalar(&qual.target));
@@ -3582,6 +3643,13 @@ fn render_release_github_inner(
             out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
             out.push('\n');
         }
+        // M003e: the finalized release directory must exist before
+        // `_aggregate` writes the summary and adjacent manifest.
+        mkdir_step(
+            &mut out,
+            "Create finalized release directory",
+            "./eggpack-finalized",
+        );
         out.push_str(
             "      - name: Aggregate and finalize release\n        shell: bash\n        run: ",
         );
@@ -3668,8 +3736,9 @@ fn render_release_github_inner(
             StagingTagSource::DispatchInput => "test -n \"${{ inputs.release_tag }}\"",
         }));
         out.push('\n');
-        source_verify_snippet(&mut out, inputs, true);
+        // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
+        source_verify_snippet(&mut out, inputs, true);
         out.push_str("      - name: Download finalized release\n        uses: ");
         out.push_str(&yaml_scalar(&download_pin.reference));
         out.push_str("\n        with:\n          name: ");
@@ -9134,6 +9203,257 @@ mod tests {
         let yaml = render_reusable_release_github(&contract, &structural_smoke, &policy).unwrap();
         assert!(job_text(&yaml, "build_aarch64_unknown_linux_gnu").contains("'zigbuild'"));
         assert!(!job_text(&yaml, "qualify_build_aarch64_unknown_linux_gnu").contains("zig"));
+    }
+
+    // -----------------------------------------------------------------------
+    // M003e — generated release execution wiring corrective.
+    // -----------------------------------------------------------------------
+
+    /// Ordered (name, run-or-uses body) steps of one generated job.
+    fn job_step_bodies(yaml: &str, job: &str) -> Vec<(String, String)> {
+        let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let steps = value
+            .get("jobs")
+            .and_then(|jobs| jobs.get(job))
+            .and_then(|job| job.get("steps"))
+            .and_then(|steps| steps.as_sequence())
+            .unwrap_or_else(|| panic!("missing steps for job: {job}"));
+        steps
+            .iter()
+            .map(|step| {
+                let name = step
+                    .get("name")
+                    .and_then(|name| name.as_str())
+                    .unwrap_or("")
+                    .to_owned();
+                let body = step
+                    .get("run")
+                    .and_then(|run| run.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| {
+                        step.get("uses")
+                            .and_then(|uses| uses.as_str())
+                            .unwrap_or("")
+                            .to_owned()
+                    });
+                (name, body)
+            })
+            .collect()
+    }
+
+    fn step_position(steps: &[(String, String)], needle: &str) -> usize {
+        steps
+            .iter()
+            .position(|(_, body)| body.contains(needle))
+            .unwrap_or_else(|| panic!("missing step containing: {needle}"))
+    }
+
+    /// M003e general invariant: every generated job step invoking the Eggpack
+    /// CLI is preceded in the same job by the pinned-tool install step.
+    fn assert_tool_before_use(yaml: &str) {
+        let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let jobs = value
+            .get("jobs")
+            .and_then(|jobs| jobs.as_mapping())
+            .expect("rendered workflow has no jobs");
+        for (name, job) in jobs {
+            let steps = job
+                .get("steps")
+                .and_then(|steps| steps.as_sequence())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "job has no steps: {}",
+                        name.as_str().unwrap_or("<non-string>")
+                    )
+                });
+            let mut installed = false;
+            for step in steps {
+                let step_name = step
+                    .get("name")
+                    .and_then(|name| name.as_str())
+                    .unwrap_or("");
+                if step_name == "Install pinned Eggpack tool" {
+                    installed = true;
+                }
+                if let Some(run) = step.get("run").and_then(|run| run.as_str()) {
+                    // CLI invocations are shell-quoted (`'eggpack'`); the
+                    // install step itself only carries the bare binary name.
+                    if run.contains("'eggpack'") {
+                        assert!(
+                            installed,
+                            "job {} invokes the tool without a preceding install",
+                            name.as_str().unwrap_or("<non-string>")
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// M003e general invariant: every CLI invocation that writes a runtime
+    /// output file is preceded in the same job by the `mkdir -p` of its
+    /// exact output parent.
+    fn assert_mkdir_before_output(yaml: &str) {
+        let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+        let jobs = value
+            .get("jobs")
+            .and_then(|jobs| jobs.as_mapping())
+            .expect("rendered workflow has no jobs");
+        for (name, job) in jobs {
+            let steps = job
+                .get("steps")
+                .and_then(|steps| steps.as_sequence())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "job has no steps: {}",
+                        name.as_str().unwrap_or("<non-string>")
+                    )
+                });
+            let mut created: Vec<String> = Vec::new();
+            for step in steps {
+                if let Some(run) = step.get("run").and_then(|run| run.as_str()) {
+                    if let Some(dir) = run
+                        .strip_prefix("mkdir -p '")
+                        .and_then(|rest| rest.strip_suffix('\''))
+                    {
+                        created.push(dir.to_owned());
+                    }
+                    let required = if run.contains("'_resolve-release'") {
+                        Some("./eggpack-runtime")
+                    } else if run.contains("'_validate-consumer'") {
+                        Some("./eggpack-consumer/")
+                    } else if run.contains("'_evaluate-gate'") {
+                        Some("./eggpack-gate")
+                    } else if run.contains("'_aggregate'") {
+                        Some("./eggpack-finalized")
+                    } else {
+                        None
+                    };
+                    if let Some(required) = required {
+                        assert!(
+                            created.iter().any(|dir| dir == required
+                                || (required.ends_with('/') && dir.starts_with(required))),
+                            "job {} writes without a preceding mkdir for {required}",
+                            name.as_str().unwrap_or("<non-string>")
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m003e_reusable_preflight_carries_no_tool_invocation() {
+        let (contract, shape, policy) = m006_shape_and_policy();
+        let yaml = render_reusable_release_github(&contract, &shape, &policy).unwrap();
+        // The runtime plan does not exist yet when preflight runs, so
+        // preflight must not invoke the tool at all.
+        let preflight = job_text(&yaml, "preflight");
+        assert!(
+            !preflight.contains("'eggpack'"),
+            "reusable preflight invokes the tool"
+        );
+        assert!(
+            !preflight.contains("_verify-source"),
+            "reusable preflight verifies a nonexistent plan"
+        );
+        // The resolve job creates the runtime identity directory before
+        // resolving the invocation-local documents into it.
+        let steps = job_step_bodies(&yaml, "resolve");
+        let mkdir = step_position(&steps, "mkdir -p './eggpack-runtime'");
+        assert_eq!(steps[mkdir].0, "Create runtime identity directory");
+        assert!(mkdir < step_position(&steps, "'_resolve-release'"));
+        // Every validator/gate/aggregate job creates its exact output parent.
+        for qual in [
+            "aarch64_apple_darwin",
+            "aarch64_unknown_linux_gnu",
+            "x86_64_apple_darwin",
+            "x86_64_pc_windows_msvc",
+            "x86_64_unknown_linux_gnu",
+        ] {
+            let steps = job_step_bodies(&yaml, &format!("validate_build_{qual}"));
+            let mkdir = step_position(
+                &steps,
+                &format!("mkdir -p './eggpack-consumer/build_{qual}'"),
+            );
+            assert!(mkdir < step_position(&steps, "'_validate-consumer'"));
+        }
+        let gate = job_step_bodies(&yaml, "required_gate");
+        assert!(
+            step_position(&gate, "mkdir -p './eggpack-gate'")
+                < step_position(&gate, "'_evaluate-gate'")
+        );
+        let aggregate = job_step_bodies(&yaml, "aggregate");
+        assert!(
+            step_position(&aggregate, "mkdir -p './eggpack-finalized'")
+                < step_position(&aggregate, "'_aggregate'")
+        );
+    }
+
+    #[test]
+    fn m003e_exact_staging_preflight_installs_tool_before_verify() {
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        let yaml = render_release_github(&graph, &policy).unwrap();
+        // The checked-in release plan exists in exact mode, so preflight
+        // keeps its source verification — after installing the pinned tool.
+        let steps = job_step_bodies(&yaml, "preflight");
+        let install = steps
+            .iter()
+            .position(|(name, _)| name == "Install pinned Eggpack tool")
+            .expect("preflight tool install");
+        assert!(install < step_position(&steps, "'_verify-source'"));
+    }
+
+    #[test]
+    fn m003e_tool_install_and_output_dirs_hold_in_every_render_mode() {
+        // Exact non-staging render.
+        let (graph, policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        let exact = render_release_github(&graph, &policy).unwrap();
+        assert_tool_before_use(&exact);
+        assert_mkdir_before_output(&exact);
+        // Exact staging render.
+        let (graph, policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        let staging = render_release_github(&graph, &policy).unwrap();
+        assert_tool_before_use(&staging);
+        assert_mkdir_before_output(&staging);
+        // Reusable render.
+        let (contract, shape, policy) = m006_shape_and_policy();
+        let reusable = render_reusable_release_github(&contract, &shape, &policy).unwrap();
+        assert_tool_before_use(&reusable);
+        assert_mkdir_before_output(&reusable);
     }
 
     #[test]

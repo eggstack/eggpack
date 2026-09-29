@@ -530,7 +530,12 @@ fn ci_qualify_target(args: &[String]) -> Result<(), String> {
     let bindings_path = PathBuf::from(get_flag(args, "build-bindings")?);
     let qual_bindings_path = PathBuf::from(get_flag(args, "qualification-bindings")?);
     let target = get_flag(args, "target")?;
-    let candidate_dir = PathBuf::from(get_flag(args, "candidate-dir")?);
+    // M003e: the core candidate inspector requires absolute candidate paths,
+    // while the renderer emits portable relative ones.
+    let candidate_dir = absolutize_cli_path(
+        &PathBuf::from(get_flag(args, "candidate-dir")?),
+        &std::env::current_dir().map_err(|_| "working directory is unavailable".to_owned())?,
+    )?;
     let handoff_path = PathBuf::from(get_flag(args, "build-handoff")?);
     let output_dir = PathBuf::from(get_flag(args, "output-dir")?);
     let qemu_sysroot = get_flag_optional(args, "qemu-sysroot").map(PathBuf::from);
@@ -657,6 +662,40 @@ fn absolute_path(path: &Path) -> Result<PathBuf, String> {
     std::env::current_dir()
         .map(|cwd| cwd.join(path))
         .map_err(|_| "working directory is unavailable".to_owned())
+}
+
+/// Resolve a CLI-supplied relative path against an explicit base directory
+/// into an absolute path without `.`/`..` components.
+///
+/// Absolute inputs pass through unchanged. Parent-directory components are
+/// rejected: generated invocations never contain them, and direct CLI callers
+/// get a precise error instead of a later path-safety failure (M003e).
+/// Absolute-path requirements live in the core library (`inspect_candidate`,
+/// `finalize_release`); this adapter bridges the portable relative paths the
+/// renderer emits. The base is explicit so unit tests never touch the process
+/// working directory.
+fn absolutize_cli_path(raw: &Path, base: &Path) -> Result<PathBuf, String> {
+    if raw.as_os_str().is_empty() {
+        return Err("path must not be empty".to_owned());
+    }
+    if raw.is_absolute() {
+        return Ok(raw.to_path_buf());
+    }
+    if !base.is_absolute() {
+        return Err("path base is not absolute".to_owned());
+    }
+    let mut out = base.to_path_buf();
+    for component in raw.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                return Err("path must not contain parent-directory components".to_owned());
+            }
+            std::path::Component::Normal(segment) => out.push(segment),
+            _ => return Err("path has an unsupported component".to_owned()),
+        }
+    }
+    Ok(out)
 }
 
 /// Validate one exact candidate with its consumer-owned script.
@@ -833,7 +872,12 @@ fn ci_aggregate(args: &[String]) -> Result<(), String> {
     let plan_path = PathBuf::from(get_flag(args, "release-plan")?);
     let ci_plan_path = PathBuf::from(get_flag(args, "ci-plan")?);
     let inputs_dir = PathBuf::from(get_flag(args, "inputs-dir")?);
-    let output_root = PathBuf::from(get_flag(args, "output-root")?);
+    // M003e: core finalization requires an absolute root, while the renderer
+    // emits a portable relative one.
+    let output_root = absolutize_cli_path(
+        &PathBuf::from(get_flag(args, "output-root")?),
+        &std::env::current_dir().map_err(|_| "working directory is unavailable".to_owned())?,
+    )?;
     let output_path = PathBuf::from(get_flag(args, "output")?);
     let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
     let plan_text = read_bounded(&plan_path, 1_000_000, "release plan")?;
@@ -1115,6 +1159,30 @@ mod tests {
                 Err(error) => panic!("create test temp directory: {error}"),
             }
         }
+    }
+
+    #[test]
+    fn absolutize_cli_path_keeps_absolute_rejects_escape_and_joins_relative() {
+        // Portable absolute base (Unix and Windows alike).
+        let base = temp_root("absolutize-base");
+        // Absolute inputs pass through unchanged.
+        let absolute = base.join("root");
+        assert_eq!(absolutize_cli_path(&absolute, &base).unwrap(), absolute);
+        // Relative generated-style inputs join the explicit base with no
+        // `.` components left behind.
+        assert_eq!(
+            absolutize_cli_path(Path::new("./eggpack-finalized/root"), &base).unwrap(),
+            base.join("eggpack-finalized/root")
+        );
+        assert_eq!(
+            absolutize_cli_path(Path::new("eggpack-handoff/build_x/candidates"), &base).unwrap(),
+            base.join("eggpack-handoff/build_x/candidates")
+        );
+        // Parent-directory components are rejected even when the base exists.
+        assert!(absolutize_cli_path(Path::new("../escape"), &base).is_err());
+        assert!(absolutize_cli_path(Path::new("a/../../escape"), &base).is_err());
+        assert!(absolutize_cli_path(Path::new(""), &base).is_err());
+        assert!(absolutize_cli_path(Path::new("relative"), Path::new("also-relative")).is_err());
     }
 
     #[test]

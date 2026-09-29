@@ -18,6 +18,12 @@ jobs:
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
           ref: "${{ github.ref }}"
+      - name: Install pinned Eggpack tool
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
+          eggpack --version
       - name: Verify checked-out release source
         shell: bash
         run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
@@ -36,9 +42,6 @@ jobs:
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
           ref: "${{ github.ref }}"
-      - name: Verify checked-out release source
-        shell: bash
-        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Set up Rust toolchain
         uses: "dtolnay/rust-toolchain@0123456789abcdef0123456789abcdef01234567"
         with:
@@ -47,17 +50,20 @@ jobs:
       - name: Verify Rust toolchain
         shell: bash
         run: cargo +'1.89.0' --version
-      - name: Build "x86_64-unknown-linux-gnu / bin0"
-        shell: bash
-        env:
-          CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
-        run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'eggsact' '--bin' 'bin0'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
+      - name: Build "x86_64-unknown-linux-gnu / bin0"
+        shell: bash
+        env:
+          CARGO_TARGET_DIR: "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}"
+        run: "'cargo' '+1.89.0' 'build' '--release' '--locked' '--target' 'x86_64-unknown-linux-gnu' '--package' 'eggsact' '--bin' 'bin0'"
       - name: Capture canonical build handoff
         shell: bash
         run: "'eggpack' 'ci' '_capture-build' '--release-plan' 'plans/release-plan.json' '--build-bindings' 'bindings/build.toml' '--target' 'x86_64-unknown-linux-gnu' '--cargo-target-dir' '${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}' '--output-dir' './eggpack-build/build_x86_64_unknown_linux_gnu'"
@@ -80,15 +86,15 @@ jobs:
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
           ref: "${{ github.ref }}"
-      - name: Verify checked-out release source
-        shell: bash
-        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Download build handoff
         uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
@@ -115,20 +121,23 @@ jobs:
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
           ref: "${{ github.ref }}"
-      - name: Verify checked-out release source
-        shell: bash
-        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Download qualification "x86_64-unknown-linux-gnu"
         uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
           name: "eggpack-evidence-x86_64-unknown-linux-gnu"
           path: "./eggpack-inputs/x86_64-unknown-linux-gnu"
+      - name: Create gate outcome directory
+        shell: bash
+        run: "mkdir -p './eggpack-gate'"
       - name: Evaluate required qualification gate
         shell: bash
         run: "'eggpack' 'ci' '_evaluate-gate' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output' './eggpack-gate/gate-outcome.json'"
@@ -143,20 +152,23 @@ jobs:
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
           ref: "${{ github.ref }}"
-      - name: Verify checked-out release source
-        shell: bash
-        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Download qualification "x86_64-unknown-linux-gnu"
         uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
           name: "eggpack-evidence-x86_64-unknown-linux-gnu"
           path: "./eggpack-inputs/x86_64-unknown-linux-gnu"
+      - name: Create finalized release directory
+        shell: bash
+        run: "mkdir -p './eggpack-finalized'"
       - name: Aggregate and finalize release
         shell: bash
         run: "'eggpack' 'ci' '_aggregate' '--contract' 'contracts/release.toml' '--release-plan' 'plans/release-plan.json' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output-root' './eggpack-finalized/root' '--output' './eggpack-finalized/summary.json'"
@@ -182,15 +194,15 @@ jobs:
       - name: Validate exact-tag source
         shell: bash
         run: "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\""
-      - name: Verify checked-out release source
-        shell: bash
-        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
         run: |
           cargo install --git https://github.com/eggstack/eggpack --rev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --locked -p eggpack-cli
           eggpack --version
+      - name: Verify checked-out release source
+        shell: bash
+        run: "'eggpack' 'ci' '_verify-source' '--release-plan' 'plans/release-plan.json'"
       - name: Download finalized release
         uses: "actions/download-artifact@0123456789abcdef0123456789abcdef01234567"
         with:
