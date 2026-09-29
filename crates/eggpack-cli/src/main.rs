@@ -732,6 +732,17 @@ fn ci_validate_consumer(args: &[String]) -> Result<(), String> {
     let evidence_text = read_bounded(&evidence_path, 1_000_000, "qualification evidence")?;
     let evidence = eggpack_ci::decode_qualification_evidence(&evidence_text)
         .map_err(|_| "invalid evidence".to_owned())?;
+    // F10c: never consumer-validate a candidate whose qualification did not
+    // pass. The gate fails closed on such evidence downstream, but the
+    // validator must refuse it fast with a clear cause instead of executing
+    // against it (a Failed smoke already proves the bytes cannot satisfy
+    // the consumer contract).
+    if evidence.status != eggpack_core::QualificationStatus::Passed {
+        return Err(format!(
+            "qualification evidence is not Passed: {:?}",
+            evidence.status
+        ));
+    }
     if evidence.target != target
         || evidence.release_id != handoff.release_id
         || evidence.source_revision != handoff.source_revision
@@ -2135,6 +2146,157 @@ mod tests {
         )
         .unwrap();
         assert!(ci_validate_consumer(&argv[3..]).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn validate_consumer_refuses_failed_qualification_evidence() {
+        // F10c: a Failed smoke (e.g. bytes that cannot execute) must fail
+        // fast with its cause instead of running the consumer script.
+        let root = temp_root("validate-failed-evidence");
+        let contract_text =
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        let config = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: vec![eggpack_core::TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: eggpack_core::BuildStrategy::NativeCargo,
+                host_os: eggpack_core::HostOs::Linux,
+                host_arch: eggpack_core::HostArch::X86_64,
+                qualification_host: None,
+                toolchain: eggpack_core::ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                    zig: None,
+                },
+                floor: eggpack_core::CompatibilityFloor::None,
+                qualification: eggpack_core::Qualification::Structural,
+                support: eggpack_core::SupportTier::Required,
+            }],
+        };
+        let release = config
+            .resolve(&contract, "1.2.3", &"a".repeat(40), &["linux-x64".into()])
+            .unwrap();
+        let bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                vec![eggpack_core::BuildBinding {
+                    selector: eggpack_core::LogicalOutputSelector::Direct,
+                    package: "eggsact".into(),
+                    binary: "bin0".into(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qual_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                "x86_64-unknown-linux-gnu".into(),
+                eggpack_core::TargetQualificationBinding { smoke: None },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let contract_path = root.join("contract.toml");
+        let release_plan_path = root.join("release-plan.json");
+        let build_bindings_path = root.join("build.toml");
+        let qual_bindings_path = root.join("qualification.toml");
+        write_text(&contract_path, contract_text);
+        write_text(
+            &release_plan_path,
+            &serde_json::to_string(&release).unwrap(),
+        );
+        write_text(&build_bindings_path, &toml::to_string(&bindings).unwrap());
+        write_text(
+            &qual_bindings_path,
+            &toml::to_string(&qual_bindings).unwrap(),
+        );
+        let cargo_root = root.join("cargo-target");
+        let cargo_bin_dir = cargo_root.join("x86_64-unknown-linux-gnu/release");
+        std::fs::create_dir_all(&cargo_bin_dir).unwrap();
+        std::fs::write(cargo_bin_dir.join("bin0"), fixture_elf()).unwrap();
+        let build_dir = root.join("artifacts/build/x86_64-unknown-linux-gnu");
+        let capture = eggpack_ci::RunnerCommand::CaptureBuild {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            build_bindings: build_bindings_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            cargo_target_dir: cargo_root.to_string_lossy().into_owned(),
+            output_dir: build_dir.to_string_lossy().into_owned(),
+        };
+        ci_capture_build(&capture.argv()[3..]).unwrap();
+        let qualify = eggpack_ci::RunnerCommand::QualifyTarget {
+            contract: contract_path.to_string_lossy().into_owned(),
+            release_plan: release_plan_path.to_string_lossy().into_owned(),
+            build_bindings: build_bindings_path.to_string_lossy().into_owned(),
+            qualification_bindings: qual_bindings_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: build_dir.join("candidates").to_string_lossy().into_owned(),
+            build_handoff: build_dir
+                .join("build-handoff.json")
+                .to_string_lossy()
+                .into_owned(),
+            output_dir: root
+                .join("artifacts/qual/x86_64-unknown-linux-gnu")
+                .to_string_lossy()
+                .into_owned(),
+            qemu_sysroot: None,
+        };
+        ci_qualify_target(&qualify.argv()[3..]).unwrap();
+        let qual_dir = root.join("artifacts/qual/x86_64-unknown-linux-gnu");
+        let source_root = root.join("checkout");
+        std::fs::create_dir_all(source_root.join("scripts")).unwrap();
+        std::fs::write(
+            source_root.join("scripts/smoke.py"),
+            "import sys\nopen(sys.argv[1], 'rb').read()\n",
+        )
+        .unwrap();
+        let validator = eggpack_ci::ConsumerValidatorV1 {
+            schema_version: 1,
+            selector: eggpack_core::LogicalOutputSelector::Direct,
+            interpreter: eggpack_ci::ValidatorInterpreterV1::Python3,
+            script: "scripts/smoke.py".into(),
+            timeout_ms: 20_000,
+            stdout_limit: 65_536,
+            stderr_limit: 65_536,
+        };
+        let map: std::collections::BTreeMap<String, eggpack_ci::ConsumerValidatorV1> =
+            [("x86_64-unknown-linux-gnu".to_owned(), validator)]
+                .into_iter()
+                .collect();
+        let map_path = root.join("consumer-validators.json");
+        std::fs::write(&map_path, serde_json::to_string(&map).unwrap()).unwrap();
+        // Rewrite the Passed evidence as Failed, keeping identity intact.
+        let mut evidence: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(qual_dir.join("evidence.json")).unwrap())
+                .unwrap();
+        evidence["status"] = serde_json::json!({"failed": "smoke_failed"});
+        let failed_path = root.join("evidence-failed.json");
+        std::fs::write(&failed_path, serde_json::to_string(&evidence).unwrap()).unwrap();
+        let validate = eggpack_ci::RunnerCommand::ValidateConsumer {
+            consumer_validators: map_path.to_string_lossy().into_owned(),
+            target: "x86_64-unknown-linux-gnu".into(),
+            candidate_dir: qual_dir.join("candidates").to_string_lossy().into_owned(),
+            build_handoff: qual_dir
+                .join("build-handoff.json")
+                .to_string_lossy()
+                .into_owned(),
+            evidence: failed_path.to_string_lossy().into_owned(),
+            source_root: source_root.to_string_lossy().into_owned(),
+            output: root
+                .join("consumer-evidence.json")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        let error = ci_validate_consumer(&validate.argv()[3..]).unwrap_err();
+        assert!(
+            error.contains("not Passed"),
+            "failed evidence must be refused fast, got: {error}"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

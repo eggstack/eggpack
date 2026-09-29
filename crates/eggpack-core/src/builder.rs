@@ -17,6 +17,32 @@ use std::{
 
 const MAX_OUTPUT: usize = 256 * 1024;
 
+/// Restore POSIX exec bits on a transferred candidate before spawning it.
+///
+/// Artifact transfer between jobs strips exec bits; the recorded
+/// size/digest cover bytes only, so restoring mode cannot change identity.
+fn ensure_candidate_executable(path: &Path) -> Result<(), BuildError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let meta =
+            fs::symlink_metadata(path).map_err(|_| build_err("candidate is not executable"))?;
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            return Err(build_err("candidate is not executable"));
+        }
+        let mut permissions = meta.permissions();
+        permissions.set_mode(permissions.mode() | 0o111);
+        fs::set_permissions(path, permissions)
+            .map_err(|_| build_err("candidate is not executable"))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// Contract logical location for one Cargo-produced executable.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -386,6 +412,15 @@ fn run_bounded_inner(
         || spec.stderr_limit > MAX_OUTPUT
     {
         return Err(build_err("invalid process bounds or executable"));
+    }
+    // F10a: artifact transfer between jobs strips POSIX exec bits
+    // (upload-artifact documents 644 for all files). A transferred
+    // candidate must be executable again before its smoke spawns it;
+    // bytes (and therefore recorded size/digest) are unaffected by mode.
+    if matches!(allowance, ExecutableAllowance::Candidate)
+        && ensure_candidate_executable(Path::new(&spec.executable)).is_err()
+    {
+        return Err(build_err("candidate is not executable"));
     }
     let mut command = Command::new(&spec.executable);
     command

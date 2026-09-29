@@ -1617,9 +1617,8 @@ fn provision_cross_tools_steps(
     step.push_str(&provisioning.cargo_install_timeout_minutes.to_string());
     step.push_str("\n        run: |\n          set -euo pipefail\n          install_root=\"${{ runner.temp }}/eggpack/cargo-install/${{ github.run_id }}-${{ github.run_attempt }}\"\n          mkdir -p \"$install_root\"\n          CARGO_INSTALL_ROOT=\"$install_root\" cargo install cargo-zigbuild --version ");
     step.push_str(&shell_quote(cargo_zigbuild));
-    step.push_str(" --locked\n          echo \"CARGO_INSTALL_ROOT=$install_root\" >> \"$GITHUB_ENV\"\n          echo \"$install_root/bin\" >> \"$GITHUB_PATH\"\n          export PATH=\"$install_root/bin:$PATH\"\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
-    step.push_str(&shell_quote(&format!("cargo-zigbuild {cargo_zigbuild}")));
-    step.push_str("\n      - name: Provision verified Zig ");
+    step.push_str(" --locked\n          echo \"CARGO_INSTALL_ROOT=$install_root\" >> \"$GITHUB_ENV\"\n          echo \"$install_root/bin\" >> \"$GITHUB_PATH\"\n          export PATH=\"$install_root/bin:$PATH\"\n          test -x \"$install_root/bin/cargo-zigbuild\"\n");
+    step.push_str("      - name: Provision verified Zig ");
     step.push_str(zig_version);
     step.push_str("\n        shell: bash\n        run: |\n          set -euo pipefail\n          zig_version=");
     step.push_str(&shell_quote(zig_version));
@@ -4226,6 +4225,16 @@ pub fn run_consumer_validator(
             evidence_sha,
         );
     }
+    // F10a: the candidate bytes already match; restore exec bits stripped
+    // by artifact transfer before the validator spawns the binary.
+    if !ensure_candidate_executable(request.candidate_path) {
+        return consumer_evidence_shell(
+            request,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::CandidateMismatch),
+            evidence_size,
+            evidence_sha,
+        );
+    }
 
     let exe = python_interpreter_exe();
     let path_value = match request.path_dirs {
@@ -4262,6 +4271,32 @@ fn is_regular_nonempty_file(path: &Path) -> bool {
     std::fs::symlink_metadata(path)
         .ok()
         .is_some_and(|meta| !meta.file_type().is_symlink() && meta.is_file() && meta.len() >= 1)
+}
+
+/// Restore POSIX exec bits on a transferred candidate before spawning a
+/// validator against it. Artifact transfer between jobs strips exec bits
+/// (upload-artifact documents 644 for all files); the recorded size/digest
+/// cover bytes only, so restoring mode cannot change identity. Callers must
+/// verify byte identity first and map failure to CandidateMismatch.
+fn ensure_candidate_executable(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            return false;
+        };
+        if meta.file_type().is_symlink() || !meta.is_file() {
+            return false;
+        }
+        let mut permissions = meta.permissions();
+        permissions.set_mode(permissions.mode() | 0o111);
+        std::fs::set_permissions(path, permissions).is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        true
+    }
 }
 
 fn hash_candidate_file(path: &Path) -> (u64, String) {
@@ -9439,6 +9474,68 @@ mod tests {
         );
     }
 
+    /// F10a: artifact transfer strips exec bits (upload-artifact documents
+    /// 644 for all files). The validator must restore them before spawning,
+    /// so a transferred candidate executes exactly like the built one.
+    #[cfg(unix)]
+    #[test]
+    fn m003g_validator_restores_exec_on_transferred_candidate() {
+        use sha2::Digest;
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "eggpack-m003g-exec-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        // A POSIX shell script stands in for the transferred candidate: it
+        // executes on any Unix runner without a toolchain.
+        let candidate = root.join("candidate-direct");
+        std::fs::write(&candidate, b"#!/bin/sh\nexit 0\n").unwrap();
+        std::fs::set_permissions(&candidate, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let script = root.join("smoke.py");
+        std::fs::write(
+            &script,
+            "import subprocess,sys\nsubprocess.run([sys.argv[1]], check=True)\n",
+        )
+        .unwrap();
+        let bytes = std::fs::read(&candidate).unwrap();
+        let mut hasher = Sha256::new();
+        use std::io::Write;
+        hasher.write_all(&bytes).unwrap();
+        let digest = format!("{:x}", hasher.finalize());
+        let validator = ConsumerValidatorV1 {
+            schema_version: 1,
+            selector: eggpack_core::LogicalOutputSelector::Direct,
+            interpreter: ValidatorInterpreterV1::Python3,
+            script: "scripts/smoke.py".into(),
+            timeout_ms: 20_000,
+            stdout_limit: 65_536,
+            stderr_limit: 65_536,
+        };
+        let request = ConsumerValidationRequest {
+            validator: &validator,
+            script_path: &script,
+            candidate_path: &candidate,
+            expected_size: bytes.len() as u64,
+            expected_sha256: &digest,
+            work_dir: &root,
+            release_id: "v0.0.0",
+            source_revision: &"a".repeat(40),
+            target: "x86_64-unknown-linux-gnu",
+            cancelled: None,
+            path_dirs: None,
+        };
+        let validation = run_consumer_validator(&request).unwrap();
+        assert_eq!(validation.outcome, ConsumerValidationOutcome::Passed);
+        // Bytes are untouched; only mode changed.
+        assert_eq!(std::fs::read(&candidate).unwrap(), bytes);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn m003e_tool_install_and_output_dirs_hold_in_every_render_mode() {
         // Exact non-staging render.
@@ -9603,7 +9700,11 @@ mod tests {
             "CARGO_INSTALL_ROOT=\"$install_root\" cargo install cargo-zigbuild --version '0.23.3' --locked"
         ));
         assert!(output.contains("cargo-install/${{ github.run_id }}-${{ github.run_attempt }}"));
-        assert!(output.contains("test \"$actual\" = 'cargo-zigbuild 0.23.3'"));
+        assert!(output.contains("test -x \"$install_root/bin/cargo-zigbuild\""));
+        // The exactness lives in the pinned install (`--version '0.23.3'`)
+        // plus presence; `cargo zigbuild --version` is rejected by the
+        // tool's CLI so the build step itself is the functional proof.
+        assert!(!output.contains("cargo zigbuild --version"));
         // Zig official archive, digest, bounded HTTPS-only curl.
         assert!(output.contains("zig-x86_64-linux-0.14.1.tar.xz"));
         assert!(
@@ -9942,10 +10043,16 @@ support="required"
         assert!(!yaml.contains("contents: write"));
         // F9: the isolated install root must join PATH in the same step,
         // because $GITHUB_PATH exports take effect only in later steps.
+        // The check is presence (`test -x`), not `cargo zigbuild
+        // --version`: that flag is rejected by cargo-zigbuild's CLI, and
+        // the later build step functionally proves the tool.
         let export = yaml
             .find("export PATH=\"$install_root/bin:$PATH\"")
             .expect("same-step PATH export");
-        let check = yaml.find("cargo zigbuild --version").unwrap();
+        let check = yaml
+            .find("test -x \"$install_root/bin/cargo-zigbuild\"")
+            .expect("installed-tool presence check");
+        assert!(!yaml.contains("cargo zigbuild --version"));
         assert!(install < export && export < check);
         // The release guard still rejects non-bootstrap curl only.
         assert!(

@@ -22,6 +22,35 @@ Both macOS `validate` jobs fail with only `eggpack: consumer validation failed f
 
 Instrumentation (evidence-neutral, console only): on `Failed(reason)`, print `consumer validation failed for {target}: {reason:?}`. Evidence JSON bytes unchanged. The next live run then reports one of `NonZeroExit | Timeout | OutputLimit | InterpreterUnavailable | CandidateMismatch | ScriptUnavailable`, directing the root-cause fix inside this plan.
 
+### F10 root cause (proven 2026-09-29 from live evidence)
+
+The re-dispatch reports `NonZeroExit` on both macOS targets, and the
+downloaded qualify artifact (`eggpack-evidence-aarch64-apple-darwin`)
+carries its candidate at mode 644. Root chain:
+
+1. `actions/upload-artifact` documents Permission Loss: all files
+   materialize as 644 after transfer, so every transferred candidate
+   loses its exec bit on non-Windows runners.
+2. The macOS qualify smoke therefore fails (`smoke_failed` in the
+   downloaded `evidence.json`), yet the qualify JOB exits 0 by design
+   (the gate must still receive the evidence to fail closed).
+3. `_validate-consumer` never checked `evidence.status`, so it spawned
+   the consumer script against a non-executable candidate: instant
+   `EACCES`, instant `NonZeroExit`, no script output. Windows passed
+   only because Windows has no exec-bit concept.
+
+Fixes (both evidence-neutral, no validation-semantics change):
+
+- F10a: restore exec bits (`mode | 0o111`, Unix only) immediately
+  before spawning a candidate — in `run_bounded_inner` for the
+  `Candidate` allowance (eggpack-core) and in `run_validator_process`
+  after byte-identity verification (eggpack-ci). Recorded size/digest
+  cover bytes only and cannot change.
+- F10c: `_validate-consumer` refuses non-`Passed` evidence fast with
+  `qualification evidence is not Passed: <status>`, before executing
+  anything. Qualify still exits 0 on Failed evidence so the gate keeps
+  full visibility and fails closed as designed.
+
 ## 4. Boundaries
 
 - Renderer: F9 PATH export line only.
@@ -32,8 +61,10 @@ Instrumentation (evidence-neutral, console only): on `Failed(reason)`, print `co
 ## 5. Tests
 
 - T1: renderer unit test asserting the zigbuild install step exports the install-root `bin` directory to `PATH` before invoking `cargo zigbuild`.
-- T2: goldens regenerate (only fixtures with provisioned cross tools change, plus nothing else).
+- T2: goldens regenerate (no fixture uses the provisioned cross-tools path, so none change; recorded).
 - T3: existing suites unchanged.
+- T4 (`m003g_validator_restores_exec_on_transferred_candidate`, Unix): a 644 candidate plus an executing validator script passes — fails without the F10a restore.
+- T5 (`validate_consumer_refuses_failed_qualification_evidence`): Failed evidence is refused fast with its status — the script never runs.
 
 ## 6. Verification
 
@@ -58,8 +89,8 @@ M003g closes only when:
 
 - F9 is corrected per §2 with no other generated-output change except affected goldens;
 - the failure-variant print lands and names the F10 cause on the live re-dispatch;
-- the F10 root cause is fixed (or proven external with a bounded workaround recorded here);
-- T1–T3 pass; full local verification passes; hosted CI passes on the implementation SHA;
+- the F10 root cause is fixed per §3 (F10a exec restore at both spawn sites, F10c fast refusal of non-Passed evidence; qualify still exits 0 on Failed so the gate keeps visibility);
+- T1–T5 pass; full local verification passes; hosted CI passes on the implementation SHA;
 - the live five-target run (same tag `v1.2.7`) goes green through stage, the draft carries the §15 inventory, the rerun reuses it without clobber, and the release stays draft;
 - no unresolved medium-or-higher finding remains.
 
