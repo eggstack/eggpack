@@ -791,8 +791,13 @@ fn ci_validate_consumer(args: &[String]) -> Result<(), String> {
             println!("consumer validation passed for {target}");
             Ok(())
         }
-        eggpack_ci::ConsumerValidationOutcome::Failed(_) => {
-            Err(format!("consumer validation failed for {target}"))
+        eggpack_ci::ConsumerValidationOutcome::Failed(reason) => {
+            // Console-only diagnosis: the failure variant names the cause
+            // (interpreter, candidate identity, script, timeout, exit).
+            // Evidence bytes are unchanged; script output never enters them.
+            Err(format!(
+                "consumer validation failed for {target}: {reason:?}"
+            ))
         }
     }
 }

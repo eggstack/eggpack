@@ -1617,7 +1617,7 @@ fn provision_cross_tools_steps(
     step.push_str(&provisioning.cargo_install_timeout_minutes.to_string());
     step.push_str("\n        run: |\n          set -euo pipefail\n          install_root=\"${{ runner.temp }}/eggpack/cargo-install/${{ github.run_id }}-${{ github.run_attempt }}\"\n          mkdir -p \"$install_root\"\n          CARGO_INSTALL_ROOT=\"$install_root\" cargo install cargo-zigbuild --version ");
     step.push_str(&shell_quote(cargo_zigbuild));
-    step.push_str(" --locked\n          echo \"CARGO_INSTALL_ROOT=$install_root\" >> \"$GITHUB_ENV\"\n          echo \"$install_root/bin\" >> \"$GITHUB_PATH\"\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
+    step.push_str(" --locked\n          echo \"CARGO_INSTALL_ROOT=$install_root\" >> \"$GITHUB_ENV\"\n          echo \"$install_root/bin\" >> \"$GITHUB_PATH\"\n          export PATH=\"$install_root/bin:$PATH\"\n          actual=\"$(cargo zigbuild --version)\"\n          test \"$actual\" = ");
     step.push_str(&shell_quote(&format!("cargo-zigbuild {cargo_zigbuild}")));
     step.push_str("\n      - name: Provision verified Zig ");
     step.push_str(zig_version);
@@ -9940,6 +9940,13 @@ support="required"
         assert!(!yaml.contains("~/.cargo"));
         assert!(!yaml.contains("$HOME/.cargo"));
         assert!(!yaml.contains("contents: write"));
+        // F9: the isolated install root must join PATH in the same step,
+        // because $GITHUB_PATH exports take effect only in later steps.
+        let export = yaml
+            .find("export PATH=\"$install_root/bin:$PATH\"")
+            .expect("same-step PATH export");
+        let check = yaml.find("cargo zigbuild --version").unwrap();
+        assert!(install < export && export < check);
         // The release guard still rejects non-bootstrap curl only.
         assert!(
             check_release_github(&graph, &policy, yaml.as_bytes())
