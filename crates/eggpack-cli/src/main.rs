@@ -1108,7 +1108,9 @@ fn ci_stage_github_draft(args: &[String]) -> Result<(), String> {
     let payload_path = PathBuf::from(get_flag(args, "payload")?);
     let policy_path = PathBuf::from(get_flag(args, "github-policy")?);
     let receipt_path = PathBuf::from(get_flag(args, "output-receipt")?);
-    if args.len() > 6 {
+    // Three required flags plus the optional --staging-dir the renderer
+    // always emits (F11: the old bound rejected the renderer's own call).
+    if args.len() > 8 {
         return Err("too many arguments for ci _stage-github-draft".to_owned());
     }
     let payload_text = read_bounded(&payload_path, 1_048_576, "staging payload")?;
@@ -1199,6 +1201,32 @@ mod tests {
         assert!(absolutize_cli_path(Path::new("a/../../escape"), &base).is_err());
         assert!(absolutize_cli_path(Path::new(""), &base).is_err());
         assert!(absolutize_cli_path(Path::new("relative"), Path::new("also-relative")).is_err());
+    }
+
+    #[test]
+    fn stage_github_draft_accepts_rendered_four_flag_call() {
+        // F11: the renderer always emits --staging-dir, so the arity bound
+        // must admit eight args. Missing files fail on file reads, not arity.
+        let eight = vec![
+            "--payload".to_owned(),
+            "nope.json".to_owned(),
+            "--github-policy".to_owned(),
+            "nope.json".to_owned(),
+            "--staging-dir".to_owned(),
+            "nope".to_owned(),
+            "--output-receipt".to_owned(),
+            "nope.json".to_owned(),
+        ];
+        let error = ci_stage_github_draft(&eight).unwrap_err();
+        assert!(
+            !error.contains("too many arguments"),
+            "rendered call must pass arity, got: {error}"
+        );
+        let mut ten = eight.clone();
+        ten.push("--extra".to_owned());
+        ten.push("x".to_owned());
+        let error = ci_stage_github_draft(&ten).unwrap_err();
+        assert!(error.contains("too many arguments"));
     }
 
     #[test]

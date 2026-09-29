@@ -51,22 +51,35 @@ Fixes (both evidence-neutral, no validation-semantics change):
   anything. Qualify still exits 0 on Failed evidence so the gate keeps
   full visibility and fails closed as designed.
 
-## 4. Boundaries
+## 4. Finding F11 — high: `_stage-github-draft` arity guard rejects the renderer's own call
+
+The stage step emits `--payload/--github-policy/--staging-dir/--output-receipt`
+(8 args) but `ci_stage_github_draft` guarded `args.len() > 6`, failing with
+`too many arguments` before any network I/O (live run `36642916807`: all
+five targets built, qualified, validated, gated, and aggregated; only stage
+failed; no mutation). An audit of every other `ci_*` arity guard against the
+rendered invocations shows this is the sole mismatch — all other commands
+are already proven live.
+
+Fix: bound `> 8`. One line; no flag-semantics change.
+
+## 5. Boundaries
 
 - Renderer: F9 PATH export line only.
 - CLI: failure-variant console print only; no evidence-schema change, no validation-semantics change.
 - F10 root-cause fix: TBD after diagnosis; stop and re-plan if it requires relaxing a library validation.
 - Out of scope: workspace restructure, caching, new actions/triggers/privileges.
 
-## 5. Tests
+## 6. Tests
 
 - T1: renderer unit test asserting the zigbuild install step exports the install-root `bin` directory to `PATH` before invoking `cargo zigbuild`.
 - T2: goldens regenerate (no fixture uses the provisioned cross-tools path, so none change; recorded).
 - T3: existing suites unchanged.
 - T4 (`m003g_validator_restores_exec_on_transferred_candidate`, Unix): a 644 candidate plus an executing validator script passes — fails without the F10a restore.
 - T5 (`validate_consumer_refuses_failed_qualification_evidence`): Failed evidence is refused fast with its status — the script never runs.
+- T6: `_stage-github-draft` accepts the renderer's four-flag call (8 args) and still rejects a ninth.
 
-## 6. Verification
+## 7. Verification
 
 ```bash
 cargo fmt --all -- --check
@@ -83,22 +96,22 @@ git diff --check
 
 Plus a hosted CI run on the exact implementation SHA (all four lanes green), and the live re-dispatch evidence.
 
-## 7. Acceptance criteria
+## 8. Acceptance criteria
 
 M003g closes only when:
 
 - F9 is corrected per §2 with no other generated-output change except affected goldens;
 - the failure-variant print lands and names the F10 cause on the live re-dispatch;
 - the F10 root cause is fixed per §3 (F10a exec restore at both spawn sites, F10c fast refusal of non-Passed evidence; qualify still exits 0 on Failed so the gate keeps visibility);
-- T1–T5 pass; full local verification passes; hosted CI passes on the implementation SHA;
+- T1–T6 pass; full local verification passes; hosted CI passes on the implementation SHA;
 - the live five-target run (same tag `v1.2.7`) goes green through stage, the draft carries the §15 inventory, the rerun reuses it without clobber, and the release stays draft;
 - no unresolved medium-or-higher finding remains.
 
-## 8. Stop conditions
+## 9. Stop conditions
 
 Stop and re-plan if F10 requires relaxing a library validation, a new privilege/egress, or a product-code change outside Eggpack's adapter (that fix belongs to the consumer plan, referenced here).
 
-## 9. Closure evidence
+## 10. Closure evidence
 
 Create:
 
