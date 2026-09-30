@@ -52,7 +52,6 @@ Fixes (both evidence-neutral, no validation-semantics change):
   full visibility and fails closed as designed.
 
 ## 4. Finding F11 — high: `_stage-github-draft` arity guard rejects the renderer's own call
-
 The stage step emits `--payload/--github-policy/--staging-dir/--output-receipt`
 (8 args) but `ci_stage_github_draft` guarded `args.len() > 6`, failing with
 `too many arguments` before any network I/O (live run `36642916807`: all
@@ -63,14 +62,37 @@ are already proven live.
 
 Fix: bound `> 8`. One line; no flag-semantics change.
 
-## 5. Boundaries
+## 5. Finding F12 — high: stage fails in ~1s with the inner cause swallowed
+
+Live run `36647375561` (all five targets built, qualified, validated, gated,
+aggregated; payload and policy verified identical locally) fails in
+`_stage-github-draft` with only `github draft staging failed`. Payload/policy
+match, token present, endpoints and permissions verified, no mutation made —
+but the inner `GithubError` is discarded by the CLI, so the failing call
+(tag lookup, tag peel, release list) cannot be identified.
+
+Fix: surface the inner message (`github draft staging failed: {error}`).
+`GithubError` carries only static bounded messages (audited: no token, body,
+or URL content), so naming it is safe. Evidence and receipt schemas unchanged.
+
+## 6. Finding F13 — latent: `make_latest` sent as boolean, API expects string
+
+`create_release` sends `"make_latest": false`. The GitHub API specifies a
+string enum (`"true"`/`"false"`/`"legacy"`); a boolean risks 422 once the
+create path is reached (it never has been — no draft exists yet). Caught by
+reading the wire body while diagnosing F12; mock transports never validate
+wire shapes against GitHub.
+
+Fix: send `"make_latest": "false"`. One word; no other wire change.
+
+## 7. Boundaries
 
 - Renderer: F9 PATH export line only.
 - CLI: failure-variant console print only; no evidence-schema change, no validation-semantics change.
 - F10 root-cause fix: TBD after diagnosis; stop and re-plan if it requires relaxing a library validation.
 - Out of scope: workspace restructure, caching, new actions/triggers/privileges.
 
-## 6. Tests
+## 8. Tests
 
 - T1: renderer unit test asserting the zigbuild install step exports the install-root `bin` directory to `PATH` before invoking `cargo zigbuild`.
 - T2: goldens regenerate (no fixture uses the provisioned cross-tools path, so none change; recorded).
@@ -78,8 +100,9 @@ Fix: bound `> 8`. One line; no flag-semantics change.
 - T4 (`m003g_validator_restores_exec_on_transferred_candidate`, Unix): a 644 candidate plus an executing validator script passes — fails without the F10a restore.
 - T5 (`validate_consumer_refuses_failed_qualification_evidence`): Failed evidence is refused fast with its status — the script never runs.
 - T6: `_stage-github-draft` accepts the renderer's four-flag call (8 args) and still rejects a ninth.
+- T7: full local verification covers the F12 message surfacing and F13 wire fix (no new behavior to unit-test beyond existing mock suites; the live run is the proof).
 
-## 7. Verification
+## 9. Verification
 
 ```bash
 cargo fmt --all -- --check
@@ -96,22 +119,22 @@ git diff --check
 
 Plus a hosted CI run on the exact implementation SHA (all four lanes green), and the live re-dispatch evidence.
 
-## 8. Acceptance criteria
+## 10. Acceptance criteria
 
 M003g closes only when:
 
 - F9 is corrected per §2 with no other generated-output change except affected goldens;
 - the failure-variant print lands and names the F10 cause on the live re-dispatch;
 - the F10 root cause is fixed per §3 (F10a exec restore at both spawn sites, F10c fast refusal of non-Passed evidence; qualify still exits 0 on Failed so the gate keeps visibility);
-- T1–T6 pass; full local verification passes; hosted CI passes on the implementation SHA;
+- T1–T7 pass; full local verification passes; hosted CI passes on the implementation SHA;
 - the live five-target run (same tag `v1.2.7`) goes green through stage, the draft carries the §15 inventory, the rerun reuses it without clobber, and the release stays draft;
 - no unresolved medium-or-higher finding remains.
 
-## 9. Stop conditions
+## 11. Stop conditions
 
 Stop and re-plan if F10 requires relaxing a library validation, a new privilege/egress, or a product-code change outside Eggpack's adapter (that fix belongs to the consumer plan, referenced here).
 
-## 10. Closure evidence
+## 12. Closure evidence
 
 Create:
 

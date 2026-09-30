@@ -2480,7 +2480,7 @@ impl GithubApi for EggfetchTransport {
             "body": body,
             "draft": true,
             "prerelease": prerelease,
-            "make_latest": false,
+            "make_latest": "false",
         });
         let response = self
             .client

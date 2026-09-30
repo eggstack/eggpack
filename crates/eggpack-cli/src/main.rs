@@ -1148,7 +1148,10 @@ fn ci_stage_github_draft(args: &[String]) -> Result<(), String> {
             &token,
             &staging_dir,
         ))
-        .map_err(|_| "github draft staging failed".to_owned())?;
+        // Surface the inner cause: GithubError carries only static bounded
+        // messages (no token, body, or URL content), so naming it is safe
+        // and required for live diagnosis.
+        .map_err(|error| format!("github draft staging failed: {error}"))?;
     let receipt_json = receipt
         .to_json()
         .map_err(|_| "receipt encode failed".to_owned())?;
