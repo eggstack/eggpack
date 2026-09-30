@@ -1,6 +1,6 @@
 # CI M003g Corrective — Live Qualification Failures (Cross-Tool PATH, Consumer-Validation Diagnosis)
 
-Status: active
+Status: closed — see `plans/closure/ci-release-orchestration/003g-status.md` (implementation `e5c81f2`, hosted runs 36638321253/36642184204/36646814734/36652203168 green)
 
 Source findings: Ecosystem M001 live-draft second dispatch (eggsact run `36634754073`, tag `v1.2.7`, tool pin M003f `c190e77`). Tool provisioning now works; `resolve` succeeds; 3/5 builds, 4/5 qualifies, and Windows consumer validation pass. Two failures remain; the failed run made no release mutation (no draft exists).
 

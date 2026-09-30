@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 001 — eggsact Direct Release Adoption and Live Draft Qualification
 
-Status: ready — §20 stop condition resolved by closed Build M006; execution wiring corrected by closed CI M003e; see §22 and §24
+Status: closed — see `plans/closure/ecosystem-adoption/001-status.md` (live draft run 36652731202, tag v1.2.7; producer pin M003g `e5c81f2`)
 
 Repository baseline: `16118c5896519ae10e3d296e77d5974869d89354`
 
@@ -246,7 +246,7 @@ Eggpack must never infer the release from the dispatch branch.
 
 ## 11. Eggpack tool pin
 
-Generated eggsact workflow pins Eggpack to the exact M003f implementation revision `c190e7740ac94421bd880c9d239b91b5c958b32b` (closure `plans/closure/ci-release-orchestration/003f-status.md`, hosted run 36632209736 green).
+Generated eggsact workflow pins Eggpack to the exact M003g implementation revision `e5c81f28bd328d4aea41c3f061a0ed9944306262` (closure `plans/closure/ci-release-orchestration/003g-status.md`, hosted run 36652203168 green).
 
 No floating main branch, tag, or crate version.
 

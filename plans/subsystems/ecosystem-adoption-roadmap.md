@@ -140,7 +140,7 @@ The first migration should therefore replace producer target/artifact/checksum/q
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
-| M001 eggsact direct release adoption | ready (unblocked by Build M006 and CI M003e) | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | — | §20 stop condition hit before implementation and is now resolved by `plans/closure/build-qualification/006-status.md`. M001 re-reviews the advanced consumer baseline, re-pins `eggpack_tool.revision` at the M003f implementation `c190e77`, and performs the real M003b draft qualification |
+| M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | `plans/closure/ecosystem-adoption/001-status.md`; consumer closure `eggstack/eggsact: plans/closure/distribution-update-release/005-status.md` | Implemented and published on release `v1.2.7` (live run 36652731202, 15-asset draft, producer pin M003g `e5c81f2`). Open condition: consumer-side Windows byte-reproducibility (eggsact M005a) for byte-identical rerun reuse |
 | M002 stegoeggo direct release adoption | blocked | — | — | M001 closure; use second-consumer evidence to avoid one-repo schema overfitting. The shared native-qualification gap that was expected to be resolved first is now closed by Build M006 |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
