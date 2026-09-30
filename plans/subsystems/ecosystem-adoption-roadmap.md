@@ -68,6 +68,8 @@ Evidence reviewed:
 6. Egress;
 7. Eggserve/Python packaging only after native Eggpack contracts are stable.
 
+External repositories may consume already-closed producer interfaces without being inserted into this ordered qualification sequence. Eggwork Operations M003 is one such producer-only adoption: its release configuration remains Eggwork-owned and it does not advance or consume M001-M007 ecosystem milestone numbering.
+
 ## 6. Dependency graph
 
 Core direct build/finalization/staging prerequisites are closed, CI M003d closed the static-workflow/runtime-identity plus product-wrapper/consumer-validator composition seam, Build M005 closed deterministic Zig/cargo-zigbuild provisioning (`plans/closure/build-qualification/005-status.md`), and Build M006 closed the producer qualification gap (`plans/closure/build-qualification/006-status.md`). Eggsact baseline review is complete at `eggstack/eggsact@174764c5c71130ec98fee18c445fcecb3e35eb25`. The mirrored eggsact M005 plan is registered; M001 then stopped at its §20 condition because Eggpack could not express eggsact's two CargoZigbuild + native-qualified Linux targets. ADR-0005 Option A is now implemented: native qualification is host-matched and independent of the builder, proven by an eggsact-shaped five-target render and a split-host AArch64 qualification job. M001's Eggpack-side prerequisites are therefore all closed; M001 returns to `ready` and must re-review the advanced consumer baseline and re-pin `eggpack_tool.revision` at the M006 implementation before it implements. The outstanding M003b live-draft evidence remains inside M001.
