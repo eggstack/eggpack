@@ -80,8 +80,10 @@ Distribution predecessor evidence:
 | Build and qualification | active | `plans/subsystems/build-qualification-roadmap.md` | M001-M006 closed | M006 closed on `398cd43` + run 36484758546 under accepted ADR-0005 Option A; the milestone chain is closed and later work needs new evidence |
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 historical; M002a closed | M002a closed on `4d2270a` + run 36154905956; M003 blocked on adoption evidence/candidate review |
 | CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003c closed; M003d closed | reusable runtime identity + product-wrapper/consumer-validator composition landed; M003b live-draft proof is blocked only behind Ecosystem M001 implementation, since Build M006 is closed |
-| Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan |
+| Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 real-consumer adoption ready to plan; Eggwork Operations M003 is explicitly producer-only and does not satisfy this gate |
 | Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 ready (unblocked) | M001 hit its §20 stop condition before implementation; Build M006 is now closed, so M001 is ready subject to its own consumer-baseline re-review and re-pin. Mirrored eggsact M005 plan remains `blocked / planned` |
+
+**External producer adoption:** `eggstack/eggwork` has registered Operations M003 at `plans/implementation/operations-distribution/003-eggpack-producer-packaging-integration.md` in its own repository. That handoff consumes the closed Eggpack producer interfaces (mixed bundle/direct contract, explicit multi-output build bindings, native qualification, reusable generated CI, bootstrap) and requires no Eggpack production change. It is not Eggpack Eggup-Interoperability M003 because Eggwork does not currently own ReleaseManifest-driven runtime acquisition/update mapping.
 
 ## Dependency-ready implementation work
 
