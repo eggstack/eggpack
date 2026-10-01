@@ -2,6 +2,17 @@
 
 Status: conditionally closed
 
+Current-condition annotation (2026-10-01, after M003g): the live-draft
+criterion is satisfied by eggsact release `v1.2.7`, live run `36652731202`,
+which created a draft containing the exact 15-asset inventory; the maintainer
+later published it. Draft-only behavior and same-name/different-digest
+no-clobber refusal are also proven. M003b therefore remains conditionally
+closed only because attempt 2 could not reuse the Windows asset byte-for-byte:
+eggsact's PE/PDB output is not reproducible (consumer-owned follow-up M005a).
+Eggpack correctly refused to overwrite that asset. This current annotation
+does not rewrite the original 2026-09-25 close disposition below, which
+accurately records that no live draft existed at that time.
+
 Closure record: `plans/closure/ci-release-orchestration/003b-status.md`
 
 Closure disposition (2026-09-25): M003b implementation is complete and locally qualified on fake-adapter evidence (conditional close; live draft outstanding). The final M003a CLI/provider contracts were re-reviewed against this plan with no interface change required (`_prepare-stage` / `_stage-github-draft` flag shapes match the rendered `RunnerCommand` argv). Generated `stage` job, permission matrix, drift detection, and local fake-GitHub orchestration (direct/bundle/archive, rerun, tag-mismatch, published/mismatch refusal) all pass. Full closure additionally requires a maintainer-authorized live draft fixture; Phase 8 exit is not satisfied and eggsact adoption remains blocked until then.
