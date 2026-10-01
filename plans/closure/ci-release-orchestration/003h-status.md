@@ -87,20 +87,21 @@ Required repository verification on the integrated candidate:
 | `cargo doc --workspace --no-deps --locked` | passed |
 | `cargo +1.89.0 check --workspace --all-targets --locked` | passed |
 | `./scripts/check-local.sh` | passed (exit 0; all workspace package and test checks completed) |
-| `git diff --check` | passed after the final history sync and closure matrix update |
+| `git diff --check` | passed after final history synchronization and closure updates |
 | stale-state phrase scan | passed on current-state registry and adoption roadmap summaries; historic descriptions are explicitly historical |
 
-Hosted CI on integrated candidate `3ed946e4779f00f437d751ef567954e63291452a` passed all repository lanes in run `36865702333`: Linux stable, Linux 1.89.0, macOS, and Windows. Main CI run `36866156168` also passed on that SHA after the initial fast-forward. Closure-evidence candidate `57c150f34ddffea34dac03b5fc0a9a0c956b2865` passed candidate-tip CI `36866761493` and post-fast-forward main CI `36867295046`, each with all four lanes green. After `main` advanced with two planning-only Eggup handoff commits, the current candidate includes them through merge `d050e2b77813c8db2947de648737fb199cb4eadf`. Full local verification passed again on that synchronized descendant. Its hosted candidate CI and final ref-move evidence are pending.
+Hosted CI on integrated candidate `3ed946e4779f00f437d751ef567954e63291452a` passed all repository lanes in run `36865702333`: Linux stable, Linux 1.89.0, macOS, and Windows. Main CI run `36866156168` also passed on that SHA after the initial fast-forward. Closure-evidence candidate `57c150f34ddffea34dac03b5fc0a9a0c956b2865` passed candidate-tip CI `36866761493` and post-fast-forward main CI `36867295046`, each with all four lanes green. After `main` advanced with the two planning-only Eggup handoff commits, candidate merge `d050e2b77813c8db2947de648737fb199cb4eadf` preserved them. The fully synchronized candidate `f237d8d4d4e5bfa77fb95005118daf6785c38e60` then passed candidate CI `36869038147` and main CI `36869503841`; all four lanes passed on both runs.
 
 ## Integration and ref-move evidence
 
-- Final integrated code/status candidate tested by hosted run `36865702333`: `3ed946e4779f00f437d751ef567954e63291452a`.
+- Final integrated code/status candidate after the later planning-only main advance: `f237d8d4d4e5bfa77fb95005118daf6785c38e60`; hosted run `36869038147` passed all repository lanes.
 - Before updating `main`, `origin/main` was `404f63ec2bae119f7fa1a41a56a34e91bc267b1a`, candidate was `3ed946e4779f00f437d751ef567954e63291452a`, candidate was a strict descendant, and the compare was `0` commits behind / `18` ahead.
 - Non-forced fast-forward push: `404f63e..3ed946e main -> main`.
 - Post-update fetch: `origin/main` and `origin/m003g-live-qualification` both resolved to `3ed946e4779f00f437d751ef567954e63291452a`; compare `0/0`.
 - Main CI run `36866156168` on that exact SHA: passed, all four lanes green.
 - Closure-evidence commit `57c150f34ddffea34dac03b5fc0a9a0c956b2865` was separately checked: candidate run `36866761493` passed all four lanes; after the final non-forced fast-forward, main run `36867295046` passed all four lanes on that exact SHA.
-- Newly advanced `main` commits `caed0c0` and `8dafb91` are preserved by merge `d050e2b77813c8db2947de648737fb199cb4eadf`; they update the Eggup M003 producer gate and handoff status only. Candidate CI and final `main` ref movement are pending on this updated baseline.
+- Before the final integration ref move after re-review, `origin/main` was `8dafb919e0422e2c72e20e793102ebeb73fa5bca`, candidate was `f237d8d4d4e5bfa77fb95005118daf6785c38e60`, the candidate was a strict descendant, and the compare was `0` behind / `3` ahead. Non-forced fast-forward: `8dafb91..f237d8d main -> main`. Post-update fetch showed both refs at `f237d8d4d4e5bfa77fb95005118daf6785c38e60`, compare `0/0`; main run `36869503841` passed all four lanes.
+- The final closure record follow-up is documentation-only and remains a descendant of that verified integration tip.
 - Eggup interoperability M003's status was re-reviewed on those commits: Eggsact is already selected and the Eggup-owned plan is registered; the producer gate is now met. M003 is ready to resume in Eggup/Eggsact after baseline refresh. No Eggpack implementation plan is newly unblocked by this consumer-owned runtime work. Ecosystem M002 remains ready to plan as the next ecosystem handoff.
 
 ## Invariant, recovery, compatibility, and security review
