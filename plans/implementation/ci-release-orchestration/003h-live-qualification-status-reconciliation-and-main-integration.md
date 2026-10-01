@@ -4,9 +4,18 @@ Status: ready / not started
 
 Repository baselines:
 
-- integration base (`main`): `3f95af43f99224755c97161e0c1102a84e713e35`;
-- qualified candidate branch: `m003g-live-qualification@8507fbeebc6e6a0f8176965d8b21dfc818a03719`;
-- relationship at planning time: candidate branch is 10 commits ahead of `main`, 0 behind, so a fast-forward integration is possible if `main` remains an ancestor.
+- live-qualified production/closure tip: `m003g-live-qualification@8507fbeebc6e6a0f8176965d8b21dfc818a03719`;
+- M003h registration tip before this baseline correction: `m003g-live-qualification@1b2c5194859f9bde852c84c581f962e198df550a`;
+- current integration base (`main`): `404f63ec2bae119f7fa1a41a56a34e91bc267b1a`;
+- relationship at re-review time: the M003h branch is 13 commits ahead of current `main` and 3 commits behind; the histories diverged only because `main` received three planning-only Eggwork adoption-boundary commits after M003h registration began.
+
+Current-main commits that MUST be preserved:
+
+- `b9baa93a93264075801cdc6f5c0c60d5207e99cf` — distinguish Eggwork producer adoption from Eggup Interop M003;
+- `3d1cb67e3ac04d3064b4307d9b15540e8353fe37` — record external Eggwork producer adoption boundary;
+- `404f63ec2bae119f7fa1a41a56a34e91bc267b1a` — record Eggwork producer-only external adoption.
+
+Those commits touch planning only (`plans/registry.md`, `plans/subsystems/ecosystem-adoption-roadmap.md`, and `plans/subsystems/eggup-interoperability-roadmap.md`). M003h must merge them into the live-qualified branch without rewriting the qualified M003e/M003f/M003g history, then make the resulting branch a descendant of current `main` before the final fast-forward.
 
 Primary roadmaps:
 
@@ -72,7 +81,7 @@ surface ambiguous immediately after a major live qualification.
 
 All hard dependencies are satisfied:
 
-1. `main@3f95af43` is an ancestor of the candidate branch at planning time;
+1. the original `main@3f95af43` live-qualification base is an ancestor of the candidate branch, and the three commits that later advanced current `main` are planning-only and reviewed;
 2. M006 is closed under accepted ADR-0005 Option A;
 3. M003e, M003f, and M003g each have closure records and hosted cross-platform
    CI evidence;
@@ -80,8 +89,9 @@ All hard dependencies are satisfied:
 5. M003g records the real eggsact `v1.2.7` live run and the complete
    15-asset draft;
 6. Ecosystem M001 has a closure record on the candidate branch;
-7. no open pull request or competing integration branch is required for this
-   bounded reconciliation.
+7. the current-main divergence is bounded to the three Eggwork planning commits
+   listed above; preserving both histories requires a normal merge into the
+   candidate branch, not a rebase, squash, or force update.
 
 The remaining Windows byte-reproducibility issue is explicitly consumer-owned
 by eggsact M005a. Eggpack's same-name/different-digest refusal is the expected
@@ -92,8 +102,11 @@ qualified Eggpack branch.
 
 Produce one internally consistent, fully qualified Eggpack branch whose code,
 closure records, registry, subsystem roadmaps, and immediate execution graph
-all describe the same post-live-qualification state, then move `main`
-forward to that exact state without a merge commit or history rewrite.
+all describe the same post-live-qualification state. Preserve the already
+qualified M003e/M003f/M003g commit identities and the newer Eggwork planning
+commits by merging current `main` into the candidate branch, then move
+`main` forward to the final merged/reconciled tip by non-forced
+fast-forward. No rebase, squash, or force update is authorized.
 
 ## 4. Authoritative post-reconciliation state
 
@@ -138,8 +151,12 @@ candidate branch evidence.
   Eggpack/Eggup ownership boundary;
 - keep all live run ids, implementation SHAs, consumer release/tag identity,
   and unresolved-condition ownership exact;
-- integrate `main` only by a non-forced fast-forward to a fully verified
-  descendant.
+- preserve the exact qualified M003e/M003f/M003g commit SHAs; do not rebase or
+  squash them;
+- preserve the three newer Eggwork planning commits from current `main`;
+- after merging current `main` into the candidate branch and reconciling
+  planning conflicts, integrate `main` only by a non-forced fast-forward to
+  the fully verified descendant.
 
 ## 6. In scope
 
@@ -200,21 +217,30 @@ only if needed to make the current condition discoverable:
 This annotation must preserve the historical statement that no live draft
 existed at the original M003b conditional close.
 
-### 6.5 Integration verification and `main` fast-forward
+### 6.5 Main synchronization, integration verification, and fast-forward
 
-After documentation/status reconciliation:
+Current `main` is no longer an ancestor of the M003h registration tip because
+three planning-only Eggwork commits landed while this plan was being
+registered. Therefore implementation begins by synchronizing histories:
 
-1. assert current `main` is still an ancestor of the candidate branch;
-2. inspect the complete `main...candidate` diff and commit list;
-3. prove the M003e/M003f/M003g production commits and closure commits are all
+1. re-fetch `main` and the candidate branch and verify the only main-side
+   commits since `3f95af43` are the reviewed Eggwork planning commits above;
+2. merge current `main` into `m003g-live-qualification` without rebasing,
+   squashing, or changing any M003e/M003f/M003g commit identity;
+3. resolve planning-file conflicts by preserving both the Eggwork
+   producer-only adoption boundary and the live M003g/M001 evidence;
+4. after the merge, require the candidate branch to be a strict descendant of
+   current `main`;
+5. inspect the complete `main...candidate` diff and commit list;
+6. prove the M003e/M003f/M003g production commits and closure commits are all
    present exactly once;
-4. run/observe the full repository verification on the final candidate tip;
-5. require hosted CI success on that exact tip;
-6. update `main` to the exact candidate tip with a non-forced fast-forward;
-7. verify `main` resolves to the same SHA and its CI is green.
+7. run/observe the full repository verification on the final candidate tip;
+8. require hosted CI success on that exact tip;
+9. update `main` to the exact candidate tip with a non-forced fast-forward;
+10. verify `main` resolves to the same SHA and its CI is green.
 
-If `main` advances independently before step 1, stop. Rebase/merge
-reconciliation requires a new reviewed baseline; do not force-update
+If `main` advances again after the synchronization merge, stop before the
+ref move and re-review only the newly added commits. Never force-update
 `main`.
 
 ## 7. Out of scope
@@ -230,7 +256,7 @@ reconciliation requires a new reviewed baseline; do not force-update
 
 ## 8. Required work packages
 
-### WP1 — Freeze and audit the candidate
+### WP1 — Freeze, audit, and synchronize the histories
 
 Record:
 
@@ -241,7 +267,11 @@ Record:
 - all M003e/M003f/M003g implementation and closure SHAs;
 - live eggsact run/tag evidence.
 
-Stop if the candidate is no longer a strict descendant of `main`.
+At the reviewed baseline, divergence is expected and bounded to the three
+planning-only Eggwork commits listed above. Merge current `main` into the
+candidate branch, preserving both histories. Stop if any additional
+production-code commit appears only on `main`, or if conflict resolution
+would alter qualified producer behavior.
 
 ### WP2 — Build a status contradiction matrix
 
@@ -305,7 +335,8 @@ status correctness.
 
 ### WP6 — Fast-forward `main`
 
-Immediately before updating `main`:
+After WP1's non-rewriting merge and all reconciliation/verification work,
+immediately before updating `main`:
 
 - fetch both refs again;
 - require `main` to be an ancestor of the final candidate;
@@ -323,8 +354,9 @@ After the ref move:
 
 ## 9. Failure, restart, and contention semantics
 
-- **Main advanced independently:** stop before any ref move. Re-review the new
-  main baseline and reconcile normally; never force.
+- **Main advances again after the reviewed `404f63ec` baseline:** stop before
+  any ref move. Re-review the newly added commits and merge them into the
+  candidate normally; never force.
 - **Candidate CI red:** do not integrate. Any production defect requires a new
   corrective plan; a documentation-only defect may remain within M003h if it
   does not alter producer behavior.
@@ -346,9 +378,11 @@ milestone.
 No public schema/API/runtime behavior is intentionally changed by M003h.
 
 The integration brings already-qualified production changes from the
-M003e/M003f/M003g chain onto `main` without squashing. Git history remains a
-linear audit trail from `main@3f95af43` through each live corrective and its
-closure evidence.
+M003e/M003f/M003g chain onto current `main` without rebasing or squashing
+those commits. Because current `main` independently gained three Eggwork
+planning commits, the candidate will contain one ordinary synchronization
+merge before final reconciliation. The qualified corrective SHAs and the
+Eggwork planning SHAs remain individually addressable and auditable.
 
 No consumer migration is performed by this plan. Eggsact M001 is already
 closed on the candidate branch; stegoeggo M002 becomes the next planning
@@ -375,7 +409,11 @@ The main ref update itself must be non-forced.
 
 M003h may close only when all are true:
 
-- the final candidate remains a descendant of the reviewed main baseline;
+- the final candidate contains current `main@404f63ec` and all three reviewed
+  Eggwork planning commits;
+- the qualified M003e/M003f/M003g commit identities remain unchanged;
+- after the synchronization merge, the final candidate is a descendant of
+  current `main`;
 - no production file changes are introduced by M003h itself;
 - registry, CI roadmap, ecosystem roadmap, and immediate execution graph all
   agree with §4;
@@ -400,7 +438,10 @@ M003h may close only when all are true:
 
 Stop and re-plan if:
 
-- `main` is no longer an ancestor of the candidate branch;
+- current `main` contains additional unreviewed production changes beyond
+  the three planning-only Eggwork commits, unless the plan is re-baselined;
+- synchronizing current `main` would require rebasing, squashing, or altering
+  a qualified M003e/M003f/M003g commit;
 - reconciling status requires changing an accepted ADR or canonical ownership
   model;
 - the live `v1.2.7` evidence is found not to support a closure currently
@@ -414,7 +455,9 @@ Stop and re-plan if:
 Create `plans/closure/ci-release-orchestration/003h-status.md` recording:
 
 - reviewed main and candidate baselines;
-- exact pre-integration compare relation;
+- exact pre-synchronization compare relation and the three current-main-only
+  planning commits;
+- synchronization merge evidence proving both histories were preserved;
 - status contradiction matrix and corrected dispositions;
 - paths changed by M003h, proving documentation-only scope;
 - retained M003e/M003f/M003g and M001 closure evidence;
