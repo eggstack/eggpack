@@ -88,7 +88,15 @@ Required repository verification on the integrated candidate:
 | `git diff --check` | passed |
 | stale-state phrase scan | passed on current-state registry and roadmap summaries; historic descriptions are explicitly historical |
 
-Hosted candidate-tip CI and the non-forced ref update are recorded in the integration evidence section below.
+Hosted CI on integrated candidate `3ed946e4779f00f437d751ef567954e63291452a` passed all repository lanes in run `36865702333`: Linux stable, Linux 1.89.0, macOS, and Windows. After the non-forced fast-forward, main CI run `36866156168` passed on the same SHA with all four lanes green.
+
+## Integration and ref-move evidence
+
+- Final integrated code/status candidate tested by hosted run `36865702333`: `3ed946e4779f00f437d751ef567954e63291452a`.
+- Before updating `main`, `origin/main` was `404f63ec2bae119f7fa1a41a56a34e91bc267b1a`, candidate was `3ed946e4779f00f437d751ef567954e63291452a`, candidate was a strict descendant, and the compare was `0` commits behind / `18` ahead.
+- Non-forced fast-forward push: `404f63e..3ed946e main -> main`.
+- Post-update fetch: `origin/main` and `origin/m003g-live-qualification` both resolved to `3ed946e4779f00f437d751ef567954e63291452a`; compare `0/0`.
+- Main CI run `36866156168` on that exact SHA: passed, all four lanes green.
 
 ## Invariant, recovery, compatibility, and security review
 
