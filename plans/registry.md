@@ -82,7 +82,7 @@ Distribution predecessor evidence:
 | Bootstrap installers | active | `plans/subsystems/bootstrap-installers-roadmap.md` | M001 closed; M002 historical; M002a closed | M002a closed on `4d2270a` + run 36154905956; M003 blocked on adoption evidence/candidate review |
 | CI/release orchestration | active | `plans/subsystems/ci-release-orchestration-roadmap.md` | M003e-M003g closed; M003b conditionally closed; M003h closed | M003h integration and post-live status reconciliation are recorded in its closure record |
 | Eggup interoperability | active | `plans/subsystems/eggup-interoperability-roadmap.md` | Eggpack M001a + Eggup adapter M001/M001a closed | M003 Eggsact runtime manifest adoption ready to resume in Eggup; producer gate satisfied by Ecosystem M001 / Eggsact M005 `v1.2.7`; Eggwork Operations M003 remains producer-only |
-| Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 closed; M002 ready | M002 plan is registered and paired with stegoeggo Release-Distribution M002; eggsact Windows rerun reuse remains owned by eggsact M005a and does not block M002 implementation |
+| Ecosystem adoption | active | `plans/subsystems/ecosystem-adoption-roadmap.md` | M001 closed; M002 conditionally closed | StegoEggo cutover landed at `3b96fae` with consumer closure `c75132a`; live B > 0.4.2 remains outstanding, and consumer updater cleanup is tracked by StegoEggo M003 |
 
 **Cross-repo M003 mapping:** Eggpack interoperability M003 is the producer/interface view of Eggup's already-registered `plans/implementation/eggpack-manifest-interoperability/003-eggsact-real-consumer-manifest-adoption.md`. Ecosystem M001 / Eggsact M005 established the live producer contract and published `release-manifest.json`; runtime manifest acquisition/projection and update semantics remain Eggup/Eggsact-owned.
 
@@ -127,14 +127,14 @@ Current dependency-ready implementation work:
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | blocked | real adoption evidence/candidate review (M002a precondition satisfied) |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
 | Eggup interoperability | M003 Eggsact runtime manifest adoption | ready to resume / Eggup-owned | consumer already selected and plan registered in `eggstack/eggup`; producer contract + `release-manifest.json` convention proven by Ecosystem M001 / Eggsact M005 `v1.2.7`; refresh consumer/Eggup baselines before execution |
-| Ecosystem adoption | M002 stegoeggo direct release adoption | ready | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | paired consumer plan in `eggstack/stegoeggo`; research found no new Eggpack producer primitive required |
+| Ecosystem adoption | M002 stegoeggo direct release adoption | conditionally closed | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | closure `plans/closure/ecosystem-adoption/002-status.md`; consumer cutover/closure at `eggstack/stegoeggo@3b96fae` / `c75132a`; ordinary stable B live evidence remains outstanding |
 | Ecosystem adoption | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | Closure `plans/closure/ecosystem-adoption/001-status.md`; published `v1.2.7` from run 36652731202; exact Windows rerun bytes remain in consumer M005a and do not reopen M001 |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
 
 Build/Qualification M002a/M003/M004/M005 remain closed with hosted cross-platform evidence. CI M002 and Bootstrap M002 retain their historical implementation/closure records. Both M002a correctives are closed on implementation `4d2270a` with hosted run 36154905956 green. CI M003a/M003b retain their historical evidence (`36f1cc1`/36180399698 and `84e4e4f`/36193654633); M003c corrected their post-closure source-integrity and transfer findings in `5c28099`, qualified by hosted run 36213316240 (all four lanes green). CI M003d then closed the reusable consumer-composition/runtime-identity seam, and Build M005 closed deterministic cross-tool provisioning on `7a206ba` with hosted run 36256831000 green.
 
-Ecosystem M001 is closed. It stopped at its §20 condition before implementation, resumed after Build M006, and completed after producer correctives M003e/M003f/M003g and eggsact `v1.2.7` live qualification. M003b has real draft/inventory/draft-only/no-clobber evidence; only byte-identical rerun reuse remains blocked on eggsact M005a Windows artifact determinism. Ecosystem M002 is planned and ready. Bootstrap M003 remains blocked on independent adoption evidence/candidate review.
+Ecosystem M001 is closed. It stopped at its §20 condition before implementation, resumed after Build M006, and completed after producer correctives M003e/M003f/M003g and eggsact `v1.2.7` live qualification. M003b has real draft/inventory/draft-only/no-clobber evidence; only byte-identical rerun reuse remains blocked on eggsact M005a Windows artifact determinism. Ecosystem M002 is conditionally closed: StegoEggo's Eggpack cutover is landed and drift-qualified, but the ordinary stable B live release evidence remains outstanding. Bootstrap M003 remains blocked on the completed two-consumer live adoption/receipt evidence.
 
 ## Immediate execution graph
 
@@ -233,7 +233,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 Manifest M002, Build/Qualification M001-M005, CI M001/M002/M002a/M003a/M003b/M003c/M003d, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records.
 
-M003h is closed on the synchronized, verified candidate. **Ecosystem M002 stegoeggo is now planned and ready** at `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md`, paired with stegoeggo Release-Distribution M002. Research found no new Eggpack producer primitive is needed; implementation should stop and register a separate upstream corrective if that changes.
+M003h is closed on the synchronized, verified candidate. **Ecosystem M002 stegoeggo is conditionally closed** at `plans/closure/ecosystem-adoption/002-status.md`: consumer implementation `3b96fae` and closure `c75132a` prove the second-repo cutover without a new Eggpack producer primitive. Full M002 closure waits for the next ordinary stable B > 0.4.2. The pre-existing updater nested-runtime panic is consumer-owned and now has a ready StegoEggo Release-Distribution M003 corrective (`622c36b6`).
 
 Eggup Interoperability M003 is independently ready to resume in Eggup/Eggsact under the already-registered Eggup M003 plan; no new Eggpack producer implementation is required before that handoff.
 
@@ -246,7 +246,7 @@ The live evidence closes Ecosystem M001 and unblocks planning Ecosystem M002. Cl
 | Ecosystem M001 eggsact adoption | Closed. Implemented, live-qualified, and published on release `v1.2.7`; see `plans/closure/ecosystem-adoption/001-status.md`. |
 | CI M003b full closure | Conditionally closed. Draft, exact inventory, draft-only behavior, and no-clobber are proven; exact rerun reuse remains outstanding due to eggsact M005a Windows byte nondeterminism. |
 | Phase 8 exit | Blocked only on the byte-identical rerun-reuse receipt, dependent on eggsact M005a. |
-| Ecosystem M002 stegoeggo | Ready with registered paired plans in Eggpack and stegoeggo; use second-consumer evidence to avoid overfitting. |
+| Ecosystem M002 stegoeggo | Conditionally closed. Producer cutover is landed/qualified in stegoeggo; full live closure waits for ordinary stable B > 0.4.2 after consumer updater corrective M003. |
 | Ecosystem M003 onward | Stays blocked on M001/M002 evidence. |
 | Bootstrap M003 | Stays blocked on real adoption evidence/candidate review. |
 | Build/Qualification M006 | Closed under accepted ADR-0005 Option A; implementation `398cd43`, hosted run 36484758546 green. |
