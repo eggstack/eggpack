@@ -90,6 +90,14 @@ M003c corrective plan: `plans/implementation/ci-release-orchestration/003c-stagi
 
 M003d consumer composition plan: `plans/implementation/ci-release-orchestration/003d-consumer-release-composition-seam.md`.
 
+M003e execution-wiring corrective plan: `plans/implementation/ci-release-orchestration/003e-generated-release-execution-wiring-corrective.md`.
+
+M003f tool-install corrective plan: `plans/implementation/ci-release-orchestration/003f-generated-tool-install-command-corrective.md`.
+
+M003g live-qualification corrective plan: `plans/implementation/ci-release-orchestration/003g-live-qualification-corrective.md`.
+
+M003h status-reconciliation/main-integration corrective plan: `plans/implementation/ci-release-orchestration/003h-live-qualification-status-reconciliation-and-main-integration.md`.
+
 ## 8. Cross-cutting requirements
 
 Least privilege, pinned actions, explicit timeouts, concurrency controls, artifact provenance, no secret leakage in generated summaries.
@@ -108,7 +116,7 @@ At least two repos replace hand-maintained release workflow matrices with genera
 
 ## 12. Milestone status
 
-Build/Qualification M001-M006, CI M001/M002/M002a, and corrective M003c/M003d are closed. M003a/M003b retain historical evidence. The eggsact live-draft qualification is meant to run inside Ecosystem M001 so the operational proof exercises the actual consumer interface. M001's §20 stop condition was caused by the producer qualification gap that Build M006 has now closed (`plans/closure/build-qualification/006-status.md`): `Qualification::Native` is admissible for a `CargoZigbuild` target on a matching host, so the generated workflow can express all five eggsact targets/runners. M003b's live-draft condition remains outstanding, but it is now blocked only on Ecosystem M001 implementation plus one maintainer-authorized real release tag, not on any Eggpack producer capability.
+Build/Qualification M001-M006 and CI M001/M002/M002a/M003c-M003g are closed on the live-qualified candidate branch. Post-live review found planning/status drift between those closure records and the registry/roadmap summaries; M003h is ready to reconcile that bookkeeping and fast-forward the already-qualified branch onto `main`. Historical M003a/M003b evidence remains intact. M003a/M003b retain historical evidence. The eggsact live-draft qualification is meant to run inside Ecosystem M001 so the operational proof exercises the actual consumer interface. M001's §20 stop condition was caused by the producer qualification gap that Build M006 has now closed (`plans/closure/build-qualification/006-status.md`): `Qualification::Native` is admissible for a `CargoZigbuild` target on a matching host, so the generated workflow can express all five eggsact targets/runners. M003b's live-draft condition remains outstanding, but it is now blocked only on Ecosystem M001 implementation plus one maintainer-authorized real release tag, not on any Eggpack producer capability.
 
 
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
@@ -128,3 +136,4 @@ Build/Qualification M001-M006, CI M001/M002/M002a, and corrective M003c/M003d ar
 | M003f generated tool-install command corrective | closed | `plans/implementation/ci-release-orchestration/003f-generated-tool-install-command-corrective.md` | `plans/closure/ci-release-orchestration/003f-status.md`; implementation `c190e77`; hosted run 36632209736 passed all lanes | `cargo install --git` rejected `-p`; package now positional; live dispatch made no mutation; the second dispatch exposed F9/F10 (M003g) |
 
 | M003g live qualification failures corrective | closed | `plans/implementation/ci-release-orchestration/003g-live-qualification-corrective.md` | `plans/closure/ci-release-orchestration/003g-status.md`; implementations `5acda73`/`4b28820`/`5ac5b83`/`e5c81f2`; hosted runs 36638321253, 36642184204, 36646814734, 36652203168 all lanes | cross-tool PATH, invalid zigbuild check, artifact exec-bit stripping, consumer validation against failed evidence, stage arity, swallowed staging error, and boolean `make_latest` all corrected; live run 36652731202 staged a complete 15-asset draft for eggsact `v1.2.7`, which the maintainer then published |
+| M003h live qualification status reconciliation + main integration | ready / not started | `plans/implementation/ci-release-orchestration/003h-live-qualification-status-reconciliation-and-main-integration.md` | — | documentation-only reconciliation of post-M003g status drift, then non-forced fast-forward of `main` to the fully verified descendant branch; stop if `main` is no longer an ancestor |
