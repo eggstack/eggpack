@@ -72,7 +72,7 @@ External repositories may consume already-closed producer interfaces without bei
 
 ## 6. Dependency graph
 
-Core direct build/finalization/staging prerequisites are closed, including Build M005/M006 and CI M003e-M003g. Historically, M001 stopped at its §20 condition until ADR-0005 Option A allowed host-matched native qualification for cross-tool-built targets. It then resumed after consumer baseline re-review and successive exact tool re-pins, culminating in eggsact `v1.2.7` live run 36652731202 (producer pin M003g `e5c81f2`). Ecosystem M001 is closed. M003b's sole remaining exact rerun-reuse condition belongs to Phase 8 and consumer eggsact M005a Windows byte reproducibility; it does not reopen M001. Ecosystem M002 is ready to plan from the first-consumer evidence.
+Core direct build/finalization/staging prerequisites are closed, including Build M005/M006 and CI M003e-M003g. Historically, M001 stopped at its §20 condition until ADR-0005 Option A allowed host-matched native qualification for cross-tool-built targets. It then resumed after consumer baseline re-review and successive exact tool re-pins, culminating in eggsact `v1.2.7` live run 36652731202 (producer pin M003g `e5c81f2`). Ecosystem M001 is closed. M003b's sole remaining exact rerun-reuse condition belongs to Phase 8 and consumer eggsact M005a Windows byte reproducibility; it does not reopen M001. Ecosystem M002 is now planned and ready from the first-consumer evidence. Research against stegoeggo `8c89e8c` found its five-target direct-binary shape fits the already-qualified producer interfaces; the paired consumer plan owns the actual cutover and live second-consumer proof.
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
@@ -143,7 +143,7 @@ The first migration should therefore replace producer target/artifact/checksum/q
 | Milestone | Status | Implementation plan | Closure record | Blockers / sequencing |
 |---|---|---|---|---|
 | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | `plans/closure/ecosystem-adoption/001-status.md`; consumer closure `eggstack/eggsact: plans/closure/distribution-update-release/005-status.md` | Implemented and published on release `v1.2.7` (live run 36652731202, 15-asset draft, producer pin M003g `e5c81f2`). Open condition: consumer-side Windows byte-reproducibility (eggsact M005a) for byte-identical rerun reuse |
-| M002 stegoeggo direct release adoption | ready to plan | — | — | M001 is closed; use second-consumer evidence to avoid one-repo schema overfitting |
+| M002 stegoeggo direct release adoption | ready | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | — | M001/M003h closed; mirrored stegoeggo release-distribution M002 implements the second-consumer cutover; no new Eggpack producer primitive identified in research |
 | M003 eggsearch target/qualification diversity | blocked | — | — | M001/M002 direct adoption evidence + eggsearch target/qualification review |
 | M004 Gregg sibling bundle | blocked | — | — | prior adoption evidence + Gregg bundle/service review |
 | M005 CodeGG runfile bundle | blocked | — | — | prior bundle evidence + CodeGG runfile review |

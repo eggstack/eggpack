@@ -127,7 +127,7 @@ Current dependency-ready implementation work:
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | blocked | real adoption evidence/candidate review (M002a precondition satisfied) |
 | Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
 | Eggup interoperability | M003 Eggsact runtime manifest adoption | ready to resume / Eggup-owned | consumer already selected and plan registered in `eggstack/eggup`; producer contract + `release-manifest.json` convention proven by Ecosystem M001 / Eggsact M005 `v1.2.7`; refresh consumer/Eggup baselines before execution |
-| Ecosystem adoption | M002 stegoeggo direct release adoption | ready to plan | first-consumer evidence exists; plan the independent second-consumer adoption |
+| Ecosystem adoption | M002 stegoeggo direct release adoption | ready | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | paired consumer plan in `eggstack/stegoeggo`; research found no new Eggpack producer primitive required |
 | Ecosystem adoption | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | Closure `plans/closure/ecosystem-adoption/001-status.md`; published `v1.2.7` from run 36652731202; exact Windows rerun bytes remain in consumer M005a and do not reopen M001 |
 | Provenance/authenticity | future | planned | manifest/build evidence; trust ADR required |
 | Python/wheel adapters | future | planned | native release pipeline maturity |
@@ -233,7 +233,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 Manifest M002, Build/Qualification M001-M005, CI M001/M002/M002a/M003a/M003b/M003c/M003d, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records.
 
-M003h is closed on the synchronized, verified candidate. The next dependency-ready ecosystem milestone is **M002 stegoeggo**, ready to plan.
+M003h is closed on the synchronized, verified candidate. **Ecosystem M002 stegoeggo is now planned and ready** at `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md`, paired with stegoeggo Release-Distribution M002. Research found no new Eggpack producer primitive is needed; implementation should stop and register a separate upstream corrective if that changes.
 
 Eggup Interoperability M003 is independently ready to resume in Eggup/Eggsact under the already-registered Eggup M003 plan; no new Eggpack producer implementation is required before that handoff.
 
