@@ -8,7 +8,7 @@ manifests, bootstrap installers, and generated release CI.
 It deliberately does **not** replace Eggup: Eggup remains the consumer-side
 verified installation/update/rollback layer.
 
-Last verified against the workspace at `338ba64` (see git log); line counts
+Last verified against the workspace at `3964494` (see git log); line counts
 below are approximate and pinned per deep dive.
 
 ## Module map

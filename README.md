@@ -63,8 +63,10 @@ M003b wires that adapter into one least-privilege generated `stage` job
 install the pinned Eggpack CLI, download the exact aggregate artifact, run
 `_prepare-stage`, then `_stage-github-draft`, and upload the bounded staging
 receipt. Reruns reconcile exact draft/asset state without clobber; public
-publication remains a separate human action. Live draft qualification remains
-outstanding (maintainer-authorized fixture required). M003d adds the consumer
+publication remains a separate human action. Live draft qualification has
+landed via the eggsact `v1.2.7` 15-asset draft; only byte-identical rerun
+reuse remains outstanding (blocked on consumer-side Windows byte
+determinism). M003d adds the consumer
 composition seam: reusable checked-in workflows carry static shape only
 (`ReleaseWorkflowShapeV1`, no future tag or source SHA) with a runtime
 `resolve` job materializing invocation-local ReleasePlan/ReleaseCIPlan/draft

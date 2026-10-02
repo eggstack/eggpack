@@ -101,8 +101,10 @@ Rendered jobs: `preflight` → `resolve` (M003d reusable only, `needs:preflight`
 - **M003b:** wires adapter into the generated `stage` job; concurrency
   release-scoped/tag-aware; static guards reject `id-token:write`, `gh release`,
   `--clobber`, publish, tag mutation, raw `curl`. Without staging, byte-equal to
-  M002a. Live draft proof outstanding except byte-identical rerun reuse
-  (conditional close).
+  M002a. Live draft/inventory/draft-only/no-clobber proven by the eggsact
+  `v1.2.7` 15-asset draft (run 36652731202); only byte-identical rerun reuse
+  remains outstanding (conditional close, blocked on eggsact M005a Windows
+  byte determinism).
 - **M003c (corrective):** one exact source per run (`RefName` = tag-push
   `github.ref_name`, `DispatchInput` = explicit `release_tag`); every job
   `HEAD^{commit}`-verifies vs `source_revision`; streamed uploads, bounded
@@ -113,8 +115,14 @@ Rendered jobs: `preflight` → `resolve` (M003d reusable only, `needs:preflight`
   + `--version` preflight, no DSL) + identity/outcome-only evidence;
   product-wrapper staging (`--installer-presentation` + `--source-root`; absent
   = M003c-compatible). Without validators/wrappers, byte-identical to M003c.
-- **M003e/g:** tool-install-before-verify ordering, `mkdir_step` for
-  runtime/consumer/gate/finalized dirs.
+- **M003e/f/g (live-qualification correctives):** M003e tool-install-before-use
+  ordering, `mkdir_step` for runtime/consumer/gate/finalized dirs, CLI
+  absolutization of generated relative paths (impl `b9062d4`, run 36572608484);
+  M003f positional package selection for the tool-install command (rejected
+  `-p` flag; impl `c190e77`, run 36632209736); M003g second-dispatch fixes
+  (zigbuild PATH timing, exec-bit restore after transfer, consumer/gate arity
+  and error surfacing) with the final live run staging the complete 15-asset
+  eggsact draft (run 36652731202).
 - **M005:** provisioned `cargo-zigbuild` / official `ziglang.org` Zig with SHA
   pin (`CrossToolProvisioningV1` / `ZigOfficialArchiveV1`); `PreinstalledVerified`
   legacy path.
