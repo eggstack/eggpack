@@ -6,8 +6,8 @@ exact artifact/member `size` + `SHA-256`. Explicit `direct` / `bundle` /
 `archive` forms preserve pairing relationships.
 
 Synchronous leaf parser/serializer (`crates/eggpack-manifest/src/lib.rs`,
-`#![forbid(unsafe_code)]`); no FS, no network, no trust authorities. M001
-domain/serialization closed, M001a namespace corrective closed, M002 builder
+1354 lines, `#![forbid(unsafe_code)]`); no FS, no network, no trust authorities.
+M001 domain/serialization closed, M001a namespace corrective closed, M002 builder
 (in `eggpack-core`) closed.
 
 ## Key types / functions (`crates/eggpack-manifest/src/lib.rs`)
@@ -17,7 +17,7 @@ domain/serialization closed, M001a namespace corrective closed, M002 builder
   (`:14-18`); private `MAX_ID = 128`, `MAX_NAME = 255`, `MAX_REVISION = 128`,
   `MAX_EVIDENCE = 256`.
 - `ManifestError::{Invalid(String), UnsupportedVersion(u32), TooLarge}`
-  (`:27-34`, `#[non_exhaustive]`).
+  (enum decl `:27-34`, derives at `:25`, `#[non_exhaustive]`).
 - `ReleaseManifest{schema_version, product_id, release_id, source_revision,
   targets, evidence_references}` (`:59-73`, `deny_unknown_fields`).
 - `TargetRecord{target, form}` (`:78-83`); `target` is the canonical triple.
@@ -27,13 +27,15 @@ domain/serialization closed, M001a namespace corrective closed, M002 builder
   `BundleRecord{artifact, install}` (`:125-130`),
   `ArchiveMemberRecord{source, install, bytes}` (`:135-142`),
   `ByteEvidence{size, sha256}` (`:148-153`).
-- `ReleaseManifest::target(canonical_triple)` (`:157-163`) — exact match only.
+- `ReleaseManifest::target(canonical_triple)` (`:157-163`) — re-validates the
+  whole manifest, then exact match only (no alias fallback).
 - `ReleaseManifest::from_json` (`:165-172`) — length check → parse → validate.
 - `ReleaseManifest::validate` (`:175-235`) — version/bounds/uniqueness/relations.
 - `ReleaseManifest::to_json` (`:239-255`) — validate + lexical sort
-  (targets, bundle entries, archive members), compact output; stable app JSON,
+  (targets by `target`; bundle entries by `(artifact.name, install)`; archive
+  members by `(source, install)`), compact output; stable app JSON,
   explicitly not signing-grade canonical JSON.
-- `ArtifactRecord::sha256_bytes` (`:260-263`),
+- `ArtifactRecord::sha256_bytes` (`:260-262`),
   `ByteEvidence::sha256_bytes` (`:283-285`).
 - Tests inline (`:349-1354`): round-trip, negatives, multi-target namespace
   (M001a), `eggup_interoperability_manifest_fixtures_are_valid_v1`,
@@ -47,10 +49,11 @@ Top-level: `{"schema_version":1,"product_id":…,"release_id":…,
 - `schema_version` exactly `1`, else `UnsupportedVersion`.
 - `product_id`/`release_id`/`source_revision`: non-empty, ≤128B, no controls.
 - `targets`: 1–256, unique canonical strings (≤128B).
-- `evidence_references`: ≤64 identifiers, no trust claim.
+- `evidence_references`: ≤64 identifiers, each non-empty ≤256B, no controls;
+  no trust claim.
 - `ArtifactRecord.name`: safe flat (≤255B, rejects `./..///:\`), globally unique
-  per manifest (exact + ASCII-case-folded). `size != 0`. `sha256` = 64 lowercase
-  hex chars.
+  per manifest (exact + ASCII-case-folded; manifest-global `release_names` set
+  plus bundle-local dedup). `size != 0`. `sha256` = 64 lowercase hex chars.
 - `Bundle`: 1–256 entries, unique `artifact.name`, per-target unique `install`.
 - `Archive`: 1–256 members; `source` normalized relative path (≤1024B); unique
   `source` per archive target; per-target unique `install`.
@@ -62,8 +65,10 @@ Top-level: `{"schema_version":1,"product_id":…,"release_id":…,
 
 No in-crate fixture files; tests `include_str!` the Eggup-interop fixtures under
 `plans/closure/eggup-interoperability/fixtures/`
-(`direct/bundle/archive-manifest.json` + `projection-*.json` doc/test data +
-`unknown-schema/corrupt-digest/corrupt-size/wrong-target.json` negatives).
+(`direct/bundle/archive-manifest.json` + `projection-*.json` doc/test data).
+Negatives: `unknown-schema/corrupt-digest/corrupt-size.json` asserted in the
+interop validity test; `wrong-target.json` asserted separately in the
+wrong-target projection test plus a direct `target()` mismatch case.
 
 ## Boundaries
 

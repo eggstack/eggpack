@@ -1,7 +1,7 @@
 # `eggpack-contract` — Deep Dive
 
 Portable, versioned **expected-release-layout authority** + **pure conformance
-validators**. Single-file crate (`src/lib.rs`, ~2300 lines,
+validators**. Single-file crate (`src/lib.rs`, 2302 lines,
 `#![forbid(unsafe_code)]`, `#![deny(missing_docs)]`).
 
 Fidelity port of the qualified unpublished `eggup-dist` predecessor
@@ -24,7 +24,8 @@ expected/inventory/mapping validators. Both closed; M003 CLI polish planned only
 **Contract model:**
 
 - `SCHEMA_V1: u32 = 1` (`:15`), `MAX_OBSERVED_ENTRIES = 256` (`:23`);
-  internal bounds: findings 512, id 64B, name 128B, template 256B, detail 512B.
+  internal bounds: findings 512 (`:24`), id 64B (`:18`), name 128B (`:19`),
+  template 256B (`:20`), detail 512B (`:21`).
 - `DistError` (`:47-80`): `InvalidInput`, `UnsupportedVersion{found}`,
   `DuplicateTarget`, `DuplicateAlias`, `UnknownTarget`, `UnknownPlaceholder`,
   `MissingInput`, `InvalidMemberPath`, `NameCollision{..}`,
@@ -40,7 +41,7 @@ expected/inventory/mapping validators. Both closed; M003 CLI polish planned only
   `to_toml_string` (`:271`), `resolve(target_or_alias)` (`:280`),
   `expand(target_or_alias, version)` (`:300`).
 
-**Expanded model:** `ExpandedDirect` (`:954`), `ExpandedBundle` (`:964`),
+**Expanded model:** `ExpandedDirect` (`:954`), `ExpandedBundle` (`:965`),
 `ExpandedArchiveMember` (`:972`), `ExpandedArchive` (`:981`),
 `ExpandedAssets::{Direct,Bundle,Archive}` (`:992`),
 `ExpandedTarget{triple, assets}` (`:1003`).
@@ -50,9 +51,9 @@ expected/inventory/mapping validators. Both closed; M003 CLI polish planned only
 - `ExtrasPolicy::{AllowExtras (default), Exact}` (`:1012-1018`).
 - `ExpectedReleaseFile{label, file_name}` (`:1022`) +
   `expected_release_files(contract, target_or_alias, version)` (`:1034`).
-- `ReleaseInventory::new/files` (`:1079-1117`) +
+- `ReleaseInventory` struct (`:1075`), impl `new/files` (`:1079-1117`) +
   `validate_release_inventory(expected, observed, extras)` (`:1136`).
-- `ArchiveMemberInventory::new/members` (`:1201-1239`) +
+- `ArchiveMemberInventory` struct (`:1197`), impl `new/members` (`:1201-1239`) +
   `validate_archive_member_inventory(expected, observed, extras)` (`:1244`).
 - `ObservedDirectMapping`, `ObservedArchiveMapping`,
   `ObservedTargetAssets::{Direct,Bundle,Archive}` (`:1298-1337`),
@@ -68,7 +69,7 @@ expected/inventory/mapping validators. Both closed; M003 CLI polish planned only
 **Tests/fixtures:** `tests/fixtures.rs` (parse + expand + round-trip),
 `tests/conformance.rs` (inventory/archive/mapping matrices),
 `tests/fixtures/{simple-direct,codegg-bundle,egress-archive,
-observed-simple,observed-codegg,observed-egress}.toml`.
+eggsact-direct-targets,observed-simple,observed-codegg,observed-egress}.toml`.
 
 ## Schema-v1 essentials
 
@@ -109,7 +110,7 @@ version ordering, schema-v2.
 - Dependents (path, `0.1.0`): `eggpack-core`, `eggpack-bootstrap`,
   `eggpack-ci`, `eggpack-github`, `eggpack-cli`. `eggpack-manifest` deliberately
   does **not** depend on it. Fixture reuse (not package dep) across core/CI/GitHub
-  tests.
+  tests (e.g. `eggsact-direct-targets.toml` reused by `eggpack-ci`).
 
 ## Tools / capabilities
 

@@ -37,10 +37,11 @@ Sources: `plans/001-terminology-and-domain-model.md` (normative),
 - **Invariants:** determinism; integrity ≠ authenticity ≠ provenance ≠ safety;
   sidecar SHA-256 = integrity only; publication gated; registry publication
   separately authorized.
-- **Layers:** `eggpack-contract` → `eggpack-manifest` → `eggpack-core`
-  (host-neutral planning vs adapters) → `eggpack-cli` (`check/plan/package/
-  qualify/collect/manifest/installer/ci` + staging/draft) → adapters (GitHub,
-  Cargo/zigbuild, signing, SBOM).
+- **Layers (actual crates):** `eggpack-contract` → `eggpack-manifest` →
+  `eggpack-core` (host-neutral planning vs adapters) → `eggpack-bootstrap` +
+  `eggpack-ci` + `eggpack-github` → `eggpack-cli`
+  (`ci generate/check` + internal runner + staging/draft wrappers).
+  Signing/SBOM adapters are future Phase 12/13 work, not present crates.
 
 ## 2. Roadmap / milestones
 
@@ -53,19 +54,24 @@ surface), `plans/003-planning-process.md`, `plans/subsystems/*-roadmap.md`.
   v1; **Phase 4** build/qualification planner; **Phase 5** local packaging;
   **Phase 6** bootstrap generation; **Phase 7** checked-in CI; **Phase 8**
   staging + human publication gate; **Phase 9** simple adoption (eggsact,
-  stegoeggo); **Phase 10** Eggup interop; **Phase 11** broader adoption
-  (eggsearch, Gregg, CodeGG, Egress, wheels); **Phase 12** provenance/
-  authenticity; **Phase 13** specialized adapters; **Phase 14** 1.0 stabilization.
-- **Subsystem status:** Contract M001/M002 closed, M003 planned; Manifest
-  M001/M001a/M002 closed, M003 planned; Build M001/M002/M002a/M003/M004 closed,
-  **M005 deterministic cross-tool provisioning (`005-…md`) ready** (exact Zig
-  0.14.1 / cargo-zigbuild 0.23.3, first-consumer prerequisite); Bootstrap
-  M001/M002/M002a closed, M003 blocked on adoption evidence; CI M001/M002/M002a/
-  M003a/M003c/M003d closed, M003b conditionally closed (live-draft proof
-  outstanding, sequenced after Build M005 + eggsact); Eggup M001/M001a + Eggup
-  adapter closed, adoption ready; Ecosystem eggsact M001 blocked/planned
-  (baseline `174764c`, waits Build M005, then performs M003b live-draft proof);
-  External-backend evaluation closed (disposition C, below).
+  stegoeggo); **Phase 10** Eggup interop; **Phase 11** broader native adoption
+  (eggsearch, Gregg, CodeGG, Egress); **Phase 12** provenance/
+  authenticity; **Phase 13** specialized adapters (maturin/wheels, Cargo
+  topology, Homebrew); **Phase 14** 1.0 stabilization.
+- **Subsystem status (registry-verified):** Contract M001/M002 closed, M003
+  planned; Manifest M001/M001a/M002 closed, M003 ready (publication: manual
+  `eggpack-manifest 0.1.0` publish + registry-only proof; real-consumer gate
+  satisfied by Eggup M003 / eggsact); Build M001–M006 all closed (incl. M005
+  deterministic cross-tool provisioning — exact Zig 0.14.1 / cargo-zigbuild
+  0.23.3 — and M006 native qual for cross-tool builds under ADR-0005);
+  Bootstrap M001/M002/M002a closed, M003 blocked on adoption evidence; CI
+  M001/M002/M002a/M003a/M003c/d/e/f/g/h closed, M003b conditionally closed
+  (only byte-identical rerun reuse blocked on eggsact M005a Windows
+  nondeterminism; live 15-asset eggsact draft staged); Eggup M001/M001a +
+  Eggup adapter M001/M001a closed, Eggup M003 closed downstream (eggsact +
+  Eggup CI runs); Ecosystem M001 closed (eggsact `v1.2.7`), M002 conditionally
+  closed (waits ordinary stable); External-backend evaluation closed
+  (disposition C, below). Next handoff is Manifest M003 publication.
 
 ## 3. ADRs (`plans/adrs/`, all accepted)
 
@@ -86,6 +92,9 @@ surface), `plans/003-planning-process.md`, `plans/subsystems/*-roadmap.md`.
   generic shell DSL. Plan-derived intent + explicit logical-output→package/bin
   bindings, direct exec, `--locked`, preflight, private target dir, candidates
   only.
+- **ADR-0005 native qualification for cross-tool builds (2026-09-28):**
+  decouples `Qualification::Native` (host-matched proof) from the builder;
+  implemented by Build M006.
 
 ## 4. Tooling
 

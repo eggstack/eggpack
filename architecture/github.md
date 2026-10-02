@@ -1,8 +1,8 @@
 # `eggpack-github` — Deep Dive
 
 GitHub draft release staging adapter + local staging payload materializer
-(CI M003a). `crates/eggpack-github/src/lib.rs` (3000+ lines), tests in
-`src/tests.rs` (~1850 lines).
+(CI M003a). `crates/eggpack-github/src/lib.rs` (3019 lines), tests in
+`src/tests.rs` (1848 lines).
 
 Two bounded capabilities:
 
@@ -19,13 +19,13 @@ Two bounded capabilities:
 
 **Local payload:**
 
-- `GithubError` + `fail()` (`:38-52`) — redacted bounded errors.
-- `GitHubDraftPolicyV1` (`:54-154`): `schema_version == 1`, `owner`,
+- `GithubError` + `fail()` (`:39-52`) — redacted bounded errors.
+- `GitHubDraftPolicyV1` (`:57-154`): `schema_version == 1`, `owner`,
   `repository`, `tag`, `title`, `body`, `prerelease`, `token_env
   (=GITHUB_TOKEN)`, `request_timeout_secs` (5–120), `max_metadata_bytes` (≤8M),
   `max_list_pages` (≤32). `from_json/to_json/validate/download_origin()`
   (`https://github.com/<owner>/<repo>/releases/download/<tag>`).
-- `StagingAssetKind` (`:166-183`): `FinalizedArtifact, ChecksumSidecar,
+- `StagingAssetKind` (`:164-183`): `FinalizedArtifact, ChecksumSidecar,
   ReleaseManifest, PosixInstaller, PowershellInstaller` (+ M003d
   `ProductPosixWrapper, ProductPowershellWrapper`; schema stays v1, old readers
   fail closed).
@@ -43,38 +43,42 @@ Two bounded capabilities:
   private `0700` output, manifest canonical round-trip, exact-tag installer
   guard (`latest/download` rejected).
 - M003d: `InstallerPresentationV1 / InstallerPresentationModeV1
-  {GeneratedDefault, ProductWrappers} / ProductWrapperSourcesV1` (`:966-1077`,
-  `MAX_WRAPPER_BYTES = 1MiB`); `prepare_staging_payload_with_presentation()`
-  (`:910-943`, inner `:1216-1609`); `GitHubDraftTemplateV1{owner, repository,
-  title_prefix, body, prerelease, …} + resolve(tag)` (`:1113-1213`, appends
-  validated tag, no templating).
+  {GeneratedDefault, ProductWrappers} / ProductWrapperSourcesV1` (`:966-1101`,
+  `MAX_WRAPPER_BYTES = 1MiB` at `:950`);
+  `prepare_staging_payload_with_presentation()` (`:910-943`, inner
+  `:1216-1609`); `GitHubDraftTemplateV1{owner, repository, title_prefix, body,
+  prerelease, …} + resolve(tag)` (`:1113-1213`, appends validated tag, no
+  templating).
 
 **Draft adapter:**
 
-- `RefTarget / TagObject / RemoteRelease / RemoteAsset` (`:1615-1667`).
+- `RefTarget / TagObject / RemoteRelease / RemoteAsset` (`:1617-1667`).
 - `trait GithubApi: Send + Sync` (`:1674-1734`): `get_ref, get_tag,
   list_releases, create_release, list_assets, upload_asset(file: Box<dyn
   Read+Send>, length, content_type), delete_asset`.
 - `verify_tag_source()` (`:1778-1814`): lightweight tag == `source_revision`;
   annotated tags peeled ≤8 (`MAX_TAG_PEEL_DEPTH`).
-- `stage_with_bytes / stage_with_source / stage_with_dir` (`:1949-2251`):
-  policy/payload agreement, pre+post tag verify (TOCTOU guard), paginated draft
-  lookup, exact asset reconcile, narrow 502 recovery, final exact-set verify,
-  receipt emit. Production `stage_with_dir` streams in 64KiB chunks
-  (`UPLOAD_CHUNK_BYTES`).
+- `stage_with_bytes` (public, `:1949-1963`) / `stage_with_source` (private,
+  `:1965-2211`) / `stage_with_dir` (public, `:2214-2251`): policy/payload
+  agreement, pre+post tag verify (TOCTOU guard), paginated draft lookup, exact
+  asset reconcile, narrow 502 recovery, final exact-set verify, receipt emit.
+  Production `stage_with_dir` streams in 64KiB chunks (`UPLOAD_CHUNK_BYTES`).
 - `EggfetchTransport` (`:2264-2621`): fixed `https://api.github.com` /
-  `https://uploads.github.com`, `API_VERSION = 2026-03-10`,
-  `USER_AGENT = eggpack-github/0.1.0`; per-request `Accept /
+  `https://uploads.github.com`, `API_VERSION = 2022-11-28` family pinned in
+  code, `USER_AGENT = eggpack-github/0.1.0`; per-request `Accept /
   X-GitHub-Api-Version / Bearer`; redacted `Debug`; lean `eggfetch-core`
   (retries/redirects disabled, 3xx fail closed); `draft:true,
-  make_latest:false`; upload `201` + exact `name/size/state == uploaded /
-  digest == sha256:<hex>` checks; parsed exact upload origin + query-pair
-  encoding. 404/422/502 mapped; narrow 502 recovery only (delete exactly one
-  `starter + size == 0`, still fail; next explicit rerun may resume).
+  make_latest:"false"` (string); upload `201` + exact `name/size/state ==
+  uploaded / digest == sha256:<hex>` checks; parsed exact upload origin +
+  query-pair encoding. 404/422/502 mapped; narrow 502 recovery only (delete
+  exactly one `starter + size == 0`, still fail; next explicit rerun may
+  resume).
 - `FixtureGithub` (`:2653-2816`): deterministic in-memory seam (tag/ref/seeded
   releases, asset pages, 502/422/rename/digest/size faults); `ASSET_PAGE_SIZE =
-  100`, `list_all_assets` default 16 / max 32 pages, incomplete final page fails
-  closed.
+  100`, `list_all_assets` default 16 / max 32 pages; incomplete final page
+  terminates pagination successfully, while an exhausted bound on a full page
+  fails closed. Note: `FixtureGithub::list_releases` returns only page 1
+  (production paginates); pagination-edge tests use the asset-page override.
 - `read_token(GITHUB_TOKEN)` (`:493-502`) — env-only credentials.
 
 ## Safety properties

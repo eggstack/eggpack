@@ -1,9 +1,10 @@
 # `eggpack-core` — Deep Dive
 
 Producer-side planning, qualification, local finalization, and manifest
-aggregation. Four source files: `src/lib.rs` (planning + manifest aggregation),
-`src/builder.rs` (build seam), `src/qualification.rs` (qualification),
-`src/finalization.rs` (finalization).
+aggregation. Four source files: `src/lib.rs` (1056 lines, planning + manifest
+aggregation), `src/builder.rs` (1301 lines, build seam),
+`src/qualification.rs` (2610 lines, qualification),
+`src/finalization.rs` (860 lines, finalization).
 
 ## Pipeline
 
@@ -16,7 +17,10 @@ DistributionContract + PackConfig + release_id + source_revision + selected
 ```
 
 Identity (`release_id`/`source_revision`/`target`/`strategy`) threads every stage;
-mismatches fail closed.
+mismatches fail closed. Note: `execute_target_cancellable` does **not** call
+`BuildBindingsV1::validate_for` internally — callers must validate separately
+(contrast `qualify_target_for_host_with_runner`, which validates both binding
+sets internally).
 
 ## Key types / functions
 
@@ -50,9 +54,12 @@ mismatches fail closed.
 - `LogicalOutputSelector::Direct | BundleEntry{index} | ArchiveMember{source}`;
   `BuildBinding{selector, package, binary}`;
   `BuildBindingsV1{schema_version:1, targets}` + `from_toml()`,
-  `validate_shape()`, `validate_for(contract, plan)` (exact coverage, no extras).
+  `validate_for(contract, plan)` (exact coverage, no extras). Internal
+  `validate_shape()` is private (runs inside `from_toml`/`validate_for`).
+  `BoundCommand` is defined but never constructed — flow uses `CommandSpec`
+  directly via `cargo_command()`.
 - `CommandSpec{executable, args, cwd, env, timeout, stdout/stderr limits}`;
-  `BoundCommand`; `CommandOutcome::Success | Failed | TimedOut | Cancelled |
+  `CommandOutcome::Success | Failed | TimedOut | Cancelled |
   OutputLimitExceeded`; `ProcessEvidence` (byte counts, not contents);
   `BuildCancellation`.
 - `CandidateArtifact{target, selector, package, binary, path, size}`;
@@ -60,10 +67,12 @@ mismatches fail closed.
   process, candidates}`.
 - `cargo_command(...)` — `cargo +<rust> build|zigbuild --release --locked
   --target <triple[.glibc-floor]> --package --bin`, `CARGO_TARGET_DIR`-only env;
-  `preflight()` (rustc/cargo/zigbuild/zig versions); `run_bounded_cancellable()`;
-  `execute_target[_cancellable]`; `private_target_dir()`;
-  `discover_candidate()` (exact `<target_dir>/<triple>/release/<bin>[.exe]`,
-  regular non-empty non-symlink). Stops at candidate bytes.
+  `preflight()` (rustc/cargo/zigbuild/zig versions, substring match);
+  `run_bounded_cancellable()`; `execute_target[_cancellable]`;
+  `private_target_dir()` (sanitized via `safe_component()`, marker file,
+  reuse rejected); `discover_candidate()` (exact
+  `<target_dir>/<triple>/release/<bin>[.exe]`, regular non-empty non-symlink
+  with parent-dir + containment checks). Stops at candidate bytes.
 
 **`src/qualification.rs` — bindings/evidence/execution:**
 
@@ -71,7 +80,8 @@ mismatches fail closed.
   `TargetQualificationBinding{smoke?}`;
   `QualificationBindingsV1{schema_version:1, targets}` + `from_toml()`,
   `validate_for(plan, build_bindings)` (smoke iff Native/DeferredNative/Emulated;
-  DeferredNative requires `qualification_host`).
+  DeferredNative requires `qualification_host`). Internal `validate_shape()`
+  is private.
 - `QualificationRuntime{qemu_sysroot?}`;
   `QualificationMethod::Native | Deferred | DeferredNativeOnNativeHost |
   QemuUser | Structural`;
@@ -112,8 +122,8 @@ mismatches fail closed.
   intent; manifest owns final digests. Config cannot redefine artifact names.
 - Finite/enumerated, `deny_unknown_fields`, `schema_version == 1`, bounded
   counts (targets/bindings ≤256, args ≤128, capture ≤256KiB), no shell, no
-  generic command/plugin DSL, no network client (M005 cross-tool provisioning is
-  `ready`, not implemented).
+  generic command/plugin DSL, no network client (cross-tool provisioning is
+  `ready`-check only, not install).
 - Path/process safety: absolute repo root / pre-existing work root, symlink
   rejection, canonical-containment, per-invocation `target/` dirs +
   `.eggpack-owner`, pre/post hash + size equality, `env_clear()` + allowlists,

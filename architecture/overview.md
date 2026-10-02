@@ -8,6 +8,9 @@ manifests, bootstrap installers, and generated release CI.
 It deliberately does **not** replace Eggup: Eggup remains the consumer-side
 verified installation/update/rollback layer.
 
+Last verified against the workspace at `338ba64` (see git log); line counts
+below are approximate and pinned per deep dive.
+
 ## Module map
 
 ```text
@@ -34,21 +37,21 @@ eggpack CLI (eggpack-cli)                        <- deterministic wiring for all
 
 | Crate | Role | Deep dive |
 |---|---|---|
-| `eggpack-contract` | Portable schema-v1 release layout authority + pure conformance validators. Sync, side-effect free. No build/publish/network. | [contract.md](contract.md) |
-| `eggpack-manifest` | Bounded schema-v1 JSON evidence for one finalized release (product/release/revision + exact size/SHA-256 per artifact). Leaf parser/serializer, no I/O. | [manifest.md](manifest.md) |
-| `eggpack-core` | Pure PackConfig/ReleasePlan resolution, explicit Cargo build bindings, bounded candidate production, qualification evidence (native/deferred/QEMU/structural), producer-side finalization + manifest construction. | [core.md](core.md) |
-| `eggpack-bootstrap` | Renders release-specific direct first-install shell + PowerShell scripts from contract + manifest. No release selection, no updates. SHA-256 = integrity, not authenticity. | [bootstrap.md](bootstrap.md) |
-| `eggpack-ci` | Projects release plans + Cargo bindings into a provider-neutral CI graph, renders deterministic GitHub Actions workflows from caller-supplied runner/pin policy, checks drift, wires qualification gates + aggregate/finalize + draft staging + consumer seam. | [ci.md](ci.md) |
-| `eggpack-github` | Local staging payload materializer + GitHub draft adapter (draft-only, exact existing tag, no publication). | [github.md](github.md) |
-| `eggpack-cli` | Deterministic `eggpack` binary: `ci generate` / `ci check` (exact + reusable shape modes) plus narrow internal runner commands (`_verify-source`, `_resolve-release`, `_capture-build`, `_qualify-target`, `_validate-consumer`, `_evaluate-gate`, `_aggregate`, `_prepare-stage`, `_stage-github-draft`). | [cli.md](cli.md) |
+| `eggpack-contract` | Portable schema-v1 release layout authority + pure conformance validators. Sync, side-effect free. No build/publish/network. Single file `src/lib.rs` (~2302 lines). | [contract.md](contract.md) |
+| `eggpack-manifest` | Bounded schema-v1 JSON evidence for one finalized release (product/release/revision + exact size/SHA-256 per artifact). Leaf parser/serializer, no I/O. `src/lib.rs` (~1354 lines). | [manifest.md](manifest.md) |
+| `eggpack-core` | Pure PackConfig/ReleasePlan resolution, explicit Cargo build bindings, bounded candidate production, qualification evidence (native/deferred/QEMU/structural), producer-side finalization + manifest construction. `src/lib.rs` + `builder.rs` + `qualification.rs` + `finalization.rs`. | [core.md](core.md) |
+| `eggpack-bootstrap` | Renders release-specific direct first-install shell + PowerShell scripts from contract + manifest. No release selection, no updates. SHA-256 = integrity, not authenticity. `src/lib.rs` (~3436 lines). | [bootstrap.md](bootstrap.md) |
+| `eggpack-ci` | Projects release plans + Cargo bindings into a provider-neutral CI graph, renders deterministic GitHub Actions workflows from caller-supplied runner/pin policy, checks drift, wires qualification gates + aggregate/finalize + draft staging + consumer seam. `src/lib.rs` (~10221 lines). | [ci.md](ci.md) |
+| `eggpack-github` | Local staging payload materializer + GitHub draft adapter (draft-only, exact existing tag, no publication). `src/lib.rs` (~3019 lines) + `src/tests.rs` (~1848 lines). | [github.md](github.md) |
+| `eggpack-cli` | Deterministic `eggpack` binary: `ci generate` / `ci check` (exact + reusable shape modes) plus narrow internal runner commands (`_verify-source`, `_resolve-release`, `_capture-build`, `_qualify-target`, `_validate-consumer`, `_evaluate-gate`, `_aggregate`, `_prepare-stage`, `_stage-github-draft`). Single `src/main.rs` (~2940 lines), no `clap`. | [cli.md](cli.md) |
 
 ## Cross-cutting concerns
 
 | Topic | Deep dive |
 |---|---|
 | Domain model, terminology, four-object split (Contract / Plan / Manifest / Receipt) | [principles-roadmap.md](principles-roadmap.md) |
-| Roadmap phases + subsystem milestones (M001–M005, M003a–d) | [principles-roadmap.md](principles-roadmap.md) |
-| ADRs 0001–0004 (producer/consumer boundary, object separation, checked-in CI + publication gate, first-party Cargo adapter) | [principles-roadmap.md](principles-roadmap.md) |
+| Roadmap phases + subsystem milestones (Build M001–M006 closed, CI M003a–h closed / M003b conditionally closed, Manifest M003 ready, Ecosystem M001 closed / M002 conditionally closed) | [principles-roadmap.md](principles-roadmap.md) |
+| ADRs 0001–0005 (producer/consumer boundary, object separation, checked-in CI + publication gate, first-party Cargo adapter, native qual for cross-tool builds) | [principles-roadmap.md](principles-roadmap.md) |
 | Tooling: workspace lints, `scripts/check-local.sh`, `.github/workflows/ci.yml`, closure/archive discipline | [principles-roadmap.md](principles-roadmap.md) |
 | Eggup interop (consumer mapping, fixtures) | [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md), [principles-roadmap.md](principles-roadmap.md) |
 | External backend evaluation (`dist` spike, disposition C) | [principles-roadmap.md](principles-roadmap.md) |
