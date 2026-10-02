@@ -1,86 +1,51 @@
 # eggpack
 
-Developer-side release construction and distribution infrastructure for Eggstack.
+Producer-side release construction and distribution for Eggstack: portable
+release contracts, build/qualification planning, artifact finalization,
+bootstrap installers, generated release CI, and GitHub draft staging.
 
-Eggpack is intended to centralize portable release contracts, target/build/qualification planning, artifact composition, release manifests, bootstrap installers, and generated release CI. It deliberately does **not** replace Eggup: Eggup remains the consumer-side verified installation/update/rollback layer.
+Eggpack does **not** replace Eggup — Eggup remains the consumer-side verified
+installation/update/rollback layer. SHA-256 checksums are integrity facts only,
+never authenticity; staging targets drafts on the exact existing tag, and
+publication stays a separate human action.
 
-The `eggpack-contract` crate implements the portable
-DistributionContract schema-v1 authority used to describe target and artifact
-names across Eggpack tooling. It is synchronous, side-effect free, and does not
-build or publish releases. See [the crate README](crates/eggpack-contract/README.md)
-for the schema and boundaries.
+## Quickstart
 
-The `eggpack-manifest` crate defines bounded schema-v1 JSON evidence for
-finalized release artifacts and members. It is a synchronous leaf parser and
-serializer; see [its README](crates/eggpack-manifest/README.md) for the format
-and consumer boundary.
+Prerequisites: Rust stable (MSRV 1.89) and git.
 
-Planning and architecture references:
+```sh
+cargo build -p eggpack-cli
+./target/debug/eggpack --version   # eggpack 0.1.0
+```
 
-- `plans/000-long-term-specification.md`
-- `plans/001-terminology-and-domain-model.md`
-- `plans/002-long-term-roadmap.md`
-- `plans/registry.md`
+Worked example — resolve a one-target release and render its GitHub workflow
+(~5 minutes, no network): [docs/quickstart.md](docs/quickstart.md). It covers
+`ci _resolve-release` → `ci generate` → `ci check` (including drift detection)
+with exact input files and expected output.
 
-The contract implementation preserves the qualified unpublished `eggup-dist`
-schema-v1 predecessor. Contract conformance validators are closed, and the
-ReleaseManifest v1 domain is implemented.
+## Layout
 
-`eggpack-core` owns pure PackConfig/ReleasePlan resolution, explicit Cargo
-build bindings and bounded candidate production, qualification evidence for
-native/deferred/QEMU/structural paths, and producer-side manifest construction
-from explicitly named finalized files. BuildAttempt identity is tied to the
-release and source revision; qualification verifies candidate format and
-architecture, hashes candidate bytes, and runs only a selected candidate with
-bounded fixed arguments. Qualification evidence is distinct from finalized
-artifact and manifest evidence.
-`finalize_release` gates required targets on qualification, assigns exact contract
-filenames, writes checksum sidecars, assembles explicitly selected `.tar.gz`
-archives, and returns a manifest over the final bytes from a new output root
-under a caller-secured parent. It does not extract, install, publish, or authenticate
-artifacts.
-`eggpack-bootstrap` renders release-specific direct first-install shell and
-PowerShell scripts from the contract and manifest; it does not select releases
-or update existing installations. SHA-256 checks establish integrity, not
-authenticity. Bundle releases install all verified members atomically, and
-archive releases support tar+gzip only with exact member inventory and
-size/hash validation before transactional placement under caller-owned
-executable/data modes.
+| Crate | Role | Details |
+|---|---|---|
+| `eggpack-contract` | Portable schema-v1 release layout authority + validators | [README](crates/eggpack-contract/README.md) |
+| `eggpack-manifest` | Bounded schema-v1 JSON evidence for finalized releases | [README](crates/eggpack-manifest/README.md) |
+| `eggpack-core` | Planning, Cargo building, qualification, finalization | [README](crates/eggpack-core/README.md) |
+| `eggpack-bootstrap` | Deterministic first-install shell/PowerShell renderers | [README](crates/eggpack-bootstrap/README.md) |
+| `eggpack-ci` | CI graph projection + deterministic workflow render/drift | [README](crates/eggpack-ci/README.md) |
+| `eggpack-github` | Staging payload + GitHub draft adapter (draft-only) | [README](crates/eggpack-github/README.md) |
+| `eggpack-cli` | Deterministic `eggpack` binary wiring it all together | [README](crates/eggpack-cli/README.md) |
 
-`eggpack-ci` projects resolved release plans and explicit M002 Cargo bindings
-into a provider-neutral CI graph, renders read-only deterministic GitHub
-Actions workflows from caller-supplied runner/action-pin policy, and checks
-workflow drift without writing files. M002 adds executable qualification jobs,
-required-evidence gates, and aggregate/finalize nodes invoking M003/M004 through
-the `eggpack` CLI with pinned tooling; completed finalized releases are uploaded
-as internal workflow artifacts only, alongside a standalone deterministic
-`release-manifest.json` that decodes back to the exact M004 manifest without
-changing the finalized root. M003a adds the local staging payload materializer
-and GitHub draft adapter (draft-only, exact existing tag, no publication).
-M003b wires that adapter into one least-privilege generated `stage` job
-(`contents: write` isolated to stage, every prior job `contents: read`, no
-`id-token: write`, token via environment only): checkout the exact tag,
-install the pinned Eggpack CLI, download the exact aggregate artifact, run
-`_prepare-stage`, then `_stage-github-draft`, and upload the bounded staging
-receipt. Reruns reconcile exact draft/asset state without clobber; public
-publication remains a separate human action. Live draft qualification has
-landed via the eggsact `v1.2.7` 15-asset draft; only byte-identical rerun
-reuse remains outstanding (blocked on consumer-side Windows byte
-determinism). M003d adds the consumer
-composition seam: reusable checked-in workflows carry static shape only
-(`ReleaseWorkflowShapeV1`, no future tag or source SHA) with a runtime
-`resolve` job materializing invocation-local ReleasePlan/ReleaseCIPlan/draft
-policy per event-selected tag; product-owned `install.sh`/`install.ps1`
-wrappers coexist with generated exact installers (`install-exact.*`) as
-copied bytes; and a bounded Python3 consumer validator runs the exact
-candidate after core qualification with identity-linked evidence and no
-arbitrary command support. Ownership boundary: generated exact installers are
-Eggpack first-install evidence, product wrappers are consumer-owned
-selection/fallback/install UX, and the consumer validator is bounded
-consumer-owned release evidence rather than Eggpack qualification semantics.
+## Verify
 
-`eggpack-cli` provides deterministic `eggpack ci generate` and `eggpack ci check`
-(exact `--ci-plan` mode plus reusable `--workflow-shape` mode) with narrow
-internal runner commands wrapping source verification, runtime identity
-resolution, core qualification, consumer validation, finalization, and draft
-staging.
+```sh
+scripts/check-local.sh   # full gate: fmt, check, clippy, tests, doc, package, MSRV
+```
+
+Faster loops and single-test invocation: [AGENTS.md](AGENTS.md#verify-trust-these-over-docs).
+
+## Docs
+
+- [docs/](docs/) — user guides (start with [quickstart](docs/quickstart.md)).
+- [architecture/](architecture/) — crate deep dives, domain model, ADRs.
+- [plans/registry.md](plans/registry.md) — status, blockers, next handoff
+  (currently: Release Manifest M003, manual `eggpack-manifest 0.1.0` publication).

@@ -37,12 +37,13 @@ Producer-side release construction/distribution for Eggstack. Does NOT replace E
 
 ## Docs index
 
-- No `.skills/`, `docs/`, or `opencode.json` in this repo — this file plus `architecture/` is the agent guidance. Don't invent any.
+- No `.skills/` or `opencode.json` in this repo — don't invent any. User-facing guides live in `docs/` (verified commands only); internals live in `architecture/`.
 - `architecture/overview.md` — module map, producer pipeline, key invariants; pins its verified commit (re-verify line counts against workspace when touching it).
 - `architecture/{contract,manifest,core,bootstrap,ci,github,cli}.md` — per-crate deep dives with type/function line refs. Read `contract.md` + `manifest.md` first, then `core.md`.
 - `architecture/principles-roadmap.md` — domain model, phases, ADRs 0001–0005, tooling, Eggup boundary, `dist` evaluation (disposition C: prior art only).
 - `architecture/eggup-manifest-consumer-v1.md` — Eggup consumer mapping; interface note, not a wire format.
 - `plans/registry.md` — control surface (status, blockers, execution order, next handoff). Canonical direction: `plans/000/001/002/003`.
+- `docs/quickstart.md` — verified CLI walkthrough (resolve → generate → check). Every command/output there was run verbatim; keep them exact when editing.
 
 ## Planning conventions
 
