@@ -63,7 +63,11 @@ It does not own build strategy, release selection, hosting authority, live insta
 
 `eggpack-contract` exists and Contract M001/M002 are closed. `eggpack-manifest` schema v1 is implemented, and corrective M001a closed the cross-target install-namespace defect while preserving manifest-global artifact filename uniqueness. Manifest M002 is closed with an explicit-file final artifact builder in `eggpack-core`. The `dist` 0.33 evaluation remains disposition C: its manifest is design prior art/backend observation only and is not Eggpack's canonical format.
 
-The former M003 real-consumer gate is now satisfied. Eggup interoperability M003 closed on real Eggsact adoption (`eggstack/eggup@538e3e5`, consumer `eggstack/eggsact@65c916b`, hosted CI `36902758482` + drift `36902758396`). Eggup M004a then proved that `eggpack-manifest 0.1.0` is the remaining Eggpack-owned registry prerequisite for its package/API promotion. Authoring review found no `crates/eggpack-manifest/` path delta between the consumer-qualified pin `678bbf04f5a02827003a1d9ab83ba4f0e6360e41` and Eggpack baseline `ed1bef885eb3e396a945165d680ed3073decf2a5`. M003 is therefore ready under `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md`: freeze/requalify the consumer-compatible leaf crate, publish only `eggpack-manifest 0.1.0` manually, and prove exact registry-only resolution. Formal JSON Schema export remains non-blocking polish rather than a prerequisite for Eggup.
+M003 is closed. Eggup interoperability M003 closed the real-consumer gate on Eggsact adoption (`eggstack/eggup@538e3e5`, consumer `eggstack/eggsact@65c916b`, hosted CI `36902758482` + drift `36902758396`), and Eggup M004a then proved that `eggpack-manifest 0.1.0` was the remaining Eggpack-owned registry prerequisite for its package/API promotion.
+
+Publication completed on `8d661e4eb9da1806e5d7c7606939d24e9aceb2c0`: `eggpack-manifest 0.1.0` is published, non-yanked, and registry-resolvable at the exact version Eggup's qualified adapter pins. No `crates/eggpack-manifest/` delta existed between the consumer-qualified pin `678bbf04f5a02827003a1d9ab83ba4f0e6360e41` and the publication source commit, and the published `src/lib.rs` is byte-identical to that pin, so the published artifact is the consumer-qualified source rather than merely version-compatible. Closure: `plans/closure/release-manifest/003-status.md`. Formal JSON Schema export remains non-blocking polish rather than a prerequisite for Eggup.
+
+Only `eggpack-manifest` was published. `eggpack-contract`, `eggpack-core`, `eggpack-bootstrap`, `eggpack-ci`, `eggpack-github`, and `eggpack-cli` remain unpublished; no workspace-wide release is implied by the single-package publication.
 
 ## 5. Target architecture
 
@@ -99,9 +103,9 @@ manifest M001a namespace corrective
     v
 manifest M002 final-artifact builder
     |
-    +--> manifest M003 consumer compatibility + `eggpack-manifest 0.1.0` publication [READY]
+    +--> manifest M003 consumer compatibility + `eggpack-manifest 0.1.0` publication [CLOSED]
     |        |
-    |        `--> Eggup M004 package/API promotion prerequisite
+    |        `--> Eggup M004 package/API promotion prerequisite [SATISFIED]
     +--> Eggup interoperability
     +--> bootstrap/CI aggregation
     +--> provenance/signing
@@ -139,9 +143,11 @@ Class: compatibility / infrastructure / manual publication prerequisite
 
 Hard dependency: a real v1 consumer. Satisfied by closed Eggup interoperability M003 / Eggsact real-consumer adoption.
 
-Freeze the consumer-qualified schema-v1 source/API as the publication compatibility baseline, re-run strict fixture/API/package qualification, publish only the leaf `eggpack-manifest 0.1.0` crate through the explicit manual crates.io boundary, and prove exact registry-only resolution before handing back to Eggup. The implementation plan is `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md`.
+Status: **closed**. Closure: `plans/closure/release-manifest/003-status.md`.
 
-The existing strict parser/serializer tests, direct/bundle/archive fixtures, cross-repo projection evidence, and real Eggsact consumer are the required compatibility harness for this publication. Formal JSON Schema export may be added later if useful, but it is not a publication or Eggup-unblock prerequisite.
+The consumer-qualified schema-v1 source/API is the publication compatibility baseline. Strict fixture/API/package qualification passed on stable and MSRV 1.89.0, `cargo package` and `cargo publish --dry-run` passed from a clean tree, and only the leaf `eggpack-manifest 0.1.0` crate was published through the explicit manual crates.io boundary. crates.io checksum `2a08f24b05e9652878dd49145cdc3cbd38c7a76032d7b01a5fe1535d9446b629` at publication source `8d661e4eb9da1806e5d7c7606939d24e9aceb2c0`, tagged `eggpack-manifest-v0.1.0`. An external registry-only consumer resolved exact `=0.1.0` with no Git or path source and passed a schema-v1 parse/round-trip/determinism smoke plus fail-closed negatives, closing the handoff back to Eggup.
+
+The existing strict parser/serializer tests, direct/bundle/archive fixtures, cross-repo projection evidence, and real Eggsact consumer were the required compatibility harness for this publication. Formal JSON Schema export remains available later polish, but it was not and is not a publication or Eggup-unblock prerequisite.
 
 ## 8. Cross-cutting requirements
 
@@ -161,6 +167,8 @@ Signing exact manifest bytes may require a canonical JSON choice. Do not lock a 
 
 At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1 without backend-specific types.
 
+Satisfied: Eggpack's own crates consume the crate as a workspace member, the real Eggsact updater consumes it through Eggup's bounded adapter, and M003 added a fourth independent consumer path — an external registry-only project resolving exact `=0.1.0` from crates.io with no Git or path source.
+
 ## 12. Milestone status
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
@@ -168,4 +176,4 @@ At least Eggpack bootstrap/CI and one Eggup adapter consume the same manifest v1
 | M001 | closed (historical) | `plans/implementation/release-manifest/001-release-manifest-v1-domain.md` | `plans/closure/release-manifest/001-status.md` | post-closure defect tracked by M001a |
 | M001a | closed | `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md` | `plans/closure/release-manifest/001a-status.md` | M001 implementation/closure |
 | M002 | closed | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | `plans/closure/release-manifest/002-status.md` | implementation and hosted CI passed |
-| M003 | ready | `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md` | — | real-consumer gate satisfied; execute package/dry-run/manual crates.io publication + registry-only proof |
+| M003 | closed | `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md` | `plans/closure/release-manifest/003-status.md` | published `eggpack-manifest 0.1.0` from `8d661e4`, hosted run 37064833069 green, tag `eggpack-manifest-v0.1.0`, registry-only consumer proof green |

@@ -59,9 +59,12 @@ surface), `plans/003-planning-process.md`, `plans/subsystems/*-roadmap.md`.
   authenticity; **Phase 13** specialized adapters (maturin/wheels, Cargo
   topology, Homebrew); **Phase 14** 1.0 stabilization.
 - **Subsystem status (registry-verified):** Contract M001/M002 closed, M003
-  planned; Manifest M001/M001a/M002 closed, M003 ready (publication: manual
-  `eggpack-manifest 0.1.0` publish + registry-only proof; real-consumer gate
-  satisfied by Eggup M003 / eggsact); Build M001–M006 all closed (incl. M005
+  planned; Manifest M001/M001a/M002/M003 all closed — M003 published
+  `eggpack-manifest 0.1.0` to crates.io from `8d661e4` (checksum
+  `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`) with published bytes
+  byte-identical to the consumer-qualified pin `678bbf04`, and an external
+  registry-only `=0.1.0` consumer proved resolution with no Git/path source;
+  Build M001–M006 all closed (incl. M005
   deterministic cross-tool provisioning — exact Zig 0.14.1 / cargo-zigbuild
   0.23.3 — and M006 native qual for cross-tool builds under ADR-0005);
   Bootstrap M001/M002/M002a closed, M003 blocked on adoption evidence; CI
@@ -71,7 +74,9 @@ surface), `plans/003-planning-process.md`, `plans/subsystems/*-roadmap.md`.
   Eggup adapter M001/M001a closed, Eggup M003 closed downstream (eggsact +
   Eggup CI runs); Ecosystem M001 closed (eggsact `v1.2.7`), M002 conditionally
   closed (waits ordinary stable); External-backend evaluation closed
-  (disposition C, below). Next handoff is Manifest M003 publication.
+  (disposition C, below). No Eggpack-owned prerequisite remains outstanding
+  for Eggup: Eggup's own `0.1.2` publication chain is its own next step, and
+  further Eggpack work requires new evidence rather than resuming a plan.
 
 ## 3. ADRs (`plans/adrs/`, all accepted)
 

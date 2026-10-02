@@ -48,4 +48,4 @@ Producer-side release construction/distribution for Eggstack. Does NOT replace E
 ## Planning conventions
 
 - Closure discipline: `plans/closure/<subsystem>/NNN-status.md`. Compilation ≠ closure. History never rewritten — correctives are new `NNNa` plans; superseded material goes to `plans/archive/`.
-- Next handoff (per registry): Release Manifest M003 = package-qualify + manual crates.io publication of `eggpack-manifest 0.1.0` only.
+- Next handoff (per registry): none pending. Release Manifest M003 is closed — `eggpack-manifest 0.1.0` is published to crates.io from `8d661e4` (checksum `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`), and the published bytes are identical to the consumer-qualified source. No Eggpack-owned prerequisite remains outstanding for Eggup; new Eggpack work needs new evidence and a new plan.

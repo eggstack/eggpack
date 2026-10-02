@@ -1,8 +1,16 @@
 # Release Manifest Milestone 003 — `eggpack-manifest 0.1.0` Consumer Compatibility Baseline and Registry Publication
 
-Status: ready
+Status: closed
+
+Closure record: `plans/closure/release-manifest/003-status.md`
 
 Repository authoring baseline: `ed1bef885eb3e396a945165d680ed3073decf2a5`
+
+Publication source commit: `8d661e4eb9da1806e5d7c7606939d24e9aceb2c0` (tag `eggpack-manifest-v0.1.0`)
+
+Published identity: crates.io `eggpack-manifest 0.1.0`, checksum `2a08f24b05e9652878dd49145cdc3cbd38c7a76032d7b01a5fe1535d9446b629`, non-yanked, owner/publisher `dbowm91`
+
+Hosted CI: run 37064833069 green on the publication source commit
 
 Primary roadmap: `plans/subsystems/release-manifest-roadmap.md`
 
