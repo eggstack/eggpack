@@ -254,7 +254,8 @@ ALL REGISTRY-ONLY SMOKE CHECKS PASSED
 | low | The published `README.md` points readers at `architecture/eggup-manifest-consumer-v1.md`, a repository-only document that is not part of the package, so the reference is dangling on crates.io and docs.rs. | Not a publication blocker and not a compatibility defect. Deliberately not corrected, because editing the README after publication would make repository source diverge from the immutable published bytes, which plan §13 classifies as a compatibility incident. Carry to a future `0.1.1`/`0.2` metadata polish. |
 | informational | docs.rs had not finished its first `0.1.0` build at closure time. | Not required to unblock Eggup. Re-check later; if the build fails, that is a docs-infra signal, not an evidence or integrity defect. |
 | informational | The crates.io API exposes no non-website endpoint for `GET /v1/me`, so the token's owner could not be read back programmatically before upload. | Resolved by the post-publication evidence instead: the audit action records `publish` by `dbowm91`, matching the sole owner of the existing `eggup-archive` package and the crate's `authors = ["David Bowman"]` metadata. Publication authority is therefore established, not assumed. |
-| informational | This closure does not update `eggstack/eggup` planning; see the downstream handoff section. | Cross-repository planning changes require a plan registered in that repository under planning process §9. The handoff obligation is recorded here explicitly rather than claimed as done. |
+
+No medium-or-higher finding remains open. Nothing here reopens this milestone.
 
 ## Documentation and roadmap disposition
 
@@ -264,6 +265,20 @@ ALL REGISTRY-ONLY SMOKE CHECKS PASSED
 - `plans/subsystems/eggup-interoperability-roadmap.md`: the cross-repo dependency line now points at satisfied M003 registry evidence instead of pending publication.
 - `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md`: status advanced to `closed`.
 - `crates/eggpack-manifest/README.md`: intentionally unchanged; see the low-severity finding.
+
+### Cross-repository planning handoff
+
+`eggstack/eggup` planning was updated so Eggup's active surfaces no longer record `eggpack-manifest 0.1.0` as absent. Per planning process §9 this is recorded as a reviewed actual commit, not a claim:
+
+| Repository | Commit | Scope |
+|---|---|---|
+| `eggstack/eggup` | `3f4e99e381b233bfd4be1a676218e9ba2cdce2d4` | `plans/registry.md` and `plans/subsystems/eggpack-manifest-interoperability-roadmap.md` only; docs-only, no crate, package metadata, dependency graph, or published version touched |
+
+Eggup hosted CI on that commit is green: run `37068275917` (`Stable checks`, `MSRV check`, `macOS tests`, `Windows archive, acquisition, and service tests and check` all passed).
+
+The Eggup update moves the M004 status from "blocked, first gate is Eggpack Release Manifest M003" to "blocked on Eggup-owned prerequisites only", records the published identity (date, source commit `8d661e4`, checksum `2a08f24b…b629`, tag, Eggpack hosted run `37064833069`, and this closure record), records a fresh registry re-audit of the M004a-proven set, and states that the M004a compatibility-incident branch is not triggered because the published bytes match the consumer-qualified Git source. It deliberately leaves the `eggup-eggpack` Git pin on `eggpack-manifest` in place, since switching to a registry pin is M004's decision. It does not author or implement M004.
+
+Per planning process §9, that Eggup commit is a planning-truth reconciliation carrying the producer evidence this closure recorded. It is not a claim that Eggup's M004 is implemented, authorized, or complete, and it is not a claim that Eggup was migrated: no Eggup code, package, or published artifact changed.
 
 ## Downstream handoff and dependency transitions unlocked
 

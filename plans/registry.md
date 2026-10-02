@@ -243,7 +243,9 @@ M003h is closed on the synchronized, verified candidate. **Ecosystem M002 stegoe
 
 The Eggpack-owned prerequisite that Eggup M004a identified is now satisfied. **Release Manifest M003 is closed** at `plans/closure/release-manifest/003-status.md`: `eggpack-manifest 0.1.0` was published to crates.io from `8d661e4eb9da1806e5d7c7606939d24e9aceb2c0` (checksum `2a08f24b05e9652878dd49145cdc3cbd38c7a76032d7b01a5fe1535d9446b629`, tag `eggpack-manifest-v0.1.0`, hosted run 37064833069 green), and an external registry-only consumer resolved exact `=0.1.0` with no Git or path source. The published `src/lib.rs` is byte-identical to the consumer-qualified pin `678bbf04f5a02827003a1d9ab83ba4f0e6360e41`, so Eggup can move its manifest dependency to a registry pin with no semantic requalification implied. Only `eggpack-manifest` was published; the other six Eggpack workspace crates remain unpublished.
 
-Eggup's own `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` publication sequence remains outstanding under Eggup authority (`eggup-acquisition` and `eggup-eggfetch` are at `0.1.1`; `eggup-eggpack` is unpublished) and is not claimed here. Eggpack's next handoff is therefore not a producer prerequisite for Eggup: any further Eggpack work needs new evidence, while Ecosystem M002's ordinary StegoEggo stable-release evidence remains an independent operational condition.
+Eggup's own `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` publication sequence remains outstanding under Eggup authority (`eggup-acquisition` and `eggup-eggfetch` are at `0.1.1`; `eggup-eggpack` is unpublished) and is not claimed here. Eggup's planning was updated to match that reality at `eggstack/eggup@3f4e99e381b233bfd4be1a676218e9ba2cdce2d4` (docs-only): M004 is now recorded as blocked on Eggup-owned prerequisites only, with the Eggpack gate satisfied.
+
+Eggpack's next handoff is therefore not a producer prerequisite for Eggup: any further Eggpack work needs new evidence, while Ecosystem M002's ordinary StegoEggo stable-release evidence remains an independent operational condition.
 
 ## Downstream unblock disposition
 
@@ -260,7 +262,7 @@ The live evidence closes Ecosystem M001 and unblocks planning Ecosystem M002. Cl
 | Build/Qualification M006 | Closed under accepted ADR-0005 Option A; implementation `398cd43`, hosted run 36484758546 green. |
 | Eggup Interoperability M003 | Closed in Eggup/Eggsact. Consumer `eggstack/eggsact@65c916b`; Eggup closure `plans/closure/eggpack-manifest-interoperability/003-status.md`; hosted CI `36902758482` + drift `36902758396` green. |
 | Release Manifest M003 | Closed. `eggpack-manifest 0.1.0` published from `8d661e4` (checksum `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`), published bytes byte-identical to the consumer-qualified pin `678bbf04`, and exact registry-only `=0.1.0` resolution proven by an external consumer. This removes the Eggpack-owned prerequisite identified by Eggup M004a; Eggup's own publication chain is untouched. |
-| Eggup M004 | Not Eggpack's to close. Remains Eggup-owned and blocked on its own `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` publication sequence. Eggpack's external prerequisite is satisfied; nothing further is owed by Eggpack. |
+| Eggup M004 | Not Eggpack's to close. Remains Eggup-owned and blocked on its own `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` publication sequence. Eggpack's external prerequisite is satisfied and Eggup's planning was reconciled to that fact at `eggstack/eggup@3f4e99e`; nothing further is owed by Eggpack. |
 | Other Eggpack package publication | Not authorized by M003 and not started. `eggpack-contract`, `eggpack-core`, `eggpack-bootstrap`, `eggpack-ci`, `eggpack-github`, and `eggpack-cli` remain unpublished; a new plan plus evidence is required before any of them is considered for publication. |
 
 ## Registry update rule
