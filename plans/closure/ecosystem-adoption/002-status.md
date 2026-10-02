@@ -24,8 +24,13 @@ Consumer implementation evidence:
 
 Consumer follow-up corrective:
 
-- `eggstack/stegoeggo: plans/implementation/release-distribution/003-synchronous-eggup-updater-bridge-corrective.md`;
-- registered at `eggstack/stegoeggo@622c36b6fcc21f3364deb536c495f0be50e334ab`.
+- plan: `eggstack/stegoeggo: plans/implementation/release-distribution/003-synchronous-eggup-updater-bridge-corrective.md`;
+- registration: `eggstack/stegoeggo@622c36b6fcc21f3364deb536c495f0be50e334ab`;
+- implementation: `eggstack/stegoeggo@e611c913f97c804620f26c7514d59e0cb84d34cc`;
+- closure: `eggstack/stegoeggo@f80eebe3fb983a5e8b13f7e082fe573636d65756`;
+- closure record: `eggstack/stegoeggo: plans/closure/release-distribution/003-status.md`;
+- hosted CI: run `36902385826` green;
+- hosted release-drift: run `36902385784` green.
 
 ## 1. Executive finding
 
@@ -144,13 +149,16 @@ Ownership review after closure showed:
 This produces a nested-runtime panic and is consumer integration debt, not an
 Eggpack producer defect and not presently evidence of an Eggup adapter defect.
 
-StegoEggo Release-Distribution M003 is registered at
-`plans/implementation/release-distribution/003-synchronous-eggup-updater-bridge-corrective.md`
-in that repository. It removes the unnecessary outer async/runtime bridge and
-must close before the shared live A-to-B updater evidence runs.
+StegoEggo Release-Distribution M003 implemented the synchronous bridge at
+`e611c913f97c804620f26c7514d59e0cb84d34cc` and closed at
+`f80eebe3fb983a5e8b13f7e082fe573636d65756`. Its closure records a green
+end-to-end updater rehearsal, ten focused seam/runtime regressions, direct
+Tokio moved out of production dependencies, zero Eggpack workflow drift, and
+green hosted CI/release-drift runs `36902385826` / `36902385784`.
 
-Ecosystem M002 remains conditionally closed rather than reopened because the
-producer cutover itself is complete and this finding is product-owned.
+The updater-runtime code blocker is therefore resolved. Ecosystem M002 remains
+conditionally closed only because the producer cutover has not yet been
+exercised by an ordinary stable B > 0.4.2 live release.
 
 ## 6. Outstanding operational evidence
 
@@ -172,8 +180,8 @@ That release must provide:
 No throwaway stable release is authorized.
 
 The same ordinary B is expected to provide StegoEggo Release-Distribution M001
-/ flat Plan 106's real public 0.4.2 -> B updater proof after StegoEggo M003 has
-closed.
+/ flat Plan 106's real public 0.4.2 -> B updater proof. StegoEggo M003 is
+already closed, so no updater-runtime code blocker remains before that event.
 
 ## 7. Downstream disposition
 
@@ -186,8 +194,8 @@ Therefore:
 - Ecosystem M003 remains blocked on full M002 live evidence;
 - Bootstrap M003 remains blocked on real two-consumer adoption/receipt evidence;
 - no Eggpack production corrective is opened;
-- StegoEggo M003 is the immediate code corrective for the consumer-side updater
-  runtime issue;
+- StegoEggo Release-Distribution M003 is closed and the updater rehearsal is
+  green; the remaining M002 blocker is operational only;
 - Eggup Interoperability M003 remains independently ready in Eggup/Eggsact and
   is not blocked by StegoEggo M002.
 
@@ -196,6 +204,6 @@ Therefore:
 **Conditionally closed.**
 
 The second-consumer cutover is landed, verified, and does not require a new
-Eggpack producer primitive. Remaining work is consumer-owned updater cleanup
-plus the next ordinary StegoEggo release event needed for live operational
-evidence.
+Eggpack producer primitive. The consumer-owned updater corrective is also
+closed. The sole remaining M002 condition is the next ordinary StegoEggo
+stable B > 0.4.2 release event needed for live operational evidence.

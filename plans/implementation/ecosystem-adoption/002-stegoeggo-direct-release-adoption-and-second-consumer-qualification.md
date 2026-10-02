@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 002 — stegoeggo Direct Release Adoption and Second-Consumer Qualification
 
-Status: conditionally closed — consumer cutover landed; see `plans/closure/ecosystem-adoption/002-status.md`
+Status: conditionally closed — consumer cutover + updater corrective landed; only ordinary stable B live evidence remains; see `plans/closure/ecosystem-adoption/002-status.md`
 
 Repository baseline: `32a0903936fcc283863e0bfb86151b13b4d75ce9`
 
