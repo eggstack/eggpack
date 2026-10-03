@@ -69,6 +69,8 @@ Publication completed on `8d661e4eb9da1806e5d7c7606939d24e9aceb2c0`: `eggpack-ma
 
 Only `eggpack-manifest` was published. `eggpack-contract`, `eggpack-core`, `eggpack-bootstrap`, `eggpack-ci`, `eggpack-github`, and `eggpack-cli` remain unpublished; no workspace-wide release is implied by the single-package publication.
 
+Post-publication downstream review found that Eggup has since completed the registry promotion that consumed this handoff: Eggup M004 closed at `eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915`, with formal blocked-state cleanup at `3b82d5397e728649a666690868a1e2d0fe42460d`. Eggpack still contains pre-M004 present-tense planning text, so M003a is registered as a docs-only downstream-closure reconciliation. It does not reopen M003 or authorize package/runtime changes.
+
 ## 5. Target architecture
 
 ```text
@@ -105,7 +107,9 @@ manifest M002 final-artifact builder
     |
     +--> manifest M003 consumer compatibility + `eggpack-manifest 0.1.0` publication [CLOSED]
     |        |
-    |        `--> Eggup M004 package/API promotion prerequisite [SATISFIED]
+    |        +--> Eggup M004 package/API promotion [CLOSED DOWNSTREAM]
+    |        |
+    |        `--> manifest M003a post-publication downstream closure reconciliation [READY; DOCS ONLY]
     +--> Eggup interoperability
     +--> bootstrap/CI aggregation
     +--> provenance/signing
@@ -149,6 +153,16 @@ The consumer-qualified schema-v1 source/API is the publication compatibility bas
 
 The existing strict parser/serializer tests, direct/bundle/archive fixtures, cross-repo projection evidence, and real Eggsact consumer were the required compatibility harness for this publication. Formal JSON Schema export remains available later polish, but it was not and is not a publication or Eggup-unblock prerequisite.
 
+### M003a — Post-publication downstream closure reconciliation
+
+Class: planning / closure hygiene / cross-repository evidence reconciliation
+
+Hard dependency: M003 closure plus reviewed downstream Eggup M004 closure. Satisfied by Eggpack M003 closure and Eggup `ea1f1c5` / `3b82d53`.
+
+Status: **ready**. Implementation plan: `plans/implementation/release-manifest/003a-post-publication-downstream-closure-reconciliation.md`.
+
+Reconcile Eggpack's active registry, Release Manifest roadmap, Eggup interoperability roadmap, and M003 post-closure receipt with the fact that Eggup consumed `eggpack-manifest 0.1.0` and closed its M004 registry promotion. Preserve M003's historical closure body, append rather than rewrite historical evidence, and prove an empty production/package/workflow diff. No Rust, Cargo, workflow, tag, release, crates.io, or external-repository mutation is authorized.
+
 ## 8. Cross-cutting requirements
 
 Schema changes require compatibility rules. Unknown schema majors fail typed. Unknown security-sensitive semantics fail closed.
@@ -177,3 +191,4 @@ Satisfied: Eggpack's own crates consume the crate as a workspace member, the rea
 | M001a | closed | `plans/implementation/release-manifest/001a-cross-target-install-namespace-corrective.md` | `plans/closure/release-manifest/001a-status.md` | M001 implementation/closure |
 | M002 | closed | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | `plans/closure/release-manifest/002-status.md` | implementation and hosted CI passed |
 | M003 | closed | `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md` | `plans/closure/release-manifest/003-status.md` | published `eggpack-manifest 0.1.0` from `8d661e4`, hosted run 37064833069 green, tag `eggpack-manifest-v0.1.0`, registry-only consumer proof green |
+| M003a | ready | `plans/implementation/release-manifest/003a-post-publication-downstream-closure-reconciliation.md` | — | docs-only reconciliation of Eggup M004 downstream closure (`ea1f1c5`; formal status cleanup `3b82d53`); M003 remains closed; no production/package/workflow changes |
