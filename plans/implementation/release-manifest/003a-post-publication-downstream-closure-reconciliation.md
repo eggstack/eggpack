@@ -1,6 +1,8 @@
 # Release Manifest Milestone 003a — Post-Publication Downstream Closure Reconciliation
 
-Status: ready
+Status: closed
+
+Closure record: `plans/closure/release-manifest/003a-status.md`
 
 Class: planning / closure hygiene / cross-repository evidence reconciliation
 
