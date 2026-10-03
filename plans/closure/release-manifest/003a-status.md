@@ -130,7 +130,16 @@ Publication immutability re-checked rather than assumed: the only tag is still `
 
 ## Hosted CI
 
-No hosted runtime qualification was required, and none was run for this delta. Per plan §10, Rust tests are not required for a docs/planning-only pass because no Rust, Cargo, fixture, script, workflow, or package content changed; the verification target was repository truth and scope containment, both proven above. If hosted CI ran on the final docs commits, that result is recorded here as incidental and is not treated as evidence for any runtime claim.
+No hosted runtime qualification was required for this delta. Per plan §10, Rust tests are not required for a docs/planning-only pass because no Rust, Cargo, fixture, script, workflow, or package content changed; the verification target was repository truth and scope containment, both proven above.
+
+Hosted CI did run, because the commits were pushed. It is recorded here as **observed, incidental** — it confirms nothing broke, and is not treated as evidence for any runtime or compatibility claim:
+
+| Run | Commit | Result |
+|---|---|---|
+| [`37096952348`](https://github.com/eggstack/eggpack/actions/runs/37096952348) | `0b8e1f4` (closure commit) | `success`; `linux (stable)`, `linux (1.89.0)`, `portability (macos-latest)`, `portability (windows-latest)` all passed |
+| `37096121155` | `71ae297` (plan registration) | `success` |
+| `37096095399` | `ceadfdc` | `success` |
+| `37096069510` | `2dba62e` | `success` |
 
 The `Stable`/`MSRV`/`macOS`/`Windows` evidence cited throughout this record is **Eggup's** run `37090397398` on `eggstack/eggup`, reviewed as an external commit. It is attributed to Eggup and is not claimed as Eggpack execution. Eggpack's own last green run remains the M003 candidate run `37064833069` on `8d661e4`.
 
