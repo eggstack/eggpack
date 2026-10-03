@@ -315,3 +315,54 @@ Eggup M004 registry promotion / consumer migration
 ```
 
 If Eggup finds that the registry bytes or API differ from the consumer-qualified Git source despite this record, that is a compatibility incident: stop Eggup promotion, preserve the published `0.1.0` record, and version/requalify normally rather than attempting to overwrite the published version.
+
+## Post-closure addendum — downstream receipt (added 2026-10-03)
+
+This addendum was appended by `plans/implementation/release-manifest/003a-post-publication-downstream-closure-reconciliation.md` (closure `plans/closure/release-manifest/003a-status.md`). **Nothing above this line was edited.** The historical body, its commands, its evidence table, its unpublished-at-the-time claims, and its findings all stand exactly as recorded at M003 closure time.
+
+### Chronology distinction
+
+| | Statement at M003 closure (2026-10-02) | Later downstream completion (2026-10-03) |
+|---|---|---|
+| `eggpack-manifest 0.1.0` | published, non-yanked, registry-resolvable at `=0.1.0` | unchanged and still non-yanked; checksum `2a08f24b…b629` re-verified |
+| Eggup `0.1.2` chain | `eggup-acquisition`/`eggup-eggfetch` published at `0.1.1`; `eggup-eggpack` absent — therefore unfinished | all three published at `0.1.2` in dependency order, none yanked |
+| Eggup M004 | separately authorized, not implemented, not Eggpack's to close | closed in Eggup at `eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915` |
+
+The statements in the body above about the chain being unfinished and about `eggup-eggpack` being absent were **correct at M003 closure time**. They are preserved unchanged. What follows is new evidence; it does not correct them.
+
+### Downstream receipt
+
+Eggup consumed this milestone's handoff and completed the promotion that was waiting on it. Evidence reviewed from `eggstack/eggup` (read-only, per planning process §9 — Eggpack did not perform, authorize, or claim this work):
+
+| Item | Value |
+|---|---|
+| Eggup M004 closure | `eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915` — "plans: close M004 with the 0.1.2 registry publication and promotion evidence" |
+| Eggup publication source | `eggstack/eggup@02a1d32931be29cc3d8980833643b2cd822f2d28` |
+| Eggup formal status reconciliation | `eggstack/eggup@3b82d5397e728649a666690868a1e2d0fe42460d` — "plans: formally close M004 plan status and reconcile stale blocked-state prose" |
+| Eggup hosted CI | run `37090397398` on `02a1d32`; `Stable checks`, `MSRV check`, `macOS tests`, and `Windows archive, acquisition, and service tests and check` all passed |
+| Eggup closure record | `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/004-status.md` |
+| Published downstream set | `eggup-acquisition 0.1.2` (`0b01deb8…f170`), `eggup-eggfetch 0.1.2` (`2e483152…3528`), `eggup-eggpack 0.1.2` (`9dbfdfb7…3fef`); all `yanked = false` |
+| Producer edge consumed | `eggup-eggpack 0.1.2` declares `[dependencies.eggpack-manifest] version = "=0.1.0"` with no `git` or `path` source, confirmed against the published `.crate` |
+
+The publication order was a hard mechanical constraint discovered during execution, because `cargo package`/`cargo publish` resolve the *packaged* manifest's dependencies from crates.io: `eggup-eggfetch 0.1.2` could not verify before `eggup-acquisition 0.1.2` was visible, and `eggup-eggpack 0.1.2` could not be packaged at all. This is Eggup's packaging constraint, recorded here only because it confirms the chain completed in dependency order.
+
+### What this receipt does and does not change
+
+Confirms:
+
+- the handoff recorded above was **successfully consumed**; the Eggpack-owned prerequisite was sufficient, and no further Eggpack publication or requalification was needed to unblock it;
+- the registry-only seam is now consumable end to end — a consumer can depend on `eggpack-manifest 0.1.0` plus the full Eggup `0.1.2` set with no Eggpack or Eggup Git checkout;
+- Eggup's M004a compatibility-incident branch was **not** triggered, consistent with this record's byte-identity finding.
+
+Does **not** change:
+
+- no M003 source, publication, checksum, tag, hosted run, or qualification claim changes;
+- no finding in this closure is upgraded, reopened, or closed;
+- the low-severity published `README.md` dangling-link finding remains deferred to a future crate version and was not edited;
+- `0.1.0` remains immutable and non-yanked;
+- the six other Eggpack workspace crates remain unpublished, and no automatic publication mechanism exists;
+- the low-severity and informational findings above keep their original dispositions and severities.
+
+### Dependency state after the receipt
+
+The sequence in the body's final diagram is now fully closed downstream. The only remaining item, Eggup M004, is closed in Eggup. Eggpack therefore owes nothing further on the M003 -> Eggup M004 registry seam. The next downstream action is Eggsact's own Git-to-registry migration, which is Eggsact-owned and separately authorized in `eggstack/eggsact`; per the Eggup M004 closure it is explicitly not claimed there and is not an Eggpack dependency-ready item.
