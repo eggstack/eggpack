@@ -1,6 +1,18 @@
 # CI and Release Orchestration Milestone 003b — Generated Draft Staging Job and Operational Qualification
 
-Status: conditionally closed
+Status: closed
+
+Current-condition annotation (2026-10-04, Planning Hygiene M001): M003b is
+closed. The last open condition — exact byte-identical rerun reuse — is
+discharged by eggsact's own Distribution M005a closure
+(`eggstack/eggsact@685fa373`). Rehearsal run `36886042696` attempt 2 reused
+the same draft with `created: false, uploaded: 0, reused: 15` and identical
+digests, zero refusals. The fix was product-side in eggsact; Eggpack changed
+no production byte and the generated workflow stayed byte-identical under
+`eggpack ci check`. Phase 8 is satisfied. See
+`plans/closure/ci-release-orchestration/003b-status.md` §6. This annotation
+does not rewrite the 2026-10-01 annotation below, which accurately records the
+state at that date.
 
 Current-condition annotation (2026-10-01, after M003g): the live-draft
 criterion is satisfied by eggsact release `v1.2.7`, live run `36652731202`,

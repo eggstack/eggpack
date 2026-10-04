@@ -1,6 +1,8 @@
 # Ecosystem Adoption Milestone 002 — Closure Status
 
-Status: conditionally closed
+Status: closed
+
+Condition-discharge annotation (2026-10-04, Planning Hygiene M001): the sole remaining condition — an ordinary stable StegoEggo release newer than 0.4.2 supplying live five-target draft/publication evidence — has occurred. StegoEggo published `v0.5.0` on 2026-10-04T06:34:19Z from source `57ca94c910269e080b06aa8cb34c3767b3bf669d`, produced by the Eggpack-generated pipeline (hosted run `37181914252`), carrying the exact 15-asset inventory including `release-manifest.json` and both Eggpack-generated exact installers, manually published after inspection, with a real public `0.4.2 -> 0.5.0` updater transition. M002 is **closed**; §1-§8 below are preserved unchanged as the conditional-closure record. Full criterion-by-criterion mapping, including the explicit disposition of item 6, is in §9.
 
 Source plan:
 
@@ -207,3 +209,66 @@ The second-consumer cutover is landed, verified, and does not require a new
 Eggpack producer primitive. The consumer-owned updater corrective is also
 closed. The sole remaining M002 condition is the next ordinary StegoEggo
 stable B > 0.4.2 release event needed for live operational evidence.
+
+## 9. Live release condition discharged — full closure (2026-10-04, Planning Hygiene M001)
+
+§1-§8 above are preserved exactly as written and remain accurate for their date. This section discharges the remaining condition and closes the milestone.
+
+### 9.1 The live event
+
+The expected ordinary stable B landed as **`v0.5.0`**, not the `0.4.3` that this closure originally anticipated. StegoEggo attempted `0.4.3`, stopped before publication (`eggstack/stegoeggo@0e5235d3`, "plans: block 0.4.3 release on root API semver findings" — two stable public enum changes were not semver-compatible), and selected `0.5.0` as the next `0.x` minor boundary. No `0.4.3` artifact was ever created. This is the same live event M002 was waiting for; only the version number differs, and the consumer recorded the substitution itself in Release-Distribution M005.
+
+Verified independently for this closure:
+
+- release `v0.5.0`, non-draft, non-prerelease, published `2026-10-04T06:34:19Z`;
+- tag `v0.5.0` is lightweight and points at `57ca94c910269e080b06aa8cb34c3767b3bf669d`;
+- the published `release-manifest.json` records `schema_version: 1`, `product_id: stegoeggo`, `release_id: v0.5.0`, `source_revision: 57ca94c910269e080b06aa8cb34c3767b3bf669d` — an exact match to the tag, with `direct`-form per-target artifact name/size/SHA-256 and `install` binding;
+- hosted run `37181914252` (`Eggpack candidate builds`, `workflow_dispatch`, `head_sha` `57ca94c9…`, conclusion `success`) — the tag source and the build source are the same commit;
+- 15 published assets: 5 target binaries, 5 `.sha256` sidecars, 2 product wrapper installers, 2 Eggpack-generated exact installers, 1 `release-manifest.json`;
+- `stegoeggo-stego`, `stegoeggo`, and `stegoeggo-cli` are all at `0.5.0` on crates.io, confirmed by direct registry readback;
+- consumer closure: `eggstack/stegoeggo: plans/closure/release-distribution/005-status.md` (`7bde933b`), which closes Release-Distribution M001, M002, M003, and M005, marks M004 superseded, and declares the consumer subsystem closed.
+
+### 9.2 The nine required items from §6
+
+| # | Required item | Disposition | Evidence |
+|---|---|---|---|
+| 1 | normal manual crates.io publication in product-owned dependency order | met | `stegoeggo-stego` → `stegoeggo` → `stegoeggo-cli` 0.5.0, each verified by registry readback before tagging; no automation holds publication credentials |
+| 2 | exact immutable tag | met | `v0.5.0` → `57ca94c9…`, pushed once, matching the manifest `source_revision` exactly |
+| 3 | generated Eggpack five-target build/qualification/consumer-validation run | met | Run `37181914252`: preflight, resolve, five builds, clean-host qualifications, five validations, gate, aggregate, and stage all succeeded |
+| 4 | complete 15-asset draft | met | Staging receipt `release_id=v0.5.0`, source SHA matched, `uploaded=15, reused=0`; the published release carries exactly those 15 assets |
+| 5 | staging receipt | met | Receipt artifact `eggpack-staging-receipt` from run `37181914252` |
+| 6 | rerun exact reuse **or** correctly owned fail-closed nondeterminism finding | **not exercised — substituted, see §9.3** | Run `37181914252` was attempt 1 only; no rerun and no nondeterminism event arose |
+| 7 | human publication after inspection | met | The draft was manually published after inspection; Eggpack never published |
+| 8 | exact/latest public installer smoke | met | Downloaded public `stegoeggo-x86_64-apple-darwin` reports `stegoeggo 0.5.0`; asset audit passed; protect→inspect→verify smoke passed post-update |
+| 9 | no unresolved medium-or-higher Eggpack producer regression | met | Consumer M005 records no critical/high/medium/low finding in the release scope; the one parallel-test cleanup failure was transient and passed in isolation and in the serial stage |
+
+Eight of nine items are met by the release itself.
+
+### 9.3 Item 6 disposition — explicit substitution, not a silent pass
+
+Item 6 was written as a disjunction whose branches were "exact rerun reuse" or "a correctly owned fail-closed nondeterminism finding". `v0.5.0` satisfied **neither** branch: it was a clean first attempt, so no rerun was needed and no nondeterminism appeared.
+
+It is recorded as substituted rather than met, on the following basis. Item 6 exists to prove that the producer's rerun-reuse and digest-refusal path behaves correctly against a real consumer's artifacts — not to force a rerun on a release that did not need one. That path is now proven on real consumer bytes by Eggsact Distribution M005a: rehearsal run `36886042696` attempt 2 reused draft `401132612` with `created: false, uploaded: 0, reused: 15` and identical digests for all 15 assets, zero refusals. The same generated code path, the same fail-closed refusal, the same receipt schema; a different consumer's binaries. The same evidence independently discharges CI M003b and Phase 8 (`plans/closure/ci-release-orchestration/003b-status.md` §6).
+
+Had the rerun path not been independently proven, this item would have kept M002 conditionally closed regardless of how clean the 0.5.0 release was. It is called out here so a later reader can disagree with the substitution rather than discover it silently.
+
+What StegoEggo did **not** do is recorded too: the Windows A→B updater transition was not performed. The requirement was one supported target, which macOS x86-64 satisfies, and no Windows transition is claimed.
+
+### 9.4 Authority boundary held
+
+Nothing moved into Eggpack to close this milestone. Crates.io ordering, version authority, exact tag creation, dispatch timing, publication, and updater/fallback policy all remained StegoEggo-owned. The maintainer selected `0.5.0` over `0.4.3` on semver grounds, which is precisely a product-owned release decision Eggpack has no authority over and did not influence. No Eggpack production, workflow, package, or schema change was made or required to accept this evidence.
+
+### 9.5 Unresolved findings
+
+| Severity | Finding | Disposition |
+|---|---|---|
+| Info | Item 6's exact rerun-reuse branch was never exercised on a StegoEggo release | Substituted by eggsact M005a evidence; see §9.3 |
+| Info | Windows A→B updater transition not performed | Accepted; one supported target was required and satisfied |
+| Info | The 0.5.0 line sits on `release/0.5.0` (`7bde933b`), 8 commits ahead of consumer `main` (`a01a022`), and is not yet merged there | StegoEggo-side housekeeping. Does not affect this closure: tag, manifest `source_revision`, and run `head_sha` all agree on `57ca94c9…` |
+| None | No medium-or-higher Eggpack producer defect | Confirmed by consumer M005 release-scope findings |
+
+### 9.6 Final status
+
+**Closed.**
+
+The second-consumer cutover was landed and verified without a new Eggpack producer primitive, the consumer-owned updater corrective was closed, and the live ordinary stable release `v0.5.0` supplied the five-target draft, staging receipt, manual publication, public installer, and real `0.4.2 -> 0.5.0` updater evidence that the milestone required. The direct-binary producer model is now proven end to end on two independent repositories, which is the ecosystem milestone's actual architectural claim.

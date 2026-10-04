@@ -124,7 +124,7 @@ M003 consumer fixture/CLI polish
 
 M001 is closed; its schema/expansion import is qualified and retained as the first migration stage.
 
-M002 is closed with the terminal Eggup M003 predecessor behavior qualified. M003 remains planned pending consumer evidence.
+M002 is closed with the terminal Eggup M003 predecessor behavior qualified. M003's consumer-evidence gate was satisfied on 2026-10-04 (Planning Hygiene M001) by two independent adopted consumers; it is now a bounded research/decision item rather than planned-pending-evidence.
 
 ## 7. Milestones
 
@@ -164,7 +164,16 @@ Class: polish
 
 Objective: add thin local-file CLI/fixture interfaces only if real adoption shows they reduce consumer glue.
 
-Dependencies: M002 + first consumer evidence.
+Dependencies: M002 + first consumer evidence. **First-consumer evidence is now satisfied** — see §12.
+
+Evidence gathered 2026-10-04 (Planning Hygiene M001): two independent direct-binary consumers each carry a product-side contract-check script that loads the checked-in `release/eggpack/distribution.toml` with Python `tomllib` and re-implements the producer's `{product}`/`{target}` asset expansion in order to compare it against a frozen product-owned public-name table:
+
+- `eggstack/eggsact: scripts/check-release-contract.py`;
+- `eggstack/stegoeggo: scripts/check-release-contract.py`, plus a second independent expansion in `scripts/release-check-assets.sh`.
+
+That is three near-parallel implementations of the same bounded producer-fact parse/expand step across two repositories. Eggpack already owns the semantics in `DistributionContract::parse_toml_str` and its expansion, but the public CLI exposes only the `eggpack ci ...` surface, so consumers cannot reuse them.
+
+Bounded disposition: M003's precondition is met and this is now a research/decision question, not an evidence-gated one. The duplication is precisely identified, so a future M003 plan is worth authoring. Scope, if authorized, stays narrow — a local bounded contract parse/expand/inspection output that replaces duplicated producer-fact parsing, leaving product-specific invariants (frozen public names, installer/update mapping, GLIBC ceiling checks) in consumer scripts. A general CLI framework is explicitly not authorized. No implementation is authorized by this entry.
 
 ## 8. Cross-cutting requirements
 
@@ -201,7 +210,7 @@ A future combined Eggpack producer configuration must reference this contract ra
 
 ## 11. Completion definition
 
-The authority-transfer portion is complete: contract v1/conformance are Eggpack-owned and Eggup M004 removed the competing producer crate. The remaining subsystem completion condition is real-consumer evidence sufficient to justify or reject M003 polish.
+The authority-transfer portion is complete: contract v1/conformance are Eggpack-owned and Eggup M004 removed the competing producer crate. The first-consumer evidence condition for M003 is now satisfied by two independent adopted consumers, so the remaining subsystem question is a bounded research/decision on the precisely identified duplicated parse/expand glue — not further evidence gathering.
 
 ## 12. Milestone status
 
@@ -209,4 +218,4 @@ The authority-transfer portion is complete: contract v1/conformance are Eggpack-
 |---|---|---|---|---|
 | M001 | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | `plans/closure/contract-conformance/001-status.md` | — |
 | M002 | closed | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | `plans/closure/contract-conformance/002-status.md` | — |
-| M003 | planned | — | — | M002 + consumer evidence |
+| M003 | research/decision ready; no implementation authorized | — | — | First-consumer evidence satisfied 2026-10-04: duplicated `tomllib` parse/expand glue in eggsact + stegoeggo (2 repos, 3 implementations). A bounded implementation plan is now worth authoring; a general CLI framework is not authorized |

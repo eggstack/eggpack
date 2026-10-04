@@ -1,6 +1,8 @@
 # Ecosystem Adoption Milestone 002 — stegoeggo Direct Release Adoption and Second-Consumer Qualification
 
-Status: conditionally closed — consumer cutover + updater corrective landed; only ordinary stable B live evidence remains; see `plans/closure/ecosystem-adoption/002-status.md`
+Status: closed — consumer cutover + updater corrective landed, and the ordinary stable B live evidence arrived as StegoEggo `v0.5.0` (run `37181914252`, published 2026-10-04); see `plans/closure/ecosystem-adoption/002-status.md` §9
+
+Current-condition annotation (2026-10-04, Planning Hygiene M001): the live condition this milestone was waiting for occurred as `v0.5.0` rather than the anticipated `0.4.3`; StegoEggo stopped `0.4.3` pre-publication on semver findings (`eggstack/stegoeggo@0e5235d3`) and released `0.5.0` instead. The event, its evidence, and the explicit disposition of the one item it did not exercise are recorded in the closure record §9. The body of this plan is unchanged.
 
 Repository baseline: `32a0903936fcc283863e0bfb86151b13b4d75ce9`
 

@@ -24,13 +24,16 @@ This line is documentation/evidence reconciliation only. It does not own runtime
 
 ## 3. Current state
 
-Release Manifest M003a closed the post-Eggup-M004 reconciliation and left no dependency-ready Eggpack implementation work. A follow-up review found broader pre-M003a drift outside that corrective's scope:
+M001 is closed. It reconciled the drift found after Release Manifest M003a and, in doing so, closed three milestones and cleared the ordering gate on a fourth. Its closure record is `plans/closure/planning-hygiene/001-status.md`.
 
-- `plans/registry.md` still contains snapshot-era Eggsact/Eggpack baseline prose from before Ecosystem M001 and CI M003h closure;
-- CI M003b / Phase 8 still cite Eggsact M005a Windows nondeterminism as open, but Eggsact M005a is now closed with exact rerun-reuse evidence;
-- Ecosystem M002's remaining operational condition is now owned by a concrete ready StegoEggo `0.4.3` release milestone rather than an unspecified future stable release;
-- Contract M003 has the consumer evidence it requested and now needs a bounded polish decision based on observed consumer glue;
-- Bootstrap M003 still needs the second consumer's live public receipt and remains blocked until StegoEggo's ordinary `0.4.3` release closes that evidence condition.
+Resolved:
+
+- stale snapshot-era Eggsact/Eggpack baseline prose in the registry and the ecosystem roadmap is replaced with terminal evidence and closure references;
+- CI M003b's exact rerun-reuse condition is discharged from eggsact M005a evidence, so M003b is closed and Phase 8 is satisfied;
+- Ecosystem M002's live condition was met by stegoeggo `v0.5.0` and M002 is closed. The concrete owner is no longer a future `0.4.3` milestone — `0.4.3` was stopped pre-publication on consumer semver grounds and superseded by `0.5.0`;
+- Contract M003's consumer-evidence gate is satisfied, with the duplicated producer-fact parsing precisely identified across 2 repositories and 3 implementations;
+- Bootstrap M003's two-consumer adoption evidence now exists and it is unblocked for candidate review;
+- Ecosystem M003 Eggsearch's ordering gate is cleared for research/plan, with its preflight facts recorded.
 
 ## 4. Milestones
 
@@ -42,16 +45,18 @@ Implementation plan:
 
 `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md`
 
-Status: ready.
+Status: closed.
 
-Objective: reconcile the active registry and affected subsystem roadmaps with current Eggsact/StegoEggo evidence, discharge CI M003b's obsolete external blocker if its recorded acceptance condition is met, and leave each future line with an exact current blocker or research disposition.
+Closure record: `plans/closure/planning-hygiene/001-status.md`.
+
+Outcome: reconcile the active registry and affected subsystem roadmaps with current Eggsact/StegoEggo evidence, discharge CI M003b's obsolete external blocker, and leave each future line with an exact current blocker or research disposition. All ten acceptance criteria are met, with one §11 stop condition that fired during execution and was absorbed by explicit maintainer decision rather than re-planned; the closure record documents that decision and its consequence.
 
 ## 5. Completion definition
 
-The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work.
+The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition on 2026-10-04.
 
 ## 6. Milestone status
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
-| M001 current evidence baseline + blocker reconciliation | ready | `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md` | — | none; evidence is already available read-only |
+| M001 current evidence baseline + blocker reconciliation | closed | `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md` | `plans/closure/planning-hygiene/001-status.md` | none; docs/evidence-only, zero production/package/workflow delta |

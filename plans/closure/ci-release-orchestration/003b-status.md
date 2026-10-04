@@ -2,7 +2,9 @@
 
 Historical closure annotation (M003c): post-closure review identified workflow-dispatch source mismatch and non-authoritative `StagingTagSource`. The former statement that live draft evidence was the only remaining blocker was withdrawn. Both findings are corrected by M003c; after its closure, M003b remains conditionally closed solely for live draft qualification.
 
-Status: conditionally closed
+Status: closed
+
+Condition-discharge annotation (2026-10-04, Planning Hygiene M001): the sole remaining condition — exact byte-identical rerun reuse — is discharged. Eggsact Distribution M005a closed the consumer-owned Windows PE/PDB nondeterminism line and produced the exact rerun receipt on a real maintainer-authorized draft: rehearsal run `36886042696` attempt 1 created draft `401132612` with `created: true, uploaded: 15, reused: 0`, and attempt 2 on the same tag reused the same release object with `created: false, uploaded: 0, reused: 15` and identical digests for all 15 assets, with zero digest-mismatch refusals. The determinism fix was **entirely product-side** in eggsact (`.cargo/config.toml` target-scoped `/BREPRO` + `/DEBUG:NONE`); no Eggpack production change was made or required, and the generated workflow stayed byte-identical under `eggpack ci check`. Full addendum, criterion-by-criterion mapping, and Phase 8 disposition are in §6 below. This annotation does not rewrite the original 2026-09-25 close disposition or the M003c reconciliation, both of which remain accurate for their dates.
 
 Source plan: `plans/implementation/ci-release-orchestration/003b-generated-draft-staging-job-and-operational-qualification.md`
 
@@ -142,3 +144,64 @@ M003b remains conditionally closed after M003c. Its exact-source and `StagingTag
 ## M003c corrective reconciliation
 
 M003c closure: `plans/closure/ci-release-orchestration/003c-status.md` (implementation `5c28099`; hosted run `36213316240`, all four lanes green). The prior source mismatch and tag-source policy defects are closed. M003b live qualification is ready to resume using a maintainer-authorized fixture; no real draft was created as part of M003c.
+
+## 6. Condition-discharge addendum — exact rerun reuse (2026-10-04, Planning Hygiene M001)
+
+### 6.1 Why this addendum exists
+
+Every section above is preserved as written. This section is append-only and records the discharge of the one condition that kept M003b from closing: exact byte-identical rerun reuse, blocked on eggsact-owned Windows PE/PDB nondeterminism.
+
+That blocker is gone. Eggsact Distribution M005a closed it product-side and produced the rerun receipt M003b required.
+
+### 6.2 External evidence, attributed to eggsact
+
+All evidence in this subsection is eggsact's. Eggpack neither implemented the determinism fix nor is credited with it.
+
+- implementation: `eggstack/eggsact@f1352101dab748066c788e65e21e1bf303cfe995`;
+- closure: `eggstack/eggsact@685fa3739562a4c3c670c28e05ee9e09b07cdbd2`, record `eggstack/eggsact: plans/closure/distribution-update-release/005a-status.md`;
+- independent double-build proof: maintenance run `36880110434`, job `Windows reproducibility` (`110429432988`) — two candidates from two different target directories, both `dc1eda1f0f6927806db2d25e06360161776869bcbea6eadc2487ad3d09a52175`, 16,606,720 B;
+- Eggpack-generated pipeline rehearsal: run `36886042696`, attempts 1 and 2, 20/20 jobs success on each;
+- attempt 1: draft `401132612`, `created: true, uploaded: 15, reused: 0`;
+- attempt 2 (`gh run rerun`, same tag, same draft): `created: false, uploaded: 0, reused: 15`, all 15 digests identical, zero digest-mismatch refusals;
+- generated-workflow drift guard: run `36880067370` green, `eggpack ci check` byte match at pinned tool revision `e5c81f2`;
+- consumer standard CI: run `36880067269` green.
+
+`git show --stat f135210` confirms no change under `release/eggpack/`, `.github/workflows/release-binaries.yml`, or `packaging/`. The fix is two target-scoped MSVC link flags in a checked-in `.cargo/config.toml`, which Cargo reads without workflow, environment, or Eggpack support. Eggpack's no-clobber refusal was **not** relaxed; the rehearsal shows it was simply never reached.
+
+### 6.3 M003b §13 acceptance criteria against current evidence
+
+| §13 criterion | Disposition | Evidence |
+|---|---|---|
+| generated stage job is deterministic | met | Unchanged by M005a; drift guard `36880067370` byte match at pin `e5c81f2`; M003b goldens intact |
+| only stage has `contents: write` | met | M003b parsed-YAML matrix; no workflow byte changed in `f135210` |
+| no untrusted PR trigger can reach stage | met | Unchanged; M005a added no trigger |
+| stage consumes M002a aggregate output | met | Unchanged; rehearsal consumed the exact finalized handoff |
+| payload includes all finalized assets, sidecars, manifest, both installers | met | Draft `401132612` carried the exact 15-asset inventory on attempt 1 and all 15 on attempt 2 |
+| exact tag/source verification occurs through M003a | met | Rehearsal used a temporary annotated tag; `verify_tag_source` resolved and the source SHA matched |
+| real GitHub draft assembly succeeds | met | Run `36886042696` attempt 1, 20/20 jobs success, real draft created |
+| real draft remains unpublished after workflow | met | Ended as a draft; deleted with its temporary tag after the rehearsal. Nothing was published and no tag remains |
+| **exact rerun succeeds without clobber** | **met (this addendum)** | Attempt 2: `created: false, uploaded: 0, reused: 15`, identical digests, zero refusals |
+| `ci check` detects permission/staging drift | met | Unchanged; drift guard green |
+| no unresolved medium-or-higher staging finding | met | M005a records Low/Info only; no producer-side finding |
+
+All eleven criteria are met. M003b is **closed**.
+
+### 6.4 Phase 8 disposition
+
+Phase 8 (`plans/002-long-term-roadmap.md#phase-8--release-staging-and-human-publication-gate`) is **satisfied**: generated draft staging, exact inventory, draft-only behavior, no-clobber refusal, and exact rerun reuse are all proven on a real maintainer-authorized repository, and publication remained a separate human action in every case.
+
+### 6.5 Honest limits of this discharge
+
+- The receipt is recorded in eggsact's closure record; the rehearsal draft `401132612` and tag `m005a-rehearsal-1` were deliberately deleted, so the remote objects are no longer inspectable. The evidence of record is the run logs and the closure record.
+- The bytes proved reusable are eggsact's, not Eggpack's. M003b closes because the producer path behaved correctly against a reproducible consumer, not because Eggpack produces reproducible output itself.
+- An earlier rehearsal dispatch (`36881760510`) failed closed in `resolve` on a contract-invalid tag shape before any build. That is a correct fail-closed result and created no artifact.
+- M003b's original live criterion named eggsact as the preferred first candidate. That candidate was used, and eggsact's own mirrored adoption/release-workflow handoff was registered before the rehearsal, as §8 required.
+
+### 6.6 Dependency transitions
+
+| Milestone | Status after discharge | Reason |
+|---|---|---|
+| CI M003b | **closed** | Exact rerun reuse proven by eggsact run `36886042696` attempt 2; all §13 criteria met |
+| Phase 8 | **satisfied** | Staging, draft-only, no-clobber, and rerun reuse all proven on a real authorized draft |
+| Ecosystem M001 | closed (unchanged) | Was not reopened by this discharge; its Windows byte-reproducibility condition is now independently satisfied by M005a |
+| Bootstrap M003 | evidence advanced | Its real two-consumer adoption precondition is no longer waiting on eggsact determinism |

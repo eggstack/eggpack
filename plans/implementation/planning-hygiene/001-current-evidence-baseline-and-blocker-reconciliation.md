@@ -1,10 +1,14 @@
 # Planning Hygiene M001 — Current Evidence Baseline and Blocker Reconciliation
 
-Status: ready
+Status: closed
+
+Closure record: `plans/closure/planning-hygiene/001-status.md`
 
 Class: planning / closure hygiene / cross-repository evidence reconciliation
 
 Roadmap: `plans/subsystems/planning-hygiene-roadmap.md`
+
+Closure annotation (2026-10-04): closed with all ten acceptance criteria met. One §11 stop condition fired during execution — the StegoEggo public stable release this plan anticipated as a future `0.4.3` had already shipped, as `0.5.0` — and was absorbed into this single pass by explicit maintainer decision rather than re-planned into a corrective `M001a`. The F4 disposition below ("keep M002 conditionally closed, cite M004 as the owner") was therefore superseded rather than implemented, because it was no longer true. The body of this plan is otherwise unchanged and remains accurate as the plan of record; the deviation and its consequences are recorded in the closure record §2.
 
 Eggpack authoring baseline: `cfb32de60fb678d6ad05c388ab178335f16360cf`
 
