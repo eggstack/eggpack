@@ -162,7 +162,15 @@ Consistency sweep (WP5), run against active planning after the edits:
 | Bootstrap M003 presented as generally blocked | no remaining instance |
 | `current main@404f63e` or `blocked / planned` eggsact snapshot text | no remaining instance |
 
-Hosted CI is incidental for a docs-only pass. It is not treated as runtime qualification evidence and no qualification claim rests on it. No production artifact changed, so no re-qualification was required or performed.
+Hosted CI is incidental for a docs-only pass and is recorded here only as an observed result. It is **not** treated as runtime qualification evidence, and no qualification claim in this closure rests on it. No production artifact changed, so no re-qualification was required or performed.
+
+Observed after the reconciliation commit `08e1363`:
+
+| Fact | Value |
+|---|---|
+| Run | `37223243438`, event `push`, `head_sha` `08e136343c27c9f7930a0aba65c96ae8f0482607` |
+| Result | `success`, attempt 1 |
+| Lanes | `linux (stable)`, `linux (1.89.0)`, `portability (macos-latest)`, `portability (windows-latest)` — all green |
 
 ## 8. Unresolved findings
 
