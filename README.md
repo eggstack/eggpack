@@ -51,9 +51,24 @@ The rendered workflow is read-only (`contents: read`) and chains
 `preflight` → `build_x86_64_unknown_linux_gnu` →
 `qualify_build_x86_64_unknown_linux_gnu` → `required_gate` → `aggregate`.
 
-`generate` and `check` are the only user-facing commands. The nine `ci _*`
+`generate` and `check` are the only user-facing commands in the `ci` family. The nine `ci _*`
 runners are the file-in/file-out steps the generated workflow replays inside
 CI. A bare `eggpack` prints every subcommand.
+
+There is one other user-facing family, `contract expand`: a bounded, local-only
+projection that reads one producer contract and prints one scalar, so a consumer
+repository can read a producer fact instead of re-implementing TOML parsing and
+template expansion.
+
+```sh
+$EGGPACK contract expand --contract contract.toml --release-id 1.2.6 \
+  --target linux-x64 --field asset
+# eggsact-1.2.6-x86_64-unknown-linux-gnu
+```
+
+It performs no network access, no repository discovery, and no release
+selection, and it fails closed on bundle/archive targets for direct-only fields.
+See [crates/eggpack-cli/README.md](crates/eggpack-cli/README.md).
 
 ## Verify
 

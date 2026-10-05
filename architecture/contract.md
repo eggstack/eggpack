@@ -303,8 +303,12 @@ alias/triple collision, unknown placeholder, the malformed-template matrix (`:19
 post-expansion collision cases, `{alias}` input, member-path traversal, opaque-but-safe versions,
 byte-stable round-trip (`:2283-2292`), and unknown-field rejection.
 
-`tests/fixtures.rs` (4 tests) loads files from `tests/fixtures/` via `CARGO_MANIFEST_DIR`, asserts
+`tests/fixtures.rs` (5 tests) loads files from `tests/fixtures/` via `CARGO_MANIFEST_DIR`, asserts
 expansion per layout, then that parse → `to_toml_string` → parse is value-stable (`:49-59`).
+Contract M003 added `consumer_direct_targets_fixture_matches_the_live_consumer_shape`
+(`:63`), which pins the exact public asset, sidecar, and install names of the adopted eggsact
+contract, including the `.exe` rule for `*-pc-windows-msvc` that the older
+`eggsact-direct-targets.toml` fixture does not carry, and pins ARMv7 as deliberately absent.
 `tests/conformance.rs` (11 tests) is the inventory and mapping matrix: default-`AllowExtras` acceptance
 (`:29`), the golden observation pairs (`:43`), missing + exact-extra ordering (`:58`), per-entry
 bundle requirements (`:74`), archive member validation without opening an archive (`:88`), input
@@ -316,7 +320,8 @@ reorder insensitivity (`:271`), and finding-sort stability (`:306`).
 | `simple-direct.toml` | `eggsact`, two `direct` targets (`linux-x64`, `macos-arm64`), one asset + one sidecar each. |
 | `codegg-bundle.toml` | `codegg`, one target, three-entry bundle (runfile, helper, manifest JSON). |
 | `egress-archive.toml` | `egress`, two targets, `.tar.gz` archive with two literal members; same install names on both targets. |
-| `eggsact-direct-targets.toml` | `eggsact`, five `direct` targets. Unused by this crate's own tests; reused by `eggpack-ci` (`crates/eggpack-ci/src/lib.rs8755`) and `eggpack-cli` (`crates/eggpack-cli/src/main.rs2667`). |
+| `eggsact-direct-targets.toml` | `eggsact`, five `direct` targets, version-bearing names and no `.exe` rule. Used by `eggpack-ci` (`crates/eggpack-ci/src/lib.rs8755`); no longer used by `eggpack-cli`, whose M003 test moved to `consumer-direct-targets.toml`. |
+| `consumer-direct-targets.toml` | Byte-identical copy of the adopted eggsact contract at `eggstack/eggsact@d4e6e5c` (`release/eggpack/distribution.toml`): five `direct` targets, version-free public asset names, and the contract-level `.exe` rule. Added by Contract M003 so the CLI's consumer-shaped test compares against the names consumers actually publish. |
 | `observed-simple.toml` | `ObservedTargetMapping` for `simple-direct.toml` at `1.2.6`. |
 | `observed-codegg.toml` | `ObservedTargetMapping` for `codegg-bundle.toml` at `0.9.0`, looked up by alias. |
 | `observed-egress.toml` | `ObservedTargetMapping` for `egress-archive.toml` at `2.1.0`, looked up by alias. |
@@ -351,7 +356,23 @@ if !validate_release_inventory(&expected, &inventory, ExtrasPolicy::Exact).is_co
 ```
 
 That is the pattern at `crates/eggpack-core/src/lib.rs:166-191`. Every step is pure: parsing,
-resolving, expanding, comparing names. Anything needing the outside world — listing a release,
+resolving, expanding, comparing names.
+
+Contract M003 added the crate's one consumer-facing entry point, which is a CLI
+projection over the first two calls and nothing else:
+
+```sh
+eggpack contract expand --contract <file> --release-id <opaque> \
+  --target <triple-or-alias> --field <canonical-target|asset|sidecar|install>
+```
+
+It delegates to `parse_toml_str` and `expand` and adds no template grammar, no target or alias
+resolution, and no serialized expansion document. The one judgement it makes — `canonical-target`
+answers for every asset form, while `asset`/`sidecar`/`install` fail closed for bundle and archive
+targets — is stated at `crates/eggpack-cli/src/main.rs:246-287`. See
+[cli.md](cli.md) for the argument contract and the deliberately absent capabilities. No consumer may
+read consumer policy (latest/exact selection, Cargo fallback, install destination, updater,
+compatibility floors) out of this output; the crate has no opinion about any of it. Anything needing the outside world — listing a release,
 opening a `.tar.gz`, hashing a file — happens in the caller, which hands names back through the two
 inventory types. The crate-level rustdoc is the `#![doc]` header at `lib.rs:3-9`; the worked example
 lives in `crates/eggpack-contract/README.md:38-52`.

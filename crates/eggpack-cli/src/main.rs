@@ -20,36 +20,290 @@ fn run(args: Vec<String>) -> i32 {
 
 fn dispatch(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
-        return Err("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+        return Err(format!("{USAGE}\n{CONTRACT_USAGE}"));
     }
     if args[0] == "--version" || args[0] == "-V" {
         println!("eggpack {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args[0] == "--help" || args[0] == "-h" {
-        println!("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]");
+        println!("{USAGE}");
+        println!("{CONTRACT_USAGE}");
         return Ok(());
     }
-    if args[0] != "ci" {
-        return Err("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
+    match args[0].as_str() {
+        "ci" => ci_dispatch(&args[1..]),
+        "contract" => contract_dispatch(&args[1..]),
+        other => Err(format!(
+            "unknown command {other:?}: expected 'ci' or 'contract'\n{USAGE}\n{CONTRACT_USAGE}"
+        )),
     }
-    if args.len() < 2 {
-        return Err("usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]".to_owned());
-    }
-    match args[1].as_str() {
-        "_verify-source" => ci_verify_source(&args[2..]),
-        "_resolve-release" => ci_resolve_release(&args[2..]),
-        "generate" => ci_generate(&args[2..]),
-        "check" => ci_check(&args[2..]),
-        "_capture-build" => ci_capture_build(&args[2..]),
-        "_qualify-target" => ci_qualify_target(&args[2..]),
-        "_validate-consumer" => ci_validate_consumer(&args[2..]),
-        "_evaluate-gate" => ci_evaluate_gate(&args[2..]),
-        "_aggregate" => ci_aggregate(&args[2..]),
-        "_prepare-stage" => ci_prepare_stage(&args[2..]),
-        "_stage-github-draft" => ci_stage_github_draft(&args[2..]),
+}
+
+/// Top-level usage line for the generated-orchestration command family.
+const USAGE: &str = "usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]";
+
+/// Usage line for the bounded local contract-expansion family (M003).
+const CONTRACT_USAGE: &str = "usage: eggpack contract expand --contract <distribution.toml> --release-id <opaque-release-id> --target <triple-or-alias> --field <canonical-target|asset|sidecar|install>";
+
+/// Dispatch the `ci` family, preserving the historical subcommand set and
+/// the historical `unknown ci subcommand` diagnostic byte-for-byte.
+fn ci_dispatch(rest: &[String]) -> Result<(), String> {
+    let Some(sub) = rest.first() else {
+        return Err(USAGE.to_owned());
+    };
+    let args: Vec<String> = rest.to_vec();
+    match sub.as_str() {
+        "_verify-source" => ci_verify_source(&args[1..]),
+        "_resolve-release" => ci_resolve_release(&args[1..]),
+        "generate" => ci_generate(&args[1..]),
+        "check" => ci_check(&args[1..]),
+        "_capture-build" => ci_capture_build(&args[1..]),
+        "_qualify-target" => ci_qualify_target(&args[1..]),
+        "_validate-consumer" => ci_validate_consumer(&args[1..]),
+        "_evaluate-gate" => ci_evaluate_gate(&args[1..]),
+        "_aggregate" => ci_aggregate(&args[1..]),
+        "_prepare-stage" => ci_prepare_stage(&args[1..]),
+        "_stage-github-draft" => ci_stage_github_draft(&args[1..]),
         _ => Err("unknown ci subcommand".to_owned()),
     }
+}
+
+/// Dispatch the `contract` family. M003 implements only `expand`.
+fn contract_dispatch(rest: &[String]) -> Result<(), String> {
+    match rest.first().map(String::as_str) {
+        Some("expand") => contract_expand(&rest[1..]),
+        Some("--help") | Some("-h") => {
+            println!("{CONTRACT_USAGE}");
+            Ok(())
+        }
+        Some(other) => Err(format!("unknown contract subcommand: {other}")),
+        None => Err(CONTRACT_USAGE.to_owned()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// M003 — bounded direct-contract expansion CLI.
+//
+// A thin local projection over existing `eggpack-contract` schema-v1
+// semantics. It adds no serialized model, no repository discovery, no
+// network access, no release selection, and no general query language: it
+// reads one local contract and prints exactly one scalar.
+// ---------------------------------------------------------------------------
+
+/// Maximum local contract input accepted by `contract expand` (1 MiB).
+const MAX_CONTRACT_BYTES: usize = 1_000_000;
+
+/// Maximum bytes of a caller-supplied scalar echoed to stdout or stderr.
+///
+/// The contract library already bounds its own names and error detail;
+/// this bound covers the CLI's own output and argv diagnostics so a
+/// pathological contract can never produce an unbounded diagnostic.
+const MAX_SCALAR_BYTES: usize = 256;
+
+/// Bound an echoed argument detail.
+fn bound_echo(detail: &str) -> String {
+    let mut out = detail.to_owned();
+    if out.len() > MAX_SCALAR_BYTES {
+        out.truncate(MAX_SCALAR_BYTES);
+        out.push('…');
+    }
+    out
+}
+
+/// Selectable `contract expand` fields.
+///
+/// `canonical-target` is valid for every resolved target; the other three
+/// are valid only for direct artifact targets. No list, record, or
+/// bundle/archive member selector exists, by design.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ContractField {
+    /// Canonical target triple.
+    CanonicalTarget,
+    /// Expanded direct release asset file name.
+    Asset,
+    /// Expanded checksum sidecar file name.
+    Sidecar,
+    /// Expanded install name.
+    Install,
+}
+
+impl ContractField {
+    fn parse(raw: &str) -> Result<Self, String> {
+        match raw {
+            "canonical-target" => Ok(Self::CanonicalTarget),
+            "asset" => Ok(Self::Asset),
+            "sidecar" => Ok(Self::Sidecar),
+            "install" => Ok(Self::Install),
+            other => Err(format!(
+                "unsupported --field {:?}: expected canonical-target, asset, sidecar, or install",
+                bound_echo(other)
+            )),
+        }
+    }
+
+    const fn name(self) -> &'static str {
+        match self {
+            Self::CanonicalTarget => "canonical-target",
+            Self::Asset => "asset",
+            Self::Sidecar => "sidecar",
+            Self::Install => "install",
+        }
+    }
+
+    /// Whether this field is valid only for a direct artifact target.
+    const fn requires_direct(self) -> bool {
+        !matches!(self, Self::CanonicalTarget)
+    }
+}
+
+/// One fully validated `contract expand` invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ContractExpandArgs {
+    contract: String,
+    release_id: String,
+    target: String,
+    field: ContractField,
+}
+
+/// Command-local exact argument parser for `contract expand`.
+///
+/// The shared `get_flag` helper returns the first occurrence of a repeated
+/// flag and tolerates unknown trailing arguments. That is acceptable for the
+/// historical `ci` commands but wrong for a fail-closed contract surface, so
+/// M003 parses its own arguments rather than changing every existing
+/// command's behavior incidentally.
+///
+/// Each of `--contract`, `--release-id`, `--target`, and `--field` is
+/// required exactly once, accepts `--flag value` or `--flag=value`, and
+/// rejects empty values. Unknown options and positional arguments are
+/// rejected.
+fn parse_contract_expand_args(args: &[String]) -> Result<ContractExpandArgs, String> {
+    const REQUIRED: [&str; 4] = ["contract", "release-id", "target", "field"];
+
+    let mut values: Vec<(&str, String)> = Vec::with_capacity(REQUIRED.len());
+    let mut index = 0usize;
+    while index < args.len() {
+        let arg = args[index].as_str();
+        let Some(body) = arg.strip_prefix("--") else {
+            return Err(format!(
+                "unexpected argument {:?}: contract expand accepts only --contract, --release-id, --target, and --field",
+                bound_echo(arg)
+            ));
+        };
+        let (name, inline) = match body.split_once('=') {
+            Some((name, value)) => (name, Some(value.to_owned())),
+            None => (body, None),
+        };
+        if !REQUIRED.contains(&name) {
+            return Err(format!("unknown option --{name}"));
+        }
+        if values.iter().any(|(seen, _)| *seen == name) {
+            return Err(format!("--{name} may be given only once"));
+        }
+        let value = match inline {
+            Some(value) => value,
+            None => {
+                index += 1;
+                args.get(index)
+                    .cloned()
+                    .ok_or_else(|| format!("missing value for --{name}"))?
+            }
+        };
+        if value.is_empty() {
+            return Err(format!("--{name} must not be empty"));
+        }
+        values.push((name, value));
+        index += 1;
+    }
+
+    let mut missing = REQUIRED
+        .iter()
+        .filter(|name| !values.iter().any(|(seen, _)| seen == *name))
+        .map(|name| format!("--{name}"))
+        .collect::<Vec<_>>();
+    missing.sort_unstable();
+    if !missing.is_empty() {
+        return Err(format!("missing required {}", missing.join(", ")));
+    }
+
+    // Every flag is present exactly once, so these lookups cannot fail.
+    let take = |name: &str| {
+        values
+            .iter()
+            .find_map(|(seen, value)| (*seen == name).then(|| value.clone()))
+            .unwrap_or_default()
+    };
+    let field = ContractField::parse(&take("field"))?;
+    Ok(ContractExpandArgs {
+        contract: take("contract"),
+        release_id: take("release-id"),
+        target: take("target"),
+        field,
+    })
+}
+
+/// Project exactly one scalar field out of an existing expanded target.
+///
+/// Pure and total over the closed field set: `canonical-target` is valid for
+/// every asset form, and every other field fails closed for bundle/archive
+/// targets rather than guessing a primary entry or archive member. No list,
+/// record, or member selector exists.
+fn project_field(
+    expanded: &eggpack_contract::ExpandedTarget,
+    field: ContractField,
+) -> Result<String, String> {
+    // `canonical-target` is valid for every asset form and is checked before
+    // the form, so a bundle or archive target still resolves.
+    let value = if field == ContractField::CanonicalTarget {
+        expanded.triple.clone()
+    } else {
+        let eggpack_contract::ExpandedAssets::Direct(direct) = &expanded.assets else {
+            // Fail closed for bundle/archive targets rather than choosing a
+            // primary entry or an archive member.
+            debug_assert!(field.requires_direct());
+            return Err(format!(
+                "selected --field {} requires a direct artifact target",
+                field.name()
+            ));
+        };
+        match field {
+            ContractField::CanonicalTarget => unreachable!("handled above"),
+            ContractField::Asset => direct.asset_file.clone(),
+            ContractField::Sidecar => direct.sidecar_file.clone(),
+            ContractField::Install => direct.install_name.clone(),
+        }
+    };
+
+    if value.is_empty() {
+        return Err("expanded value is empty".to_owned());
+    }
+    if value.len() > MAX_SCALAR_BYTES {
+        return Err(format!(
+            "expanded value exceeds the {MAX_SCALAR_BYTES} byte output bound"
+        ));
+    }
+    Ok(value)
+}
+
+/// Expand one contract field and print exactly one scalar line.
+///
+/// Read-only and side-effect free: the contract is opened with the shared
+/// bounded non-symlink reader, expanded through the existing contract API,
+/// and never written back. Every failure exits nonzero with a bounded
+/// diagnostic on stderr and no partial value on stdout.
+fn contract_expand(args: &[String]) -> Result<(), String> {
+    let parsed = parse_contract_expand_args(args)?;
+    let path = PathBuf::from(&parsed.contract);
+    let text = read_bounded(&path, MAX_CONTRACT_BYTES, "contract")?;
+    let contract = eggpack_contract::DistributionContract::parse_toml_str(&text)
+        .map_err(|error| format!("contract parse failed: {error}"))?;
+    let expanded = contract
+        .expand(&parsed.target, &parsed.release_id)
+        .map_err(|error| format!("contract expansion failed: {error}"))?;
+    let value = project_field(&expanded, parsed.field)?;
+    println!("{value}");
+    Ok(())
 }
 
 fn ci_verify_source(args: &[String]) -> Result<(), String> {
@@ -2949,6 +3203,601 @@ mod tests {
         let mut bad = check.clone();
         bad[1] = mismatched_path.to_string_lossy().into_owned();
         assert!(ci_check(&bad).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    // ---- M003: bounded direct-contract expansion CLI ------------------------
+    //
+    // These tests cover argument handling, field projection, and the
+    // fail-closed matrix. The stdout/stderr byte contract and process exit
+    // codes are proven separately in `tests/contract_expand.rs`, because
+    // that contract is only observable at the process boundary.
+
+    const M003_SIMPLE: &str =
+        include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml");
+    /// Byte-identical to the adopted eggsact contract at
+    /// `eggstack/eggsact@d4e6e5c`, so the frozen public names below are the
+    /// names both consumers actually publish.
+    const M003_CONSUMER: &str =
+        include_str!("../../eggpack-contract/tests/fixtures/consumer-direct-targets.toml");
+    const M003_BUNDLE: &str =
+        include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml");
+    const M003_ARCHIVE: &str =
+        include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml");
+
+    fn write_contract(root: &Path, label: &str, text: &str) -> String {
+        let path = root.join(format!("{label}.toml"));
+        std::fs::write(&path, text).unwrap();
+        path.to_string_lossy().into_owned()
+    }
+
+    /// The four flags only, as `contract_expand` receives them.
+    fn expand_flags(contract: &str, release: &str, target: &str, field: &str) -> Vec<String> {
+        argv(&[
+            "--contract",
+            contract,
+            "--release-id",
+            release,
+            "--target",
+            target,
+            "--field",
+            field,
+        ])
+    }
+
+    /// The full top-level argv, as `run`/`dispatch` receive it.
+    fn expand_argv(contract: &str, release: &str, target: &str, field: &str) -> Vec<String> {
+        let mut full = vec!["contract".to_owned(), "expand".to_owned()];
+        full.extend(expand_flags(contract, release, target, field));
+        full
+    }
+
+    fn argv(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_owned()).collect()
+    }
+
+    /// The library's own expansion of one field, used as the oracle so the
+    /// test proves delegation rather than restating the expected string.
+    fn library_field(contract_text: &str, target: &str, field: &str) -> String {
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(contract_text).unwrap();
+        let expanded = contract.expand(target, "v1.2.3").unwrap();
+        let direct = match &expanded.assets {
+            eggpack_contract::ExpandedAssets::Direct(direct) => Some(direct),
+            _ => None,
+        };
+        match field {
+            "canonical-target" => expanded.triple.clone(),
+            "asset" => direct.expect("direct fixture").asset_file.clone(),
+            "sidecar" => direct.expect("direct fixture").sidecar_file.clone(),
+            _ => direct.expect("direct fixture").install_name.clone(),
+        }
+    }
+
+    #[test]
+    fn m003_argument_parser_is_exact_and_rejects_ambiguity() {
+        let parsed = parse_contract_expand_args(&argv(&[
+            "--contract",
+            "c.toml",
+            "--release-id",
+            "v1",
+            "--target",
+            "t",
+            "--field",
+            "asset",
+        ]))
+        .unwrap();
+        assert_eq!(
+            parsed,
+            ContractExpandArgs {
+                contract: "c.toml".to_owned(),
+                release_id: "v1".to_owned(),
+                target: "t".to_owned(),
+                field: ContractField::Asset,
+            }
+        );
+
+        // `--flag=value` is accepted for every flag.
+        let inline = parse_contract_expand_args(&argv(&[
+            "--contract=c.toml",
+            "--release-id=v1",
+            "--target=t",
+            "--field=canonical-target",
+        ]))
+        .unwrap();
+        assert_eq!(inline.field, ContractField::CanonicalTarget);
+        assert_eq!(inline.contract, "c.toml");
+
+        for (values, expected) in [
+            (vec![], "missing required --contract, --field, --release-id, --target"),
+            (
+                vec!["--contract", "c.toml", "--release-id", "v1", "--target", "t"],
+                "missing required --field",
+            ),
+            (vec!["--contract", "c.toml", "--unknown", "x"], "unknown option --unknown"),
+            (vec!["positional"], "unexpected argument \"positional\": contract expand accepts only --contract, --release-id, --target, and --field"),
+            (vec!["--contract"], "missing value for --contract"),
+            (vec!["--contract="], "--contract must not be empty"),
+            (
+                vec!["--contract=a", "--contract=b"],
+                "--contract may be given only once",
+            ),
+            (
+                // The shared `get_flag` helper silently keeps the first
+                // occurrence; this command must not.
+                vec![
+                    "--contract", "c.toml", "--release-id", "v1", "--target", "t", "--field", "asset",
+                    "--field", "install",
+                ],
+                "--field may be given only once",
+            ),
+        ] {
+            assert_eq!(
+                parse_contract_expand_args(&argv(&values)).unwrap_err(),
+                expected,
+                "argv {values:?}"
+            );
+        }
+
+        // Unsupported field names fail closed and name the supported set.
+        let bad =
+            parse_contract_expand_args(&expand_flags("c.toml", "v1", "t", "entries[0].asset"))
+                .unwrap_err();
+        assert!(bad.starts_with("unsupported --field"), "{bad}");
+        assert!(bad.contains("canonical-target"), "{bad}");
+    }
+
+    #[test]
+    fn m003_expands_every_field_and_resolves_aliases() {
+        let root = temp_root("m003-direct");
+        let simple = write_contract(&root, "simple", M003_SIMPLE);
+
+        // Every field, through both the canonical triple and its alias.
+        for target in ["linux-x64", "x86_64-unknown-linux-gnu"] {
+            for field in ["canonical-target", "asset", "sidecar", "install"] {
+                assert_eq!(
+                    contract_expand(&expand_flags(&simple, "v1.2.3", target, field)),
+                    Ok(()),
+                    "{target}/{field}"
+                );
+            }
+        }
+
+        // The CLI must agree with the library for every field, which is the
+        // "delegates to existing contract semantics" requirement.
+        for (target, field) in [
+            ("linux-x64", "canonical-target"),
+            ("linux-x64", "asset"),
+            ("linux-x64", "sidecar"),
+            ("linux-x64", "install"),
+            ("x86_64-unknown-linux-gnu", "asset"),
+            ("macos-arm64", "asset"),
+            ("macos-arm64", "install"),
+        ] {
+            let projected = project_field(
+                &eggpack_contract::DistributionContract::parse_toml_str(M003_SIMPLE)
+                    .unwrap()
+                    .expand(target, "v1.2.3")
+                    .unwrap(),
+                ContractField::parse(field).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                projected,
+                library_field(M003_SIMPLE, target, field),
+                "{target}/{field}"
+            );
+        }
+
+        // The concrete eggsact-shaped direct names, pinned.
+        assert_eq!(
+            library_field(M003_SIMPLE, "linux-x64", "asset"),
+            "eggsact-v1.2.3-x86_64-unknown-linux-gnu"
+        );
+        assert_eq!(
+            library_field(M003_SIMPLE, "linux-x64", "sidecar"),
+            "eggsact-v1.2.3-x86_64-unknown-linux-gnu.sha256"
+        );
+        assert_eq!(
+            library_field(M003_SIMPLE, "linux-x64", "install"),
+            "eggsact"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_release_id_is_opaque_and_accepts_prerelease_punctuation() {
+        let root = temp_root("m003-release-id");
+        let simple = write_contract(&root, "simple", M003_SIMPLE);
+
+        // Eggpack applies no SemVer ordering and no release selection: the
+        // release id is an opaque expansion input.
+        for release in [
+            "1.2.3",
+            "v1.2.3",
+            "v1.2.3-rc.1",
+            "1.2.3-rc.1+build.5",
+            "nightly-2026-10-05",
+        ] {
+            assert_eq!(
+                contract_expand(&expand_flags(&simple, release, "linux-x64", "asset")),
+                Ok(()),
+                "release id {release}"
+            );
+        }
+
+        // The expanded asset carries the exact opaque string.
+        let prerelease = write_contract(&root, "prerelease", M003_SIMPLE);
+        assert_eq!(
+            project_field(
+                &eggpack_contract::DistributionContract::parse_toml_str(M003_SIMPLE)
+                    .unwrap()
+                    .expand("linux-x64", "v1.2.3-rc.1+build.5")
+                    .unwrap(),
+                ContractField::Asset,
+            )
+            .unwrap(),
+            "eggsact-v1.2.3-rc.1+build.5-x86_64-unknown-linux-gnu"
+        );
+        assert_eq!(
+            contract_expand(&expand_flags(
+                &prerelease,
+                "v1.2.3-rc.1+build.5",
+                "linux-x64",
+                "asset"
+            )),
+            Ok(())
+        );
+
+        // Path separators and empty input stay rejected by contract rules.
+        for bad in ["a/b", "a\\b", ""] {
+            assert!(
+                contract_expand(&expand_flags(&simple, bad, "linux-x64", "asset")).is_err(),
+                "release id {bad:?} must fail"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_fails_closed_for_bundle_and_archive_direct_fields() {
+        let root = temp_root("m003-bundle-archive");
+        let bundle = write_contract(&root, "bundle", M003_BUNDLE);
+        let archive = write_contract(&root, "archive", M003_ARCHIVE);
+
+        for (contract, label) in [(&bundle, "bundle"), (&archive, "archive")] {
+            // `canonical-target` is valid for every asset form.
+            assert_eq!(
+                contract_expand(&expand_flags(
+                    contract,
+                    "v1.2.3",
+                    "linux-x64",
+                    "canonical-target"
+                )),
+                Ok(()),
+                "{label} canonical-target"
+            );
+            // Every direct-only field fails closed rather than guessing a
+            // primary bundle entry or an archive member.
+            for field in ["asset", "sidecar", "install"] {
+                assert_eq!(
+                    contract_expand(&expand_flags(contract, "v1.2.3", "linux-x64", field))
+                        .unwrap_err(),
+                    format!("selected --field {field} requires a direct artifact target"),
+                    "{label}/{field}"
+                );
+            }
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_rejects_invalid_schema_unknown_targets_and_missing_input() {
+        let root = temp_root("m003-negative");
+        let simple = write_contract(&root, "simple", M003_SIMPLE);
+
+        // Unsupported schema version fails closed.
+        let future = write_contract(
+            &root,
+            "future",
+            &M003_SIMPLE.replace("schema_version = 1", "schema_version = 2"),
+        );
+        assert!(
+            contract_expand(&expand_flags(&future, "v1.2.3", "linux-x64", "asset"))
+                .unwrap_err()
+                .starts_with("contract parse failed")
+        );
+
+        // Unknown field fails closed (`deny_unknown_fields`).
+        let extra = write_contract(&root, "extra", &format!("{M003_SIMPLE}\nnot_a_field = 1\n"));
+        assert!(contract_expand(&expand_flags(&extra, "v1.2.3", "linux-x64", "asset")).is_err());
+
+        // Malformed TOML fails closed.
+        let broken = write_contract(
+            &root,
+            "broken",
+            "schema_version = 1\n[product\nid = \"x\"\n",
+        );
+        assert!(contract_expand(&expand_flags(&broken, "v1.2.3", "linux-x64", "asset")).is_err());
+
+        // Unknown triples and unknown aliases fail closed rather than
+        // guessing a nearby architecture.
+        for bad_target in [
+            "x86_64-pc-windows-msvc",
+            "armv7-unknown-linux-gnueabihf",
+            "linux-armv7",
+            "sparc64-unknown-linux-gnu",
+            "",
+        ] {
+            assert!(
+                contract_expand(&expand_flags(&simple, "v1.2.3", bad_target, "asset")).is_err(),
+                "target {bad_target:?} must fail"
+            );
+        }
+
+        // A missing file and a directory both fail closed.
+        assert!(contract_expand(&expand_flags(
+            &root.join("absent.toml").to_string_lossy(),
+            "v1.2.3",
+            "linux-x64",
+            "asset"
+        ))
+        .is_err());
+        assert!(contract_expand(&expand_flags(
+            &root.to_string_lossy(),
+            "v1.2.3",
+            "linux-x64",
+            "asset"
+        ))
+        .is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_rejects_oversized_and_symlink_contract_input() {
+        let root = temp_root("m003-bounds");
+        let simple = write_contract(&root, "simple", M003_SIMPLE);
+
+        // Over the 1 MiB bound: rejected before parsing.
+        let oversized = root.join("oversized.toml");
+        let mut padded = M003_SIMPLE.to_owned();
+        padded.push_str("# ");
+        padded.push_str(&"x".repeat(MAX_CONTRACT_BYTES));
+        std::fs::write(&oversized, &padded).unwrap();
+        assert_eq!(
+            contract_expand(&expand_flags(
+                &oversized.to_string_lossy(),
+                "v1.2.3",
+                "linux-x64",
+                "asset"
+            ))
+            .unwrap_err(),
+            "contract exceeds size bound"
+        );
+
+        // A symlinked contract is refused outright.
+        #[cfg(unix)]
+        {
+            let link = root.join("linked.toml");
+            std::os::unix::fs::symlink(&simple, &link).unwrap();
+            assert_eq!(
+                contract_expand(&expand_flags(
+                    &link.to_string_lossy(),
+                    "v1.2.3",
+                    "linux-x64",
+                    "asset"
+                ))
+                .unwrap_err(),
+                "contract must not be a symlink"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_never_mutates_the_contract_and_is_deterministic() {
+        let root = temp_root("m003-deterministic");
+        let simple = write_contract(&root, "simple", M003_SIMPLE);
+        let path = root.join("simple.toml");
+
+        let before = std::fs::read(&path).unwrap();
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            assert_eq!(
+                contract_expand(&expand_flags(&simple, "v1.2.3", "linux-x64", "asset")),
+                Ok(())
+            );
+            seen.push(
+                project_field(
+                    &eggpack_contract::DistributionContract::parse_toml_str(M003_SIMPLE)
+                        .unwrap()
+                        .expand("linux-x64", "v1.2.3")
+                        .unwrap(),
+                    ContractField::Asset,
+                )
+                .unwrap(),
+            );
+        }
+        assert_eq!(seen, vec!["eggsact-v1.2.3-x86_64-unknown-linux-gnu"; 5]);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+
+        // A failing query also leaves the file byte-identical.
+        assert!(contract_expand(&expand_flags(&simple, "v1.2.3", "absent", "asset")).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_consumer_shaped_contract_matches_frozen_public_names() {
+        // The eggsact-shaped contract fixture is the shape both adopted
+        // consumers use. These are their own frozen public asset names, so a
+        // mismatch here would mean the CLI disagrees with the facts a
+        // consumer already publishes.
+        let root = temp_root("m003-consumer-shaped");
+        let consumer = write_contract(&root, "consumer", M003_CONSUMER);
+        let contract =
+            eggpack_contract::DistributionContract::parse_toml_str(M003_CONSUMER).unwrap();
+
+        // The live consumer contract uses version-free public asset names,
+        // so the release id does not appear in the expanded facts.
+        for (target, frozen, install) in [
+            (
+                "x86_64-unknown-linux-gnu",
+                "eggsact-x86_64-unknown-linux-gnu",
+                "eggsact",
+            ),
+            (
+                "aarch64-unknown-linux-gnu",
+                "eggsact-aarch64-unknown-linux-gnu",
+                "eggsact",
+            ),
+            (
+                "x86_64-apple-darwin",
+                "eggsact-x86_64-apple-darwin",
+                "eggsact",
+            ),
+            (
+                "aarch64-apple-darwin",
+                "eggsact-aarch64-apple-darwin",
+                "eggsact",
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                "eggsact-x86_64-pc-windows-msvc.exe",
+                "eggsact.exe",
+            ),
+        ] {
+            for field in ["canonical-target", "asset", "sidecar", "install"] {
+                assert_eq!(
+                    contract_expand(&expand_flags(&consumer, "v1.2.7", target, field)),
+                    Ok(()),
+                    "{target}/{field}"
+                );
+            }
+            let expanded = contract.expand(target, "v1.2.7").unwrap();
+            let eggpack_contract::ExpandedAssets::Direct(direct) = &expanded.assets else {
+                unreachable!("fixture is direct")
+            };
+            assert_eq!(direct.asset_file, frozen, "{target} asset");
+            assert_eq!(
+                direct.sidecar_file,
+                format!("{frozen}.sha256"),
+                "{target} sidecar"
+            );
+            assert_eq!(direct.install_name, install, "{target} install");
+
+            // The CLI must return exactly those same facts.
+            for (field, expected) in [
+                ("asset", frozen),
+                ("sidecar", format!("{frozen}.sha256").as_str()),
+                ("install", install),
+                ("canonical-target", target),
+            ] {
+                assert_eq!(
+                    project_field(&expanded, ContractField::parse(field).unwrap()).unwrap(),
+                    expected,
+                    "{target}/{field}"
+                );
+            }
+        }
+
+        // ARMv7 is a product-recognized Cargo-fallback host, deliberately
+        // absent from the producer contract, and must fail closed here.
+        assert!(contract_expand(&expand_flags(
+            &consumer,
+            "v1.2.7",
+            "armv7-unknown-linux-gnueabihf",
+            "asset"
+        ))
+        .is_err());
+
+        // Every alias resolves to the canonical triple a consumer table uses.
+        for (alias, canonical) in [
+            ("linux-x64", "x86_64-unknown-linux-gnu"),
+            ("linux-arm64", "aarch64-unknown-linux-gnu"),
+            ("macos-x64", "x86_64-apple-darwin"),
+            ("macos-arm64", "aarch64-apple-darwin"),
+            ("windows-x64", "x86_64-pc-windows-msvc"),
+        ] {
+            assert_eq!(
+                contract_expand(&expand_flags(
+                    &consumer,
+                    "v1.2.7",
+                    alias,
+                    "canonical-target"
+                )),
+                Ok(()),
+                "{alias}"
+            );
+            assert_eq!(
+                contract.resolve(alias).unwrap().triple,
+                canonical,
+                "{alias}"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_dispatch_adds_a_family_without_regressing_ci() {
+        // `run` maps Ok to 0 and any Err to 1.
+        assert_eq!(run(vec![]), 1);
+        assert_eq!(run(argv(&["--version"])), 0);
+        assert_eq!(run(argv(&["--help"])), 0);
+        assert_eq!(run(argv(&["contract", "--help"])), 0);
+        assert_eq!(run(argv(&["contract"])), 1);
+        assert_eq!(run(argv(&["contract", "generate"])), 1);
+        assert_eq!(run(argv(&["contract", "expand"])), 1);
+        assert_eq!(run(argv(&["not-a-command"])), 1);
+
+        // The historical ci surface is unchanged, including its diagnostics.
+        assert_eq!(run(argv(&["ci"])), 1);
+        assert_eq!(run(argv(&["ci", "not-a-subcommand"])), 1);
+        assert_eq!(
+            dispatch(argv(&["ci", "not-a-subcommand"])).unwrap_err(),
+            "unknown ci subcommand"
+        );
+
+        // The whole top-level path works, not just the inner function.
+        let root = temp_root("m003-dispatch");
+        let simple = write_contract(&root, "simple", M003_SIMPLE);
+        assert_eq!(run(expand_argv(&simple, "v1.2.3", "linux-x64", "asset")), 0);
+        assert_eq!(
+            run(expand_argv(&simple, "v1.2.3", "absent-target", "asset")),
+            1
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003_projects_fields_without_a_serialized_expansion_model() {
+        // The projection is a pure function over the existing expanded
+        // target. No record/list form exists, so an oversized value must be
+        // refused rather than serialized.
+        let root = temp_root("m003-projection");
+        let direct = write_contract(&root, "direct", M003_SIMPLE);
+        assert_eq!(
+            contract_expand(&expand_flags(
+                &direct,
+                "v1.2.3",
+                "linux-x64",
+                "canonical-target"
+            )),
+            Ok(())
+        );
+        // Every field name that is not in the closed set is rejected.
+        for field in [
+            "assets",
+            "entries",
+            "members",
+            "archive",
+            "ALL",
+            "canonical_target",
+        ] {
+            assert!(
+                contract_expand(&expand_flags(&direct, "v1.2.3", "linux-x64", field)).is_err(),
+                "field {field} must be rejected"
+            );
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 }

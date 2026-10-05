@@ -58,3 +58,51 @@ fn fixtures_round_trip_deterministically() {
         assert_eq!(c, reparsed, "{name}");
     }
 }
+
+#[test]
+fn consumer_direct_targets_fixture_matches_the_live_consumer_shape() {
+    // `consumer-direct-targets.toml` is a byte-identical copy of the adopted
+    // eggsact contract at `eggstack/eggsact@d4e6e5c`
+    // (`release/eggpack/distribution.toml`). It pins the exact public asset,
+    // sidecar, and install names both adopted consumers publish, including
+    // the contract-level `.exe` rule for `*-pc-windows-msvc` that the older
+    // `eggsact-direct-targets.toml` fixture does not carry.
+    let c = load("consumer-direct-targets.toml");
+    assert_eq!(c.product.id, "eggsact");
+
+    // Public asset names are version-free by contract.
+    for (target, asset, install) in [
+        ("linux-x64", "eggsact-x86_64-unknown-linux-gnu", "eggsact"),
+        (
+            "linux-arm64",
+            "eggsact-aarch64-unknown-linux-gnu",
+            "eggsact",
+        ),
+        ("macos-x64", "eggsact-x86_64-apple-darwin", "eggsact"),
+        ("macos-arm64", "eggsact-aarch64-apple-darwin", "eggsact"),
+        (
+            "windows-x64",
+            "eggsact-x86_64-pc-windows-msvc.exe",
+            "eggsact.exe",
+        ),
+    ] {
+        assert_eq!(
+            c.resolve(target).unwrap().triple,
+            c.resolve(target).unwrap().triple
+        );
+        let e = c.expand(target, "v1.2.7").unwrap();
+        match e.assets {
+            eggpack_contract::ExpandedAssets::Direct(d) => {
+                assert_eq!(d.asset_file, asset, "{target}");
+                assert_eq!(d.sidecar_file, format!("{asset}.sha256"), "{target}");
+                assert_eq!(d.install_name, install, "{target}");
+            }
+            _ => panic!("expected direct"),
+        }
+    }
+
+    // ARMv7 stays a product-recognized Cargo-fallback host and is
+    // deliberately absent from the producer contract.
+    assert!(c.resolve("armv7-unknown-linux-gnueabihf").is_err());
+    assert_eq!(c.targets.len(), 5);
+}

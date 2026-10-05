@@ -57,6 +57,22 @@ prose and the constants it names are unaffected. Anything you re-base should be
 verified the same way — by reading the line and confirming it is the thing the
 sentence claims.
 
+Contract M003 moved `cli/src/main.rs` again, and re-based `cli.md` for it. The
+mechanical part was provable rather than assumed: the change is a pure `+254`
+shift for every line at or below the rewritten dispatch block, verified
+byte-for-byte on 397 anchors before being applied, with the 16 anchors inside
+the rewritten block hand-written instead of shifted. That pass also surfaced
+four citations in `cli.md` that were **already** wrong before M003 and are now
+fixed: `reject_symlink_output` and `atomic_write` each pointed 7-10 lines past
+its real anchor. A residual set of pre-existing drift remains in `cli.md` in
+sections M003 did not touch — the aggregate-sidecar, `release-manifest.json`
+placement, path-absolutization call-site, and end-to-end-orchestration
+(`1754`) sub-anchors all resolve to unrelated lines in the pre-M003 file as
+well, so M003 carried them forward faithfully rather than inventing new numbers
+whose intent it could not confirm. Treat those as indicative until re-based by
+symbol name. The rule from the `61b2c03` pass holds: re-base by reading the line
+and confirming it holds what the sentence claims, never by arithmetic alone.
+
 ## How to read this document
 
 This file has two jobs, deliberately:
@@ -139,7 +155,7 @@ contract   manifest
 | `eggpack-bootstrap` | 3436 | [bootstrap.md](bootstrap.md) |
 | `eggpack-ci` | 10256 | [ci.md](ci.md) |
 | `eggpack-github` | 4873 (3025 + 1848 tests) | [github.md](github.md) |
-| `eggpack-cli` | 2954 | [cli.md](cli.md) |
+| `eggpack-cli` | 3803 src + 381 integration tests | [cli.md](cli.md) |
 
 Counts are Rust source lines per crate. A count in parentheses is test code
 included in the total; `contract` is the only crate whose production line count
@@ -250,6 +266,13 @@ file-in/file-out steps. Exit code 0 on success, 1 with a single-line
 `eggpack: <message>` on failure. Owns the atomic-write, bounded-read,
 symlink-rejection, and relative-path-absolutization helpers that make the
 generated steps safe.
+
+It also owns `eggpack contract expand` (Contract M003), the one consumer-facing
+scalar projection: read one local contract, print exactly one expanded name.
+It delegates to `eggpack-contract` and adds no template grammar, no target
+resolution, and no serialized expansion document. It is deliberately local-only —
+no repository discovery, no network, no release selection — and it never implies
+consumer policy such as latest/exact selection or Cargo fallback.
 **Deep dive:** [cli.md](cli.md).
 
 ## Cross-cutting components
