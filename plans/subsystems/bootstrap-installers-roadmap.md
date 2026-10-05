@@ -70,7 +70,9 @@ M002 bundle/archive bootstrap safety.
 
 Implementation plan: `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md`.
 
-M003 two-consumer adoption and optional Eggup receipt handoff design.
+M003 two-consumer adoption and optional Eggup receipt handoff decision.
+
+Implementation plan: `plans/implementation/bootstrap-installers/003-two-consumer-adoption-and-receipt-boundary-decision.md`.
 
 ## 8. Cross-cutting requirements
 
@@ -92,13 +94,13 @@ At least two consumers have removed duplicated mapping/checksum authority from b
 
 M001 generator model and direct installer fixtures is closed and qualified. M002 is historical implementation/closure evidence with its M002a corrective closed.
 
-M003 is now **unblocked for candidate review**. Its completion definition — real two-consumer adoption evidence — is satisfied as of 2026-10-04 (Planning Hygiene M001). Both Eggsact and StegoEggo adopted Eggpack-generated exact installers in their producer cutovers, and the second consumer's previously-outstanding operational condition has cleared: StegoEggo's ordinary stable `v0.5.0` (Eggpack run `37181914252`, published 2026-10-04) is a live public release carrying both Eggpack-generated exact installers (`install-exact.sh`, `install-exact.ps1`) alongside the product wrappers, and the consumer asset audit plus public installer smoke passed.
+M003 is now **ready** as a two-consumer evidence/ownership decision pass. Its completion definition — real two-consumer adoption evidence — is satisfied as of 2026-10-04 (Planning Hygiene M001). Both Eggsact and StegoEggo adopted Eggpack-generated exact installers in their producer cutovers, and the second consumer's previously-outstanding operational condition has cleared: StegoEggo's ordinary stable `v0.5.0` (Eggpack run `37181914252`, published 2026-10-04) is a live public release carrying both Eggpack-generated exact installers (`install-exact.sh`, `install-exact.ps1`) alongside the product wrappers, and the consumer asset audit plus public installer smoke passed.
 
-Its earlier blocker chain — `StegoEggo Release-Distribution M004 public 0.4.3 live receipt -> Ecosystem M002 full closure -> Bootstrap M003 candidate review` — is fully discharged, with `0.4.3` superseded by `0.5.0` on consumer-side semver grounds. No Bootstrap M003 implementation is authorized by that evidence; the milestone now needs its own candidate review and implementation plan.
+Its earlier blocker chain — `StegoEggo Release-Distribution M004 public 0.4.3 live receipt -> Ecosystem M002 full closure -> Bootstrap M003 candidate review` — is fully discharged, with `0.4.3` superseded by `0.5.0` on consumer-side semver grounds. The registered M003 plan now performs that candidate review. It assumes no production change: if two-consumer evidence shows the existing exact-installer generator is sufficient, M003 closes as an evidence/ownership decision; any common missing producer primitive must stop the pass and become a separately scoped M003a plan.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 direct generator + fixtures | closed | `plans/implementation/bootstrap-installers/001-direct-installer-generator.md` | `plans/closure/bootstrap-installers/001-status.md` | direct first-install semantics qualified; archive-content/finalization evidence remains later work |
 | M002 bundle/archive bootstrap safety | closed historically; corrective closed | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | `plans/closure/bootstrap-installers/002-status.md` | Post-closure PowerShell archive runtime evidence gap corrected and qualified by M002a |
 | M002a PowerShell archive runtime evidence | closed | `plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md` | `plans/closure/bootstrap-installers/002a-status.md` | Closed on implementation `4d2270a` + hosted run 36154905956 (attempt 1, all lanes green) via shared closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` |
-| M003 two-consumer adoption/receipt decision | unblocked for candidate review | — | — | Two-consumer evidence satisfied: eggsact `v1.2.7` and stegoeggo `v0.5.0` (run `37181914252`) both ship Eggpack-generated exact installers publicly. Candidate review and a new implementation plan are the remaining steps; no implementation authorized yet |
+| M003 two-consumer adoption/receipt decision | ready | `plans/implementation/bootstrap-installers/003-two-consumer-adoption-and-receipt-boundary-decision.md` | — | Two-consumer evidence satisfied: eggsact `v1.2.7` and stegoeggo `v0.5.0` both publicly ship Eggpack-generated exact installers. Review wrapper-vs-producer authority and Eggup receipt boundary; close evidence-only if no common producer gap exists, otherwise stop and register M003a |
