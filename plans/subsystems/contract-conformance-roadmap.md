@@ -164,7 +164,7 @@ Class: polish
 
 Objective: add thin local-file CLI/fixture interfaces only if real adoption shows they reduce consumer glue.
 
-Dependencies: M002 + first consumer evidence. **Satisfied.** M003 is ready under `plans/implementation/contract-conformance/003-bounded-direct-contract-expansion-cli.md`.
+Dependencies: M002 + first consumer evidence. **Satisfied and delivered.** M003 closed on `plans/closure/contract-conformance/003-status.md`.
 
 Evidence gathered 2026-10-04 (Planning Hygiene M001): two independent direct-binary consumers each carry a product-side contract-check script that loads the checked-in `release/eggpack/distribution.toml` with Python `tomllib` and re-implements the producer's `{product}`/`{target}` asset expansion in order to compare it against a frozen product-owned public-name table:
 
@@ -173,7 +173,15 @@ Evidence gathered 2026-10-04 (Planning Hygiene M001): two independent direct-bin
 
 That is three near-parallel implementations of the same bounded producer-fact parse/expand step across two repositories. Eggpack already owns the semantics in `DistributionContract::parse_toml_str` and its expansion, but the public CLI exposes only the `eggpack ci ...` surface, so consumers cannot reuse them.
 
-Bounded disposition: M003 is **ready**. Its implementation plan keeps the surface deliberately narrow: `eggpack contract expand` reads one bounded local schema-v1 contract, expands one target/alias through the existing `DistributionContract` APIs, and emits one scalar (`canonical-target`, or direct-artifact `asset`, `sidecar`, or `install`). Bundle/archive list projection, repository/network discovery, a new serialized expansion schema, and a general CLI framework remain out of scope. Product-specific invariants stay in consumer scripts.
+Bounded disposition: M003 is **closed**. The delivered surface is exactly the narrow one registered: `eggpack contract expand` reads one bounded local schema-v1 contract through the shared non-symlink reader, expands one target/alias through the existing `DistributionContract::parse_toml_str` and `::expand` APIs, and emits exactly one scalar (`canonical-target`, or direct-artifact `asset`, `sidecar`, or `install`) plus one newline. Bundle/archive list projection, repository/network discovery, release selection, a new serialized expansion schema, and a general CLI framework stayed out of scope, and each omission is now recorded with its reason in `architecture/cli.md`. Product-specific invariants stay in consumer scripts.
+
+Delivery notes worth carrying forward:
+
+- the command uses a **command-local exact argument parser** rather than the shared `get_flag` helper, because that helper silently keeps the first occurrence of a repeated flag — unacceptable for output a consumer script captures. The historical `ci` family was left byte-for-byte unchanged;
+- `canonical-target` resolves for every asset form while `asset`/`sidecar`/`install` fail closed for bundle and archive targets. The first implementation had this inverted and the test lane caught it (closure finding C-1);
+- consumer-shaped parity was proven by running the binary against the real `eggsact@d4e6e5c` and `stegoeggo@v0.5.0` contracts for every target, every alias, and all four fields — 80 queries, matching both consumers' frozen public names. A byte-identical copy of the adopted eggsact contract is checked in as a regression fixture;
+- the documented CLI README example is executed verbatim by a guard test, so it cannot repeat the earlier unguarded-example drift;
+- one optional consumer-side consequence: each consumer can now delete its hand-written asset-name reconstruction, under a plan in that consumer's own repository. That work is not authorized here.
 
 ## 8. Cross-cutting requirements
 
@@ -210,7 +218,7 @@ A future combined Eggpack producer configuration must reference this contract ra
 
 ## 11. Completion definition
 
-The authority-transfer portion is complete: contract v1/conformance are Eggpack-owned and Eggup M004 removed the competing producer crate. The first-consumer evidence condition for M003 is satisfied and the bounded implementation plan is registered. Subsystem completion now waits on M003 implementation/closure evidence, not additional consumer research.
+The authority-transfer portion is complete: contract v1/conformance are Eggpack-owned and Eggup M004 removed the competing producer crate. The first-consumer evidence condition for M003 was satisfied, and M003 is now closed (`plans/closure/contract-conformance/003-status.md`) on implementation `43fa2d7`: the bounded local scalar projection exists, is tested at the process boundary, and is proven against both adopted consumers' real contracts. Both parts of the completion definition are met, so the contract-conformance subsystem is **complete** and no further contract milestone is registered. Remaining contract-shaped duplication is consumer-side cleanup, owned by those repositories.
 
 ## 12. Milestone status
 
@@ -218,4 +226,4 @@ The authority-transfer portion is complete: contract v1/conformance are Eggpack-
 |---|---|---|---|---|
 | M001 | closed | `plans/implementation/contract-conformance/001-workspace-and-distribution-contract-v1-import.md` | `plans/closure/contract-conformance/001-status.md` | — |
 | M002 | closed | `plans/implementation/contract-conformance/002-release-and-installer-conformance-validators.md` | `plans/closure/contract-conformance/002-status.md` | — |
-| M003 | ready | `plans/implementation/contract-conformance/003-bounded-direct-contract-expansion-cli.md` | — | First-consumer evidence satisfied; implement one local scalar direct-contract expansion projection over existing schema-v1 semantics. No new serialized schema, network/repository discovery, bundle/archive list projection, or general CLI framework |
+| M003 | closed | `plans/implementation/contract-conformance/003-bounded-direct-contract-expansion-cli.md` | `plans/closure/contract-conformance/003-status.md` | Closed on `43fa2d7`; bounded local scalar projection over existing schema-v1 semantics; 18 new tests including a process-boundary stdout contract; parity proven against eggsact `d4e6e5c` and stegoeggo `v0.5.0` for every target/alias/field; no new serialized schema, network or repository discovery, bundle/archive list projection, or CLI framework. Optional consumer-side asset-name cleanup becomes eligible, under plans in those repositories |

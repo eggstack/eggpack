@@ -1,6 +1,10 @@
 # Contract and Conformance Milestone 003 — Bounded Direct-Contract Expansion CLI
 
-Status: ready
+Status: closed
+
+Closure record: `plans/closure/contract-conformance/003-status.md`
+
+Closure disposition (2026-10-05): M003 is closed on implementation `43fa2d7` (branch `m003-contract-expand-cli`, fast-forwarded into `main`). `eggpack contract expand --contract <file> --release-id <opaque> --target <triple-or-alias> --field <canonical-target|asset|sidecar|install>` reads one local contract through the shared bounded non-symlink reader, delegates to `DistributionContract::parse_toml_str` and `::expand`, and prints exactly one scalar plus one newline; every failure exits nonzero with an empty stdout and a bounded stderr diagnostic. It adds no dependency, no serialized schema, no repository or network discovery, no release selection, no bundle/archive list projection, and no CLI framework, and the historical `ci` family is unchanged byte-for-byte including the `unknown ci subcommand` diagnostic. Two design points are recorded as load-bearing: the command uses a command-local exact argument parser because the shared `get_flag` helper silently keeps the first occurrence of a repeated flag, and `canonical-target` resolves for every asset form while `asset`/`sidecar`/`install` fail closed for bundle/archive (the first implementation had this inverted and the test lane caught it). Coverage is 10 new unit tests plus the crate's first process-boundary integration suite (8 tests), including a guard that runs the documented README example verbatim. Consumer-shaped parity was proven by running the built binary against the real eggsact `d4e6e5c` and stegoeggo `v0.5.0` contracts for every target, every alias, and all four fields — 80 queries, matching both consumers' frozen public names. `scripts/check-local.sh` exits 0 including the Rust 1.89.0 MSRV lane and `cargo package` for all seven crates. The roadmap §11 completion definition is fully met, so the contract-conformance subsystem is complete; the only downstream effect is that each consumer's optional asset-name reconstruction cleanup became actionable, under plans registered in those repositories.
 
 Repository implementation baseline: `911da48c7c1c7967397a2d190730fc643c8c6dc3`
 
