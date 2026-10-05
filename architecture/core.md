@@ -1,153 +1,141 @@
 # `eggpack-core` — Deep Dive
 
-Producer-side planning, qualification, local finalization, and manifest
-aggregation. Four source files: `src/lib.rs` (1056 lines, planning + manifest
-aggregation), `src/builder.rs` (1301 lines, build seam),
-`src/qualification.rs` (2610 lines, qualification),
-`src/finalization.rs` (860 lines, finalization).
+Crate-level orientation for `eggpack-core`: the producer pipeline. This file
+explains how the four source files divide the work and what flows between them.
+It does not restate the per-file detail — each stage has its own deep dive.
 
-## Pipeline
+`eggpack-core` is the only crate that writes **release artifacts** (finalized
+output roots, archives, sidecars) and the only one that spawns **toolchain**
+processes as part of the release pipeline — Cargo, `cargo zigbuild`, Zig, and
+QEMU. Other crates touch the filesystem or spawn processes in narrower ways:
+`eggpack-cli` writes command outputs and shells out to `git` for source-revision
+verification, and `eggpack-ci` runs a caller-supplied external validator. `core`
+is the only crate that produces the bytes a release is made of.
+`contract` and `manifest` are pure leaves,
+`bootstrap` and `ci` derive documents from core's outputs, `github` consumes
+core's finalized release, and `cli` wires all of it.
+
+Code baseline `fc072af`; 5827 lines across four files.
+
+## File map
+
+| File | Lines | Owns | Deep dive |
+|---|---|---|---|
+| `src/lib.rs` | 1056 | policy vocabulary, `PackConfig` -> `ReleasePlan`, `build_manifest` | [core-planning.md](core-planning.md) |
+| `src/builder.rs` | 1301 | build bindings, command construction, bounded execution, candidate discovery | [core-build.md](core-build.md) |
+| `src/qualification.rs` | 2610 | qualification bindings, method taxonomy, host matching, evidence | [core-qualification.md](core-qualification.md) |
+| `src/finalization.rs` | 860 | qualification gate, output root, archives, sidecars, manifest | [core-finalization.md](core-finalization.md) |
+
+Read them in pipeline order. The rough size split is itself informative:
+qualification is the most intricate part of the producer, and finalization is
+the smallest because most of its work is delegated to `eggpack-manifest` and
+`eggpack-contract`.
+
+## Stage-to-stage data flow
+
+The types below are the seams between stages. Each is defined in exactly one
+file and consumed by the next; no stage redefines another's vocabulary.
 
 ```text
-DistributionContract + PackConfig + release_id + source_revision + selected
- -> PackConfig::resolve() -> ReleasePlan (sorted canonical triples)
- -> BuildBindingsV1::validate_for + execute_target_cancellable -> BuildAttempt
- -> QualificationBindingsV1::validate_for + qualify_target -> QualificationEvidence
- -> FinalizationRequest -> finalize_release -> build_manifest -> ReleaseManifest v1
+DistributionContract          (eggpack-contract: layout authority)
+        |
+        |  PackConfig + contract
+        v
+ReleasePlan                   (lib.rs: intent, canonically sorted)
+        |
+        |  BuildBindingsV1           (builder.rs: logical output -> package/bin)
+        |  execute_target[_cancellable]
+        v
+BuildAttempt                  (builder.rs: candidate bytes, identity-bound to
+        |                        release + source revision)
+        |  QualificationBindingsV1  (qualification.rs: smoke binding per target)
+        |  qualify_target
+        v
+QualificationEvidence         (qualification.rs: host-matched proof, or failure)
+        |
+        |  finalize_release(FinalizationRequest)
+        v
+FinalizedRelease              (finalization.rs: bytes under contract names)
+        |
+        |  build_manifest
+        v
+ReleaseManifest               (eggpack-manifest: evidence over FINAL bytes)
 ```
 
-Identity (`release_id`/`source_revision`/`target`/`strategy`) threads every stage;
-mismatches fail closed. Note: `execute_target_cancellable` does **not** call
-`BuildBindingsV1::validate_for` internally — callers must validate separately
-(contrast `qualify_target_for_host_with_runner`, which validates both binding
-sets internally).
+Two separations are load-bearing and worth stating explicitly, because they are
+the reason the stages cannot be collapsed:
 
-## Key types / functions
+1. **`BuildAttempt` is not evidence.** It is candidate bytes plus the identity
+   of what produced them. Nothing may be published from a `BuildAttempt`; the
+   qualification gate in finalization is what turns bytes into a releasable
+   release.
+2. **The manifest is computed at finalization, not at build time.** Digests in
+   `ReleaseManifest` describe the final on-disk bytes after renaming, archiving,
+   and sidecar generation — not the candidate bytes the builder produced.
 
-**`src/lib.rs` — planning + aggregation:**
+## Cross-file contracts
 
-- `PackConfig{schema_version:1, targets:Vec<TargetPolicy>}` +
-  `PackConfig::from_toml()`, `PackConfig::resolve(contract, release_id,
-  source_revision, selected)`. Pure, deterministic, side-effect free.
-- `TargetPolicy{target, strategy, host_os, host_arch, qualification_host?,
-  toolchain, floor, qualification, support}`;
-  `BuildStrategy::NativeCargo | CargoZigbuild`;
-  `HostOs::Linux | Macos | Windows`; `HostArch::X86_64 | Aarch64 | Armv7`;
-  `CompatibilityFloor::None | Glibc{major,minor} | Macos{major,minor}`;
-  `Qualification::Native | DeferredNative | Emulated | Structural`;
-  `SupportTier::Required | NonGating | Experimental`.
-  `strategy` (how bytes are built) and `qualification` (how those exact bytes are
-  proved) are independent axes: `validate_policy()` admits `Native` for either
-  strategy exactly when the effective qualification host matches the target
-  OS/arch, keeps the `NativeCargo` rejection of cross-tool versions, and keeps
-  the floor applicability rules.
-- `ReleasePlan{schema_version, release_id, source_revision, targets}` +
-  `to_json()`; `PlannedTarget{target, policy, artifact_form}`;
-  `PlannedAssetForm::Direct | Bundle | Archive`.
-- `build_manifest(contract, input)`; `FinalizedReleaseInput{product_id,
-  release_id, source_revision, targets, evidence_references}`;
-  `FinalizedTargetInput{target, release_files, archive_members}`;
-  `CoreError`, `digest_file()`, `validate_policy()`, `host_matches_target()`.
+- **Identity binding.** Release identity and source revision are carried from
+  the plan through the build attempt into qualification evidence, so evidence
+  cannot be silently attributed to a different release or a different commit.
+- **Exact coverage.** Build bindings and qualification bindings are validated
+  against the plan for *exact* coverage: a missing target and an extra target
+  are both errors. Partial coverage would let a release ship with an unplanned
+  artifact.
+- **Host matching.** `Qualification::Native` is independent of the builder.
+  A `cargo zigbuild` candidate may be legitimately qualified natively when the
+  qualification host matches the target OS/architecture; a mismatch is a
+  `QualificationFailure::HostMismatch` recorded as a failure, never a pass and
+  never a skip. This is the rule that unblocked cross-tool builds. The two
+  stages enforce it differently and both must hold: the planning stage rejects
+  an inadmissible combination up front as a fail-closed `CoreError`
+  (`src/lib.rs:157-160`), and the qualification stage records the observed
+  `HostMismatch` at run time (`src/qualification.rs:216`). The planning gate
+  runs only inside `PackConfig::resolve`, not on plain parsing.
+- **Fail-closed everywhere.** A missing input, an unknown field, an out-of-bounds
+  count, or an unmatched identity is an error. There is no tolerant or
+  best-effort path in this crate.
 
-**`src/builder.rs` — bindings/command/execution:**
+## Boundaries
 
-- `LogicalOutputSelector::Direct | BundleEntry{index} | ArchiveMember{source}`;
-  `BuildBinding{selector, package, binary}`;
-  `BuildBindingsV1{schema_version:1, targets}` + `from_toml()`,
-  `validate_for(contract, plan)` (exact coverage, no extras). Internal
-  `validate_shape()` is private (runs inside `from_toml`/`validate_for`).
-  `BoundCommand` is defined but never constructed — flow uses `CommandSpec`
-  directly via `cargo_command()`.
-- `CommandSpec{executable, args, cwd, env, timeout, stdout/stderr limits}`;
-  `CommandOutcome::Success | Failed | TimedOut | Cancelled |
-  OutputLimitExceeded`; `ProcessEvidence` (byte counts, not contents);
-  `BuildCancellation`.
-- `CandidateArtifact{target, selector, package, binary, path, size}`;
-  `BuildAttempt{release_id, source_revision, target, strategy, tool_summary,
-  process, candidates}`.
-- `cargo_command(...)` — `cargo +<rust> build|zigbuild --release --locked
-  --target <triple[.glibc-floor]> --package --bin`, `CARGO_TARGET_DIR`-only env;
-  `preflight()` (rustc/cargo/zigbuild/zig versions, substring match);
-  `run_bounded_cancellable()`; `execute_target[_cancellable]`;
-  `private_target_dir()` (sanitized via `safe_component()`, marker file,
-  reuse rejected); `discover_candidate()` (exact
-  `<target_dir>/<triple>/release/<bin>[.exe]`, regular non-empty non-symlink
-  with parent-dir + containment checks). Stops at candidate bytes.
-
-**`src/qualification.rs` — bindings/evidence/execution:**
-
-- `CandidateSmokeBinding{selector, argv, timeout_ms, stdout/stderr limits}`;
-  `TargetQualificationBinding{smoke?}`;
-  `QualificationBindingsV1{schema_version:1, targets}` + `from_toml()`,
-  `validate_for(plan, build_bindings)` (smoke iff Native/DeferredNative/Emulated;
-  DeferredNative requires `qualification_host`). Internal `validate_shape()`
-  is private.
-- `QualificationRuntime{qemu_sysroot?}`;
-  `QualificationMethod::Native | Deferred | DeferredNativeOnNativeHost |
-  QemuUser | Structural`;
-  `QualificationStatus::Passed | Deferred | Failed(QualificationFailure)`;
-  `CandidateFormat::Elf | PeCoff | MachO`;
-  `CandidateArchitecture::X86_64 | Aarch64 | Armv7`;
-  `QualifiedCandidateEvidence{selector, package, binary, size, sha256, format,
-  architecture}`; `QualificationEvidence{schema_version:1, release_id,
-  source_revision, target, planned_classification, method, actual_host, support,
-  status, candidates, smoke_selector?, processes}` + `validate_for(...)`.
-- `QualificationRequest{contract, plan, target, attempt, build_bindings,
-  qualification_bindings, runtime, cancellation}`;
-  `qualify_target()`, `qualify_target_for_host[_with_runner]()`;
-  `inspect_candidate()`, `parse_binary_header()`, `qemu_for_target()`
-  (Linux/ELF-only: x86_64/aarch64/armv7 → `qemu-*`), `make_evidence()`.
-  Hashes bytes before/after execution; build success ≠ qualification.
-
-**`src/finalization.rs` — gating/copy/archive/manifest:**
-
-- `ArchiveEncoding::TarGzip` only;
-  `FinalizationTargetInput{target, attempt, qualification}`;
-  `FinalizationRequest{product_id, release_id, source_revision, targets,
-  evidence_references, archive_encoding?}`;
-  `FinalizedRelease{root, manifest}`.
-- `finalize_release(contract, plan, request, output_root)`: gates on
-  identity-matched evidence (`Required` must be `Passed`;
-  `NonGating|Experimental` may be `Deferred`), copies direct/bundle candidates
-  under contract names, assembles `TarGzip` (normalized mtime/uid/gid/mode,
-  contract member names), writes `{digest}  {asset}` sidecars from final bytes,
-  aggregates `ReleaseManifest v1` (artifact digests = final bytes, member
-  digests = archive-input bytes). Rejects mixed release/source, missing/extra
-  inventory, `.tar.gz` suffix mismatch, pre-existing output root; failure removes
-  only the owned root and returns no manifest. Unix `0700` output.
-
-## Boundaries / safety
-
-- Authority separation: contract owns names/layout; config owns policy; plan is
-  intent; manifest owns final digests. Config cannot redefine artifact names.
-- Finite/enumerated, `deny_unknown_fields`, `schema_version == 1`, bounded
-  counts (targets/bindings ≤256, args ≤128, capture ≤256KiB), no shell, no
-  generic command/plugin DSL, no network client (cross-tool provisioning is
-  `ready`-check only, not install).
-- Path/process safety: absolute repo root / pre-existing work root, symlink
-  rejection, canonical-containment, per-invocation `target/` dirs +
-  `.eggpack-owner`, pre/post hash + size equality, `env_clear()` + allowlists,
-  `command-group` process-group kill, typed timeout/cancel/limit outcomes.
-- Qualification gates: `Native` requires the effective qualification host
-  (`qualification_host`, else the build host) to match the target OS/arch and is
-  independent of `BuildStrategy`, so a `CargoZigbuild` candidate may be
-  qualified natively on a matching host (including a separate AArch64
-  qualification host for a cross-built candidate); it still requires a bounded
-  smoke binding, and a non-matching host yields a failed `HostMismatch` record
-  rather than a pass or a skip. Off-host `DeferredNative` → `Deferred` (never
-  `Passed`); `Emulated` fixed `qemu-* --version` preflight; `Structural` never
-  executes.
-- Producer rule: `BuildStrategy` decides how candidate bytes are constructed;
-  `Qualification` decides how those exact bytes are proved. A declared
-  `CompatibilityFloor` is a build-policy input carried into the cross-tool build
-  command — native execution on a matching host proves the candidate runs there,
-  it is not independent proof that the produced binary honours the declared
-  minimum glibc/macOS runtime.
-- Producer-side file construction only: no extract/install/publish/authenticate.
+- No network access. `core` never talks to a registry or a release host; that
+  is `eggpack-github`'s job.
+- No publication and no tag mutation. `core` produces files; staging a draft and
+  any publication remain separate, explicit, human-gated steps.
+- No shell interpretation. Commands are constructed as argument vectors and
+  executed directly; generated inputs are never passed through a shell.
+- No authenticity or provenance claims. Digests and sizes produced here are
+  integrity facts. See [determinism.md](determinism.md) and
+  [manifest.md](manifest.md).
+- No generic command DSL. The build adapter surface is restricted to the
+  first-party Cargo and `cargo zigbuild` paths (ADR-0004), not an arbitrary
+  user-defined command escape hatch.
+- No installed-state modeling. What a user actually has on disk is Eggup's
+  receipt, not anything core records.
 
 ## Dependencies / dependents
 
-- Deps (`Cargo.toml:14-23`): `eggpack-contract`, `eggpack-manifest`, `serde`
-  (derive), `serde_json`, `sha2`, `toml`, `command-group 5.0.1`, `tar`
-  (no default features), `flate2`.
-- Dependents: `eggpack-ci`, `eggpack-github`, `eggpack-cli`.
+Dependencies: `eggpack-contract`, `eggpack-manifest`, `serde`, `serde_json`,
+`sha2`, `toml`, `command-group` 5.0.1, `tar`, `flate2`.
+
+Dependents: `eggpack-ci` (projects the pipeline into a CI graph and encodes
+evidence handoffs), `eggpack-github` (consumes `FinalizedRelease` and the
+manifest to build a staging payload), `eggpack-cli` (invokes the stages as
+file-in/file-out runner commands).
+
+## Related deep dives
+
+- [overview.md](overview.md) — workspace-level view
+- [contract.md](contract.md) — the layout authority core resolves against
+- [manifest.md](manifest.md) — the schema-v1 document finalization produces
+- [core-planning.md](core-planning.md), [core-build.md](core-build.md),
+  [core-qualification.md](core-qualification.md),
+  [core-finalization.md](core-finalization.md) — per-stage detail
+- [determinism.md](determinism.md) — sorting and byte-identical output rules
+- [validation-model.md](validation-model.md) — the fail-closed model
+- [process-execution.md](process-execution.md) — bounded process execution and
+  environment handling
+- [testing-and-portability.md](testing-and-portability.md) — how this crate is
+  tested, including the Windows-only lanes
+- [principles-roadmap.md](principles-roadmap.md) — ADRs, in particular ADR-0004
+  (build adapter) and ADR-0005 (native qualification for cross-tool builds)

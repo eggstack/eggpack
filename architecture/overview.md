@@ -1,109 +1,275 @@
 # Eggpack Architecture Overview
 
-Bird's-eye view of the Eggpack codebase: producer-side release construction and
-distribution infrastructure for Eggstack. Eggpack centralizes portable release
-contracts, target/build/qualification planning, artifact composition, release
-manifests, bootstrap installers, and generated release CI.
+Bird's-eye view of the Eggpack codebase: **producer-side** release construction
+and distribution infrastructure for Eggstack. Eggpack centralizes portable
+release contracts, target/build/qualification planning, artifact composition,
+release manifests, bootstrap installers, generated release CI, and draft staging.
 
 It deliberately does **not** replace Eggup: Eggup remains the consumer-side
-verified installation/update/rollback layer.
+verified installation/update/rollback layer, and the product repository owns
+release/install policy. See [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md).
 
-Last verified against the workspace at `3964494` (see git log); line counts
-below are approximate and pinned per deep dive.
+Code baseline: `fc072af` (this document and its deep dives are a docs-only
+change; no source file was modified). Line counts below are measured against
+that baseline and were re-verified when this index was written — re-verify them
+against the workspace if you touch the overview again. Milestone/evidence
+statuses are **not** restated here; `plans/registry.md` is the authority for
+those, and [principles-roadmap.md](principles-roadmap.md) narrates them.
 
-## Module map
+## How to read this document
+
+This file has two jobs, deliberately:
+
+1. **A general overview per component** — one card per crate and per
+   cross-cutting concern, describing what that component owns, its entry
+   points, and the invariants it is responsible for enforcing.
+2. **An index for deep dives** — every card links to a dedicated
+   `architecture/*.md` file covering that component in depth, with `file:line`
+   references into the source.
+
+Start here, then follow exactly one link into the area you are reviewing.
+
+## Pipeline map
 
 ```text
-DistributionContract (eggpack-contract)          <- portable expected layout, single authority
-        |
-PackConfig -> ReleasePlan (eggpack-core)         <- invocation intent (pure, sorted, deterministic)
-        |
-BuildBindingsV1 -> cargo/zigbuild -> BuildAttempt (eggpack-core/builder.rs)
-        |
-QualificationBindingsV1 -> qualify_target -> QualificationEvidence (eggpack-core/qualification.rs)
-        |
-finalize_release -> FinalizedRelease + ReleaseManifest v1 (eggpack-core/finalization.rs, eggpack-manifest)
-        |
-render_posix/powershell (eggpack-bootstrap)     <- first-install scripts from contract + manifest
-        |
-CIPlan -> ReleaseCIPlanV1 -> generated release.yml (eggpack-ci)
-        |
-StagingPayloadV1 -> GitHub draft (eggpack-github)  <- draft-only, exact tag, no publication
-        |
-eggpack CLI (eggpack-cli)                        <- deterministic wiring for all of the above
+  DistributionContract (contract)            portable expected layout — the single authority
+          |
+          v
+  PackConfig --> ReleasePlan (core-planning)  invocation intent — pure, sorted, deterministic
+          |
+          +--> BuildBindingsV1 --> cargo / cargo-zigbuild --> BuildAttempt     (core-build)
+          |         identity-bound to release + source revision; candidate bytes only
+          |
+          +--> QualificationBindingsV1 --> qualify_target --> Evidence          (core-qualification)
+          |         host-matched proof; independent of which builder ran
+          |
+          v
+  finalize_release --> FinalizedRelease + ReleaseManifest v1                   (core-finalization)
+          |         gates on qualification, archives, sidecars, manifest over final bytes
+          |
+          +--> render_posix / render_powershell                                (bootstrap)
+          |         first-install scripts from contract + manifest
+          |
+          +--> StagingPayloadV1 --> GitHub draft                               (github)
+          |         draft-only, exact existing tag, never published
+          |
+          v
+  CIPlan --> ReleaseCIPlanV1 --> generated release.yml                         (ci)
+          |         checked in, drift-checked, replays the steps above in CI
+          |
+          v
+  eggpack CLI                                                                    (cli)
+                    deterministic wiring only — hand-rolled args, no clap
 ```
 
-## Crates
+`eggpack-manifest` sits beside `core`: the leaf crate that owns the schema-v1
+evidence document itself, consumed by `core` (which writes it), `bootstrap` and
+`github` (which read it), and the published `eggup-eggpack` adapter downstream.
 
-| Crate | Role | Deep dive |
+## Crate components
+
+Dependency DAG (arrows point at dependencies):
+
+```text
+contract   manifest
+    |         |
+    +----+----+
+         |
+        core -------- bootstrap
+         |  \           /
+         |   \         /
+         |     github
+         |    /
+         |   ci
+         |   |
+         +---+--> cli   (cli depends on all six)
+```
+
+| Crate | Lines | Deep dive |
 |---|---|---|
-| `eggpack-contract` | Portable schema-v1 release layout authority + pure conformance validators. Sync, side-effect free. No build/publish/network. Single file `src/lib.rs` (~2302 lines). | [contract.md](contract.md) |
-| `eggpack-manifest` | Bounded schema-v1 JSON evidence for one finalized release (product/release/revision + exact size/SHA-256 per artifact). Leaf parser/serializer, no I/O. `src/lib.rs` (~1354 lines). | [manifest.md](manifest.md) |
-| `eggpack-core` | Pure PackConfig/ReleasePlan resolution, explicit Cargo build bindings, bounded candidate production, qualification evidence (native/deferred/QEMU/structural), producer-side finalization + manifest construction. `src/lib.rs` + `builder.rs` + `qualification.rs` + `finalization.rs`. | [core.md](core.md) |
-| `eggpack-bootstrap` | Renders release-specific direct first-install shell + PowerShell scripts from contract + manifest. No release selection, no updates. SHA-256 = integrity, not authenticity. `src/lib.rs` (~3436 lines). | [bootstrap.md](bootstrap.md) |
-| `eggpack-ci` | Projects release plans + Cargo bindings into a provider-neutral CI graph, renders deterministic GitHub Actions workflows from caller-supplied runner/pin policy, checks drift, wires qualification gates + aggregate/finalize + draft staging + consumer seam. `src/lib.rs` (~10221 lines). | [ci.md](ci.md) |
-| `eggpack-github` | Local staging payload materializer + GitHub draft adapter (draft-only, exact existing tag, no publication). `src/lib.rs` (~3019 lines) + `src/tests.rs` (~1848 lines). | [github.md](github.md) |
-| `eggpack-cli` | Deterministic `eggpack` binary: `ci generate` / `ci check` (exact + reusable shape modes) plus narrow internal runner commands (`_verify-source`, `_resolve-release`, `_capture-build`, `_qualify-target`, `_validate-consumer`, `_evaluate-gate`, `_aggregate`, `_prepare-stage`, `_stage-github-draft`). Single `src/main.rs` (~2940 lines), no `clap`. | [cli.md](cli.md) |
+| `eggpack-contract` | 2302 | [contract.md](contract.md) |
+| `eggpack-manifest` | 1354 | [manifest.md](manifest.md) |
+| `eggpack-core` | 5827 (4 files) | [core.md](core.md) |
+| `eggpack-bootstrap` | 3436 | [bootstrap.md](bootstrap.md) |
+| `eggpack-ci` | 10221 | [ci.md](ci.md) |
+| `eggpack-github` | 4867 (3019 + 1848 tests) | [github.md](github.md) |
+| `eggpack-cli` | 2940 | [cli.md](cli.md) |
 
-## Cross-cutting concerns
+### `eggpack-contract` — layout authority and validators
 
-| Topic | Deep dive |
-|---|---|
-| Domain model, terminology, four-object split (Contract / Plan / Manifest / Receipt) | [principles-roadmap.md](principles-roadmap.md) |
-| Roadmap phases + subsystem milestones (Build M001–M006 closed, CI M003a–h closed / M003b conditionally closed, Manifest M003 ready, Ecosystem M001 closed / M002 conditionally closed) | [principles-roadmap.md](principles-roadmap.md) |
-| ADRs 0001–0005 (producer/consumer boundary, object separation, checked-in CI + publication gate, first-party Cargo adapter, native qual for cross-tool builds) | [principles-roadmap.md](principles-roadmap.md) |
-| Tooling: workspace lints, `scripts/check-local.sh`, `.github/workflows/ci.yml`, closure/archive discipline | [principles-roadmap.md](principles-roadmap.md) |
-| Eggup interop (consumer mapping, fixtures) | [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md), [principles-roadmap.md](principles-roadmap.md) |
-| External backend evaluation (`dist` spike, disposition C) | [principles-roadmap.md](principles-roadmap.md) |
+Single `src/lib.rs`. Pure, sync, side-effect free: `serde` + `toml` only, no
+I/O, no process execution, no network. Owns `DistributionContract` (schema-v1
+expected layout: product identity, targets and aliases, asset names, sidecars,
+bundle entries, archive members, install names) and the conformance validators
+that compare a contract against an observed release. Key surface:
+`SCHEMA_V1`, `MAX_OBSERVED_ENTRIES`, `DistributionContract::{parse_toml_str,
+to_toml_string, resolve, expand}`, the `Expanded*` projection types,
+`ExtrasPolicy`, `expected_release_files`, `ReleaseInventory`,
+`validate_release_inventory`, `ArchiveMemberInventory`,
+`validate_archive_member_inventory`, the `Observed*Mapping` types,
+`ConformanceReport`, and `validate_observed_mapping`. Nothing downstream may
+redefine a layout name; downstream crates reference these types instead.
+**Deep dive:** [contract.md](contract.md).
 
-## Key invariants (apply everywhere)
+### `eggpack-manifest` — final-bytes evidence document
 
-- **Authority separation:** Contract owns layout/names; PackConfig owns policy;
-  ReleasePlan is intent, not evidence; ReleaseManifest describes final bytes only;
-  Eggup receipts describe installed state. No layer redefines another's names.
-- **Determinism:** target order preserved/canonical sort, stable serialization,
-  sorted inventories/findings, byte-identical renders for identical inputs.
-- **Fail-closed validation:** `deny_unknown_fields`, `schema_version == 1`,
-  bounded counts/sizes, exact-match resolution (no guessing, no alias fallback
-  where identity matters), `AllowExtras` default with opt-in `Exact`.
-- **Integrity ≠ authenticity:** SHA-256 + sizes are integrity facts, never trust
-  or provenance claims. Signatures/attestations are a separate future phase.
-- **Publication is gated:** staging targets drafts only on the exact existing tag;
-  public release stays a separate human action. No `--clobber`, no tag mutation,
-  no auto-publish, no immutable overwrite.
-- **Safety:** `#![forbid(unsafe_code)]` workspace-wide (`unsafe_code = deny`),
-  no shell interpretation of generated inputs, bounded process execution with
-  timeouts/output limits/cancellation, env allowlists, symlink rejection.
+Single `src/lib.rs`. Leaf parser/serializer with no I/O (`serde` + `serde_json`
+only), and the only crate here that is published for third-party consumption
+(`eggpack-manifest 0.1.0` on crates.io, consumed by `eggup-eggpack`). Owns
+`ReleaseManifest` plus `TargetRecord`, `ArtifactForm`, `ArtifactRecord`,
+`BundleRecord`, `ArchiveMemberRecord`, and `ByteEvidence`, with hard bounds
+`MAX_DOCUMENT_BYTES`, `MAX_TARGETS`, `MAX_RECORDS`, and
+`MAX_EVIDENCE_REFERENCES`. It describes **final bytes only** — never intent,
+never installed state.
+**Deep dive:** [manifest.md](manifest.md).
+
+### `eggpack-core` — the producer pipeline
+
+Four files. The only crate that writes release artifacts and the only one that
+spawns toolchain processes (Cargo, `cargo zigbuild`, Zig, QEMU):
+
+| File | Lines | Stage | Deep dive |
+|---|---|---|---|
+| `src/lib.rs` | 1056 | `PackConfig` → `ReleasePlan`, policy types, `build_manifest` | [core-planning.md](core-planning.md) |
+| `src/builder.rs` | 1301 | bindings, command specs, bounded execution, candidate discovery | [core-build.md](core-build.md) |
+| `src/qualification.rs` | 2610 | qualification methods, host matching, evidence | [core-qualification.md](core-qualification.md) |
+| `src/finalization.rs` | 860 | `finalize_release`, archive assembly, manifest aggregation | [core-finalization.md](core-finalization.md) |
+
+Crate-level orientation, dependency direction, and the cross-file data
+contracts live in [core.md](core.md).
+**Deep dive:** [core.md](core.md) → the four stage files above.
+
+### `eggpack-bootstrap` — first-install script generation
+
+Single `src/lib.rs`, depends on `contract` + `manifest` only. Renders
+release-specific, non-interactive first-install scripts from the contract layout
+and the finalized manifest: `render_posix` / `render_powershell` (spec-driven)
+and `render_posix_with_policy` / `render_powershell_with_policy` (policy-driven,
+via `BootstrapInstallPolicyV1`, `TargetInstallPolicy`, `InstallMode`,
+`BundleArchiveEncoding`). It performs **no release selection and no updates** —
+that is Eggup's job. Emitted SHA-256 values are integrity facts, never
+authenticity or provenance claims.
+**Deep dive:** [bootstrap.md](bootstrap.md).
+
+### `eggpack-ci` — release CI planning and workflow rendering
+
+Single `src/lib.rs` at 10221 lines, the largest component in the workspace.
+Depends on `contract` + `core`. Projects a release into a provider-neutral
+graph (`project_ci_plan` → `CIPlan` → `TargetJob`; `project_release_plan` →
+`ReleaseCIPlanV1` with qualification, gate, aggregate/finalize, and staging
+jobs) and renders deterministic GitHub Actions YAML from caller-supplied
+runner and action-pin policy (`render_github`, `render_release_github`,
+`render_reusable_release_github`), with byte-level drift comparison
+(`check_github`, `check_release_github`, `check_reusable_release_github`) and
+`DriftReport`. Also owns the Zig/cargo-zigbuild provisioning policy
+(`CrossToolProvisioningV1`, `zig_download_url`, `zig_expected_digest`),
+build/qualification artifact handoff formats, the external consumer validator
+(`run_consumer_validator`, `ConsumerValidatorV1`), and the reusable-workflow
+runtime identity contract (`ReleaseWorkflowShapeV1`,
+`resolve_runtime_release_plan`).
+**Deep dive:** [ci.md](ci.md) → [ci-rendering.md](ci-rendering.md),
+[ci-consumer-seam.md](ci-consumer-seam.md).
+
+### `eggpack-github` — staging payload and draft adapter
+
+`src/lib.rs` (3019) + `src/tests.rs` (1848, a `#[cfg(test)]` module). Note that
+the in-memory GitHub double `FixtureGithub` and its fault injectors live in
+`src/lib.rs`, **not** in `tests.rs`, and are not test-gated — they ship in the
+crate's public API. Depends on `contract`,
+`manifest`, `core`, and `bootstrap`; adds `tokio` + `eggfetch-core 0.2.0` for
+HTTP. Materializes a local `StagingPayloadV1` from a finalized release
+(`prepare_staging_payload`, `prepare_staging_payload_with_presentation`) and
+reconciles it into a **draft** through the `GithubApi` trait
+(`EggfetchTransport` in production, `FixtureGithub` for tests), producing a
+`GitHubDraftReceiptV1`. Presentation/wrapper policy
+(`InstallerPresentationV1`, `ProductWrapperSourcesV1`, `GitHubDraftTemplateV1`)
+is generated by default rather than hand-written.
+**Deep dive:** [github.md](github.md).
+
+### `eggpack-cli` — deterministic wiring
+
+Single `src/main.rs`, binary `eggpack`, no `clap`. Hand-rolled dispatch in
+`dispatch` (`src/main.rs:21`) with two user-facing subcommands —
+`eggpack ci generate` and `eggpack ci check` — plus nine narrow internal
+`ci _*` runner commands (`_verify-source`, `_resolve-release`, `_capture-build`,
+`_qualify-target`, `_validate-consumer`, `_evaluate-gate`, `_aggregate`,
+`_prepare-stage`, `_stage-github-draft`) that the generated workflow invokes as
+file-in/file-out steps. Exit code 0 on success, 1 with a single-line
+`eggpack: <message>` on failure. Owns the atomic-write, bounded-read,
+symlink-rejection, and relative-path-absolutization helpers that make the
+generated steps safe.
+**Deep dive:** [cli.md](cli.md).
+
+## Cross-cutting components
+
+These are the review units that cut across crates. Each has a dedicated file.
+
+| Component | What it governs | Deep dive |
+|---|---|---|
+| Determinism & serialization | canonical sort, stable field order, sorted inventories/findings, byte-identical renders and archives | [determinism.md](determinism.md) |
+| Fail-closed validation model | `deny_unknown_fields`, `schema_version == 1`, bounded counts/sizes, exact-match resolution, `AllowExtras`/`Exact` | [validation-model.md](validation-model.md) |
+| Process execution & environment | bounded cancellable process groups, cleared env with allowlist, MSVC init, no output leakage | [process-execution.md](process-execution.md) |
+| Test topology & portability | inline unit tests, fixture corpora, Windows/macOS lanes, MSRV, `scripts/check-local.sh` | [testing-and-portability.md](testing-and-portability.md) |
+| Planning & governance | `plans/` layout, closure discipline, ADRs, registry as control surface | [planning-and-governance.md](planning-and-governance.md) |
+| Domain model, ADRs, roadmap phases | four-object split (Contract / Plan / Manifest / Receipt), ADR-0001…0005, `dist` disposition C | [principles-roadmap.md](principles-roadmap.md) |
+| Eggup consumer mapping | how a `ReleaseManifest v1` maps onto Eggup install receipts | [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md) |
 
 ## Data flow (producer pipeline)
 
-1. Author `DistributionContract` (TOML, schema-v1) describing targets, aliases,
-   asset names, sidecars, archive members, install names.
-2. Author `PackConfig` (policy: builder/toolchain/qualification/support tier) and
-   resolve it against the contract into a canonically sorted `ReleasePlan`.
-3. Declare `BuildBindingsV1` (logical-output → package/bin) and
-   `QualificationBindingsV1` (smoke bindings per target); both validated for
-   exact plan coverage.
-4. Build via first-party `cargo` / `cargo zigbuild` adapter into a `BuildAttempt`
-   (candidate bytes only, identity-bound to release + source revision).
-5. Qualify each target (`qualify_target`): format/arch inspection, byte hashing
-   before/after, bounded native/deferred/QEMU/structural execution →
-   `QualificationEvidence`.
-6. Finalize (`finalize_release`): gate required targets on qualification, copy
-   direct/bundle candidates under contract names, assemble `.tar.gz` archives,
-   write checksum sidecars, aggregate `ReleaseManifest v1` over final bytes.
-7. Render bootstrap installers (`eggpack-bootstrap`) and the local staging
-   payload (`eggpack-github`), reconcile into a GitHub draft (exact tag).
-8. Project the whole flow into checked-in CI (`eggpack-ci` + `eggpack` CLI) with
-   drift checking, so CI replays steps 2–7 deterministically.
+| # | Stage | Owner | Output |
+|---|---|---|---|
+| 1 | Author the distribution contract (TOML, schema-v1) | [contract](contract.md) | `DistributionContract` |
+| 2 | Resolve policy against the contract | [core-planning](core-planning.md) | `ReleasePlan` (canonically sorted) |
+| 3 | Declare build and qualification bindings, validated for exact plan coverage | [core-build](core-build.md), [core-qualification](core-qualification.md) | `BuildBindingsV1`, `QualificationBindingsV1` |
+| 4 | Build via first-party `cargo` / `cargo zigbuild` | [core-build](core-build.md) | `BuildAttempt` (candidate bytes) |
+| 5 | Qualify each target on a host-matched runtime | [core-qualification](core-qualification.md) | `QualificationEvidence` |
+| 6 | Finalize: gate, copy under contract names, assemble `.tar.gz`, write sidecars, aggregate the manifest | [core-finalization](core-finalization.md) | `FinalizedRelease` + `ReleaseManifest v1` |
+| 7 | Render installers and stage a draft | [bootstrap](bootstrap.md), [github](github.md) | scripts, `StagingPayloadV1`, `GitHubDraftReceiptV1` |
+| 8 | Project the whole flow into checked-in CI and check for drift | [ci](ci.md), [cli](cli.md) | `release.yml` |
 
-## Review guide
+## Key invariants (apply everywhere)
 
-Each deep-dive file follows the same shape: purpose → key types/functions with
-file paths → data/schema details → boundaries (explicit non-goals) →
-dependencies/dependents → tools/capabilities. Start with
-[contract.md](contract.md) and [manifest.md](manifest.md) (the two leaf
-authorities), then [core.md](core.md) (the pipeline), then
-[bootstrap.md](bootstrap.md), [ci.md](ci.md), [github.md](github.md),
-[cli.md](cli.md), and finally [principles-roadmap.md](principles-roadmap.md)
-for governance and milestones.
+- **Authority separation:** Contract owns layout/names; `PackConfig` owns policy;
+  `ReleasePlan` is intent, not evidence; `ReleaseManifest` describes final bytes
+  only; Eggup receipts describe installed state. No layer redefines another's
+  names.
+- **Determinism:** canonical sort, stable serialization, sorted inventories and
+  findings, byte-identical renders for identical inputs. See
+  [determinism.md](determinism.md).
+- **Fail-closed validation:** `deny_unknown_fields`, `schema_version == 1`,
+  bounded counts/sizes, exact-match resolution (no guessing where identity
+  matters), `AllowExtras` default with opt-in `Exact`. See
+  [validation-model.md](validation-model.md).
+- **Integrity ≠ authenticity:** SHA-256 digests and sizes are integrity facts
+  only. No signature, attestation, or provenance claim is made anywhere.
+- **Publication is gated:** staging targets drafts only, on the exact existing
+  tag. No `--clobber`, no tag mutation, no auto-publish, no immutable
+  overwrite. Publication is a separate human action.
+- **Safety:** `#![forbid(unsafe_code)]` workspace-wide (`unsafe_code = "deny"`),
+  no shell interpretation of generated inputs, bounded process execution with
+  timeouts/output limits/cancellation, environment allowlists, symlink
+  rejection on output paths.
+
+## Review paths
+
+Pick the path that matches the question, then read only the linked files.
+
+- **"What does this repo do and how do the pieces fit?"** — this file, then
+  [principles-roadmap.md](principles-roadmap.md) §1 for the domain model.
+- **"Where is a name defined?"** — [contract.md](contract.md). Contract is the
+  only authority; everything else references it.
+- **"How do artifacts and evidence get produced?"** — [core.md](core.md) and
+  its four stage files, in pipeline order.
+- **"What ends up in the release?"** — [core-finalization.md](core-finalization.md)
+  then [manifest.md](manifest.md).
+- **"What does a user run first?"** — [bootstrap.md](bootstrap.md).
+- **"What runs in CI, and is the checked-in workflow still correct?"** —
+  [ci.md](ci.md) and [ci-rendering.md](ci-rendering.md).
+- **"How does anything reach a human?"** — [github.md](github.md) (draft only)
+  and [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md).
+- **"Is this deterministic / validated / safe to run?"** —
+  [determinism.md](determinism.md), [validation-model.md](validation-model.md),
+  [process-execution.md](process-execution.md).
+- **"Can I trust the tests?"** — [testing-and-portability.md](testing-and-portability.md).
+- **"What is done, blocked, or next?"** — `plans/registry.md`, narrated in
+  [planning-and-governance.md](planning-and-governance.md).
