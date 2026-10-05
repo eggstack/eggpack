@@ -46,7 +46,11 @@ Faster loops and single-test invocation: [AGENTS.md](AGENTS.md#verify-trust-thes
 ## Docs
 
 - [docs/](docs/) — user guides (start with [quickstart](docs/quickstart.md)).
-- [architecture/](architecture/) — crate deep dives, domain model, ADRs.
+- [architecture/](architecture/) — index and crate deep dives, domain model, ADRs
+  (start with [overview.md](architecture/overview.md)).
 - [plans/registry.md](plans/registry.md) — status, blockers, next handoff
   (Release Manifest M003 closed: `eggpack-manifest 0.1.0` is published to
   crates.io; no Eggpack-owned prerequisite remains outstanding for Eggup).
+- [AGENTS.md](AGENTS.md) — operating contract: verification commands, invariants,
+  planning conventions.
+- [.skills/](.skills/README.md) — task-shaped agent guidance.

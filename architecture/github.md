@@ -6,7 +6,7 @@ two bounded jobs: turn a finalized release into a local, inspectable
 `StagingPayloadV1`, and reconcile that payload into a **draft** release on an
 exact pre-existing tag. It never publishes.
 
-`crates/eggpack-github/src/lib.rs` (3019 lines), tests in `src/tests.rs`
+`crates/eggpack-github/src/lib.rs` (3025 lines), tests in `src/tests.rs`
 (1848 lines). `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]` at
 `lib.rs:9-10`, so every public item carries a doc comment. All citations below
 are to `crates/eggpack-github/src/lib.rs` unless another path is given.
@@ -19,17 +19,17 @@ boundary is enforced in code, not by convention.
 
 | Boundary | Enforced where | Citation |
 | --- | --- | --- |
-| Draft-only | `create_release` body hardcodes `"draft": true`; no user input reaches it | `2477-2484` |
+| Draft-only | `create_release` body hardcodes `"draft": true`; no user input reaches it | `2483-2490` |
 | Draft-only | created release re-asserted as a mutable draft before use | `2026-2028` |
 | Draft-only | a pre-existing release must already be a mutable draft | `2032-2034` |
 | Draft-only | receipt is always `draft: true, immutable: false`, and re-validated | `2204-2205`, `353-355` |
-| Never "latest" | `"make_latest": "false"` sent as a string | `2483` |
+| Never "latest" | `"make_latest": "false"` sent as a string | `2489` |
 | Exact existing tag | tag must peel to `payload.source_revision`, checked before **and** after staging | `1990-1997`, `2185-2192` |
 | Exact existing tag | the trait has no tag create/update/delete method at all | `1674-1734` |
-| No tag mutation | no `target_commitish` in the create body; the tag is never created or moved | `2477-2484` |
-| No `--clobber` | the string does not occur in this crate; the only mutating calls are create, upload, and the narrow starter delete | `2596-2620` |
-| No auto-publish | no `publish` endpoint and no `draft: false` field; `deny_unknown_fields` rejects such a document | `56`, `2481` |
-| No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2374-2375`, `2026`, `2032` |
+| No tag mutation | no `target_commitish` in the create body; the tag is never created or moved | `2483-2490` |
+| No `--clobber` | the string does not occur in this crate; the only mutating calls are create, upload, and the narrow starter delete | `2602-2626` |
+| No auto-publish | no `publish` endpoint and no `draft: false` field; `deny_unknown_fields` rejects such a document | `56`, `2487` |
+| No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2380-2381`, `2026`, `2032` |
 
 `--clobber` is a workspace-wide non-goal enforced statically in `eggpack-ci`
 (`crates/eggpack-ci/src/lib.rs3777`, `:6901`), not by a flag validated here.
@@ -76,9 +76,9 @@ draft to published.
 | `RemoteRelease` | `1635` | Release summary including `draft`, `immutable`, `upload_url`. |
 | `RemoteAsset` | `1656` | `{ id, name, size, state, digest }`; `digest` is `Option<String>` shaped `sha256:<hex>`. |
 | `trait GithubApi` | `1674` | The provider seam (`1669-1734`). |
-| `EggfetchTransport` | `2264` | Production transport over `eggfetch-core 0.2.0`; `impl GithubApi` at `2389-2621`. |
-| `FixtureGithub` | `2655` | In-memory double; `impl GithubApi` at `2818-3016`. |
-| `fixture_release` / `fixture_asset` | `2780` / `2802` | Constructors for fixture records. |
+| `EggfetchTransport` | `2264` | Production transport over `eggfetch-core 0.2.0`; `impl GithubApi` at `2395-2627`. |
+| `FixtureGithub` | `2661` | In-memory double; `impl GithubApi` at `2824-3022`. |
+| `fixture_release` / `fixture_asset` | `2786` / `2808` | Constructors for fixture records. |
 
 ## The `GithubApi` seam
 
@@ -107,41 +107,41 @@ What the trait asks of an implementation:
 The public `upload_asset` boundary takes `Box<dyn Read + Send>` (`1723`), while
 the internal core holds a seekable handle through the private `ReadSeek` trait
 (`1736-1751`) so it can size-check and hash a file before streaming it. Two
-implementations exist: `EggfetchTransport` (`2389-2621`) and `FixtureGithub`
-(`2818-3016`).
+implementations exist: `EggfetchTransport` (`2395-2627`) and `FixtureGithub`
+(`2824-3022`).
 
 ## `FixtureGithub` and the fault injectors
 
 **`FixtureGithub` is not test-gated. It is compiled into the shipped library
 and is part of this crate's public API.** The only two conditional attributes in
 the crate are `#[cfg(unix)]` at `544` and `#[cfg(test)] mod tests;` at
-`3018-3019`. `FixtureGithub` (`2655`), its inherent `impl` (`2659-2777`),
-`fixture_release` (`2780`), `fixture_asset` (`2802`) and
-`impl GithubApi for FixtureGithub` (`2818-3016`) are all unconditional — even
+`3024-3025`. `FixtureGithub` (`2661`), its inherent `impl` (`2665-2783`),
+`fixture_release` (`2786`), `fixture_asset` (`2808`) and
+`impl GithubApi for FixtureGithub` (`2824-3022`) are all unconditional — even
 though the section header above them reads "Deterministic fixture transport for
-tests" (`2623-2625`). `stage_with_bytes` (`1949`) is likewise public, and its
+tests" (`2629-2631`). `stage_with_bytes` (`1949`) is likewise public, and its
 only in-repo caller is the test suite.
 
-State lives in `FixtureInner` under a `Mutex` (`2632-2657`), seeded with a
+State lives in `FixtureInner` under a `Mutex` (`2638-2663`), seeded with a
 lightweight tag pointing at a commit, ids from 100 / 1000, and
-`upload_fail_502_create_starter: true` (`2675`).
+`upload_fail_502_create_starter: true` (`2681`).
 
 | Injector / observer | Line | What it proves |
 | --- | --- | --- |
-| `with_tag` | `2661` | A lightweight tag resolving straight to the source revision is accepted. |
-| `set_ref` | `2686` | Tag movement between the pre- and post-stage verify is caught by the TOCTOU guard (`2185`); an unresolvable tag (`None`) fails. |
-| `add_tag_object` | `2693` | Annotated tags peel to the exact commit; a chain deeper than `MAX_TAG_PEEL_DEPTH` (8) fails (`1813`). |
-| `seed_release` | `2702` | A pre-seeded published or immutable release makes staging reject without mutation (`2032`). |
-| `set_asset_page` | `2713` | Pagination edges: a short final page terminates successfully, a full page on the last allowed page fails closed (`1903-1910`); a duplicate or unexpected asset on a later page is still caught. |
-| `fail_upload_502_next` | `2722` | On 502 the core re-lists, deletes a single `state == "starter" && size == 0` record for that name, and still returns an error (`2120-2136`). `create_starter = false` proves the same path with no starter present. |
-| `fail_upload_422_next` | `2729` | A duplicate-name 422 fails closed immediately with no recovery (`2117-2119`). |
-| `rename_next_upload` | `2735` | The server's echoed name is authoritative — a renamed upload response is rejected (`2098-2100`). |
-| `digest_mismatch_next` | `2741` | A wrong `sha256` in the upload response is rejected (`2107-2111`) and in the final set (`2176-2181`). |
-| `size_mismatch_next` | `2747` | A wrong size in the upload response is rejected (`2104-2106`). |
-| `create_calls` | `2753` | Proves no release was created on a pre-flight failure (tag mismatch, absent token). |
-| `upload_calls` | `2758` | Proves no upload was attempted before a local digest failure. |
-| `delete_calls` | `2763` | Proves the delete path fires **only** in the narrow 502 starter recovery, never for a pre-existing uploaded asset. |
-| `assets_for` | `2768` | Reads back the exact post-stage remote asset set. |
+| `with_tag` | `2667` | A lightweight tag resolving straight to the source revision is accepted. |
+| `set_ref` | `2692` | Tag movement between the pre- and post-stage verify is caught by the TOCTOU guard (`2185`); an unresolvable tag (`None`) fails. |
+| `add_tag_object` | `2699` | Annotated tags peel to the exact commit; a chain deeper than `MAX_TAG_PEEL_DEPTH` (8) fails (`1813`). |
+| `seed_release` | `2708` | A pre-seeded published or immutable release makes staging reject without mutation (`2032`). |
+| `set_asset_page` | `2719` | Pagination edges: a short final page terminates successfully, a full page on the last allowed page fails closed (`1903-1910`); a duplicate or unexpected asset on a later page is still caught. |
+| `fail_upload_502_next` | `2728` | On 502 the core re-lists, deletes a single `state == "starter" && size == 0` record for that name, and still returns an error (`2120-2136`). `create_starter = false` proves the same path with no starter present. |
+| `fail_upload_422_next` | `2735` | A duplicate-name 422 fails closed immediately with no recovery (`2117-2119`). |
+| `rename_next_upload` | `2741` | The server's echoed name is authoritative — a renamed upload response is rejected (`2098-2100`). |
+| `digest_mismatch_next` | `2747` | A wrong `sha256` in the upload response is rejected (`2107-2111`) and in the final set (`2176-2181`). |
+| `size_mismatch_next` | `2753` | A wrong size in the upload response is rejected (`2104-2106`). |
+| `create_calls` | `2759` | Proves no release was created on a pre-flight failure (tag mismatch, absent token). |
+| `upload_calls` | `2764` | Proves no upload was attempted before a local digest failure. |
+| `delete_calls` | `2769` | Proves the delete path fires **only** in the narrow 502 starter recovery, never for a pre-existing uploaded asset. |
+| `assets_for` | `2774` | Reads back the exact post-stage remote asset set. |
 
 These injectors are the evidence for draft-only, no-clobber, and
 verify-after-upload: the only way to observe a remote mutation is a counter the
@@ -149,9 +149,9 @@ test itself inspects, and each counter is asserted against a fault that should
 have prevented the call.
 
 Two honest limitations of the double: `FixtureGithub::list_releases` returns an
-empty vector for any page other than 1 (`2857-2859`), so it does not model
+empty vector for any page other than 1 (`2863-2865`), so it does not model
 multi-page release listing; and `create_release` always returns
-`draft: true, immutable: false` (`2886-2887`), so the "server returned a
+`draft: true, immutable: false` (`2892-2893`), so the "server returned a
 non-draft creation" rejection at `2026` is unreachable through it.
 
 ## Staging payload materialization
@@ -246,7 +246,7 @@ file size before the request is built (`1873-1874`, `verify_file` at `1917`).
 
 Source identity: the tag must exist beforehand. The `GithubApi` trait has no
 create/update/delete-ref method (`1674-1734`) and the create request omits
-`target_commitish` (`2477-2484`), so no code path in this crate can create or
+`target_commitish` (`2483-2490`), so no code path in this crate can create or
 move a tag.
 
 ## Token handling and redaction
@@ -340,7 +340,7 @@ per-tag policies.
 | Created release must be a mutable draft | post-create assertion | `2026-2028` |
 | Published / immutable release is never adopted | draft + `!immutable` gate | `2032-2034` |
 | Tag must already exist and match the source revision | bounded peel, pre and post | `1778-1814`, `1990-1997`, `2185-2192` |
-| No tag creation or mutation | no such trait method; no `target_commitish` | `1674-1734`, `2477-2484` |
+| No tag creation or mutation | no such trait method; no `target_commitish` | `1674-1734`, `2483-2490` |
 | Exact-tag origin only, no `latest/download` | installer content guard | `814-817`, `1483-1486` |
 | Local bytes match the payload before upload | size + streamed digest | `1915-1946`, `2084` |
 | Upload response name must match | post-upload check | `2098-2100` |
@@ -356,7 +356,7 @@ per-tag policies.
 | Title / prerelease / body drift fails without mutation | existing-draft comparison | `2038-2043` |
 | Upload host pinned to `uploads.github.com` over exact https | URL check | `1832-1852` |
 | Asset pagination bound fails closed on a full last page | pagination loop | `1903-1910` |
-| 3xx fails closed; no redirect to any host | status gate, read and upload | `2325-2327`, `2580-2582` |
+| 3xx fails closed; no redirect to any host | status gate, read and upload | `2325-2327`, `2586-2588` |
 | No retries; bounded per-request time and body size | client built with timeout only, no retry configuration | `2261-2263`, `2299-2302` |
 | No deletion of a pre-existing uploaded asset | delete only for `state == "starter" && size == 0`, exactly one match | `2120-2134` |
 | No clobber / overwrite of an existing draft | reuse-only path; no replace or overwrite endpoint | `2141-2156` |
@@ -378,7 +378,7 @@ Deliberately **not** enforced here, listed honestly:
   returns a plain error and applies no narrow recovery, so it still fails closed
   — but as a confusing 422 rather than a clear bound violation.
 - **`immutable` defaults to `false` when the API omits it**
-  (`#[serde(default)]`, `2380-2381`). This is the one place where a missing
+  (`#[serde(default)]`, `2386-2387`). This is the one place where a missing
   field resolves to a permissive value, and it is deliberate: making the field
   mandatory would fail *every* release read against an API that does not return
   it, which is a strictly worse failure than the one it prevents. The gate at

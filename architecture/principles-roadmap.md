@@ -58,25 +58,29 @@ surface), `plans/003-planning-process.md`, `plans/subsystems/*-roadmap.md`.
   (eggsearch, Gregg, CodeGG, Egress); **Phase 12** provenance/
   authenticity; **Phase 13** specialized adapters (maturin/wheels, Cargo
   topology, Homebrew); **Phase 14** 1.0 stabilization.
-- **Subsystem status (registry-verified):** Contract M001/M002 closed, M003
-  planned; Manifest M001/M001a/M002/M003 all closed — M003 published
-  `eggpack-manifest 0.1.0` to crates.io from `8d661e4` (checksum
-  `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`) with published bytes
-  byte-identical to the consumer-qualified pin `678bbf04`, and an external
-  registry-only `=0.1.0` consumer proved resolution with no Git/path source;
-  Build M001–M006 all closed (incl. M005
-  deterministic cross-tool provisioning — exact Zig 0.14.1 / cargo-zigbuild
-  0.23.3 — and M006 native qual for cross-tool builds under ADR-0005);
-  Bootstrap M001/M002/M002a closed, M003 blocked on adoption evidence; CI
-  M001/M002/M002a/M003a/M003c/d/e/f/g/h closed, M003b conditionally closed
-  (only byte-identical rerun reuse blocked on eggsact M005a Windows
-  nondeterminism; live 15-asset eggsact draft staged); Eggup M001/M001a +
-  Eggup adapter M001/M001a closed, Eggup M003 closed downstream (eggsact +
-  Eggup CI runs); Ecosystem M001 closed (eggsact `v1.2.7`), M002 conditionally
-  closed (waits ordinary stable); External-backend evaluation closed
-  (disposition C, below). No Eggpack-owned prerequisite remains outstanding
-  for Eggup: Eggup's own `0.1.2` publication chain is its own next step, and
-  further Eggpack work requires new evidence rather than resuming a plan.
+- **Subsystem status:** deliberately *not* enumerated here. Milestone status is
+  volatile, and a restatement in an architecture document rots the moment a
+  closure lands — which is exactly how this block previously went stale while
+  claiming to be registry-verified. `plans/registry.md` is the authority; each
+  `plans/subsystems/*-roadmap.md` carries its own status table. The durable facts
+  worth keeping in an architecture document are the ones that explain *why* a
+  decision exists:
+  - Manifest M003 published `eggpack-manifest 0.1.0` to crates.io from `8d661e4`
+    (checksum `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`), with published
+    bytes byte-identical to the consumer-qualified pin `678bbf04`, and an
+    external registry-only `=0.1.0` consumer proved resolution with no Git or
+    path source. That publication is what let Eggup move off a Git/pin source,
+    so it is a compatibility decision, not a release chore. The other six
+    workspace crates remain unpublished.
+  - Build M005 pinned exact Zig 0.14.1 / cargo-zigbuild 0.23.3 provisioning for
+    reproducible cross-tool builds; Build M006 established under ADR-0005 that
+    host-matched native qualification is independent of the builder.
+  - The `dist` 0.33 spike closed as disposition C — prior art only, no backend
+    adopted (see §6).
+  - No Eggpack-owned prerequisite remains outstanding for Eggup. The Eggup
+    `0.1.2` publication chain that was previously described as Eggup's next step
+    is complete and closed downstream. Further Eggpack work requires new
+    evidence rather than resuming a closed plan.
 
 ## 3. ADRs (`plans/adrs/`, all accepted)
 

@@ -20,8 +20,8 @@ site is unbounded.
 | Core qualification smoke (QEMU) | `run_qemu_process` (`builder.rs:423`) | same `run_bounded_inner` | `smoke.timeout_ms` | same shared path | narrower 5-var allowlist |
 | Core git revision verification | `run_git_bounded` (`builder.rs:393`) | same `run_bounded_inner` | 30 s (`GIT_TIMEOUT`, `builder.rs:20`) | same shared path | 7-var allowlist incl. `HOME` (`builder.rs:473-485`) |
 | CLI source verification | `verify_source_revision` (`crates/eggpack-cli/src/main.rs:71`) | delegates to `run_git_bounded` | same 30 s | same shared path | same 7-var allowlist |
-| CI consumer validator | `run_consumer_validator` (`crates/eggpack-ci/src/lib.rs4153`) → `run_validator_process` (`lib.rs:4625`) | `command.spawn()` at `lib.rs:4638` | `validator.timeout_ms`, 1 000–600 000 ms (`lib.rs:3917`) | **none** — `Child::kill()` only (`lib.rs:4665`, `4670`, `4678`, `4685`) | `env_clear()` + `PATH` (+ `SYSTEMROOT` on Windows) (`lib.rs:4347-4354`) |
-| CI interpreter preflight | `run_interpreter_preflight` (`lib.rs:4372`) | `command.spawn()` at `lib.rs:4378` | `timeout_ms.min(30_000)` (`lib.rs:4387`) | **none** — `Child::kill()` at `lib.rs:4393` | same as above |
+| CI consumer validator | `run_consumer_validator` (`crates/eggpack-ci/src/lib.rs4153`) → `run_validator_process` (`lib.rs:4627`) | `command.spawn()` at `lib.rs:4640` | `validator.timeout_ms`, 1 000–600 000 ms (`lib.rs:3919`) | **none** — `Child::kill()` only (`lib.rs:4667`, `4672`, `4680`, `4687`) | `env_clear()` + `PATH` (+ `SYSTEMROOT` on Windows) (`lib.rs:4349-4356`) |
+| CI interpreter preflight | `run_interpreter_preflight` (`lib.rs:4374`) | `command.spawn()` at `lib.rs:4380` | `timeout_ms.min(30_000)` (`lib.rs:4389`) | **none** — `Child::kill()` at `lib.rs:4395` | same as above |
 
 ### What is shared and what is independent
 
@@ -35,7 +35,7 @@ exactly as `Qemu` admits only the three named QEMU binaries.
 
 `eggpack-ci` does **not** share it. `crates/eggpack-ci/Cargo.toml` declares no
 `command-group` dependency, and the validator uses `std::process::Command`
-directly (`lib.rs:4343`, `4378`, `4638`), reimplementing bounds checking, output
+directly (`lib.rs:4345`, `4380`, `4640`), reimplementing bounds checking, output
 capping, the poll loop, and the kill path. It matches the core contract on
 timeout bounds, output bounds, null stdin, environment clearing, and wait-after-
 kill; it does not match on process groups. This is the largest risk difference in
@@ -163,11 +163,11 @@ timeout and cancellation but above exit status — an over-limit run is never
 reported as a build failure, so an unbounded log flood cannot be mistaken for a
 compiler error.
 
-The CI validator caps the same way (`read_limited` at `lib.rs:4095`,
-`read_limited_stderr` at `lib.rs:4119`) and additionally detects the overflow
+The CI validator caps the same way (`read_limited` at `lib.rs:4097`,
+`read_limited_stderr` at `lib.rs:4121`) and additionally detects the overflow
 *promptly* rather than at the deadline: `take_finished_over`
-(`lib.rs:4416-4423`) joins only finished readers, and a completed over-limit
-reader kills the run at once (`lib.rs:4669-4673`). One weakness: these readers
+(`lib.rs:4418-4425`) joins only finished readers, and a completed over-limit
+reader kills the run at once (`lib.rs:4671-4675`). One weakness: these readers
 append the full chunk before comparing against the limit (`lib.rs:4105-4111`),
 so retained bytes can exceed the configured limit by up to one 8 KiB chunk,
 whereas `drain` truncates exactly to the limit.

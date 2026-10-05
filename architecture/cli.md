@@ -295,13 +295,18 @@ for installer content, so the CLI only reads and bounds them.
 ## Process execution: the `git` site
 
 `verify_source_revision` (`:71`) is the only production process spawn in this
-crate. `grep -n 'Command::new'` returns `main.rs:72` plus five sites inside
-`mod tests` (`:1239`, `:1257`, `:1264`, `:1859`, `:1874`); every environment
-variable access in the file is likewise test-only (`:1242-1245`, `:1862-1865`).
+crate — and it no longer constructs a `Command` itself. It delegates to
+`eggpack_core::run_git_bounded` (`:82-83`), so the bounded, process-grouped
+spawn lives in `builder.rs`, not here. `grep -n 'Command::new'` in this file now
+returns **only** test sites (`:1228`, `:1246`, `:1253`, `:1848`, `:1863`); there
+is no production `Command::new` in `eggpack-cli` at all. The file likewise reads
+no named environment variable: its only `std::env` uses are `args()` (`:8`) and
+`current_dir()` (`:526`, `:634`, `:651`, `:884`), plus a test-only `temp_dir()`
+(`:1164`).
 
 What it does: it validates that the expected revision is 40 lowercase hex
 characters (`:72-78`), then delegates to `eggpack_core::run_git_bounded`
-(`:81-82`), which owns the spawn. That helper builds a `CommandSpec` for
+(`:82-83`), which owns the spawn. That helper builds a `CommandSpec` for
 `git rev-parse --verify HEAD^{commit}` (`crates/eggpack-core/src/builder.rs:396`,
 `400-402`) and runs it through the same `run_bounded_inner` used for builds: a
 30 s deadline (`builder.rs:20`), a 4 KiB retained-output cap (`builder.rs:22`),
@@ -315,7 +320,7 @@ other than the one the plan was derived from, so every downstream artifact would
 describe a release the plan does not describe. Two call sites pin the identity:
 `ci _verify-source` (`:55-69`) requires the plan's `source_revision` to be 40
 lowercase hex then verifies it against the inherited working directory (`:68`);
-`ci _resolve-release` (`:119`) verifies the caller-supplied `--source-revision`
+`ci _resolve-release` (`:99`) verifies the caller-supplied `--source-revision`
 against the explicit `--source-root` before resolving anything.
 
 It fails closed. Anything other than `CommandOutcome::Success` is an error

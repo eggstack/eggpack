@@ -99,7 +99,11 @@ Distribution predecessor evidence:
 
 Planning Hygiene M001 is closed. No Eggpack feature implementation milestone is currently `ready`.
 
-Three lines moved from evidence-gated to research/plan-ready as a result of M001. None is authorized for implementation: each needs its own researched implementation plan first.
+The table below is the **milestone-to-closure index**, not a work queue: all but its
+first three rows are historical, retained so a closure record stays reachable from
+the control surface. Those three moved from evidence-gated to research/plan-ready as
+a result of M001, and none is authorized for implementation — each needs its own
+researched plan first.
 
 | Subsystem | Milestone | Status | Plan | Dependencies |
 |---|---|---|---|---|
@@ -136,17 +140,16 @@ Three lines moved from evidence-gated to research/plan-ready as a result of M001
 
 ## Planned / blocked work
 
+Only genuinely open lines belong here. Closed milestones are indexed under
+"Dependency-ready implementation work" above and in the per-subsystem roadmaps;
+a closed row in this table is a contradiction, and the six that used to sit here
+were removed rather than left to mislead.
+
 | Subsystem | Milestone | State | Blocker |
 |---|---|---|---|
-| CI orchestration | M003b exact rerun reuse / Phase 8 exit | closed | Discharge in `plans/closure/ci-release-orchestration/003b-status.md` §6: eggsact M005a `685fa373`, rehearsal run `36886042696` attempt 2 (`created: false, uploaded: 0, reused: 15`, identical digests, zero refusals). All eleven §13 criteria met; fix was product-side, no Eggpack change |
-| CI orchestration | M003e generated release execution wiring | closed | Closure `plans/closure/ci-release-orchestration/003e-status.md`; implementation `b9062d4`; historical first re-pin was superseded by M003f and M003g pins |
 | Bootstrap installers | M003 two-consumer adoption/receipt decision | unblocked for candidate review | Two-consumer evidence satisfied (eggsact `v1.2.7`, stegoeggo `v0.5.0` run `37181914252`). Needs candidate review + implementation plan; no implementation authorized |
 | Contract and conformance | M003 consumer polish | research/decision ready | Consumer evidence satisfied; duplicated parse/expand glue precisely identified across 2 repos / 3 implementations. Needs a bounded plan; general CLI framework not authorized |
 | Ecosystem adoption | M003 eggsearch diversity | unblocked for research/plan | M002 ordering gate cleared. Preflight reconciliation needed: older Zig/cargo-zigbuild pins, Windows ARM64 runner/host mapping, QEMU qualification semantics, and current `--clobber` draft-rerun behavior vs Eggpack fail-closed policy |
-| Eggup interoperability | M002 optional adapter | closed / qualified | Eggup implementation `5fbb66853bdad59aaf2bd3c7bb43a43492d0b6ef`; corrective implementation `19935ec3610a5238af33a9d4f05a14925ceac25c`; closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/001a-status.md` |
-| Eggup interoperability | M003 Eggsact runtime manifest adoption | closed / Eggup-owned | `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/003-status.md`; consumer `eggstack/eggsact@65c916b`; hosted CI `36902758482` + drift `36902758396` green |
-| Ecosystem adoption | M002 stegoeggo direct release adoption | closed | Closure `plans/closure/ecosystem-adoption/002-status.md` §9; live evidence is stegoeggo `v0.5.0` (run `37181914252`, published 2026-10-04T06:34:19Z); consumer cutover `3b96fae` / closure `c75132a`; updater corrective M003 closed `f80eebe3`; consumer M005 closure `eggstack/stegoeggo@7bde933b` |
-| Ecosystem adoption | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | Closure `plans/closure/ecosystem-adoption/001-status.md`; published `v1.2.7` from run 36652731202 |
 | Ecosystem adoption | M004 Gregg sibling bundle | blocked | Remains after Eggsearch target-diversity evidence; prior adoption evidence + Gregg bundle/service review |
 | Ecosystem adoption | M005 CodeGG runfile bundle | blocked | Remains after a qualified sibling-bundle consumer; prior bundle evidence + CodeGG runfile review |
 | Ecosystem adoption | M006 Egress archive pair | blocked | Remains after prior native adoption evidence; requires explicit archive/Python boundary review |
@@ -200,7 +203,7 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
          |                                                                  v
          |                                                      CI M003a [HISTORICAL CLOSE; CORRECTIVE CLOSED]
          |                                                                  |
-         |                                                                  `--> CI M003b [HISTORICAL CONDITIONAL CLOSE]
+         |                                                                  `--> CI M003b [CLOSED: rerun reuse discharged by eggsact M005a]
          |                                                                               |
          |                                                                               v
          |                                                                    CI M003c [CLOSED]
@@ -272,7 +275,7 @@ External dist 0.33 spike [CLOSED, disposition C] --> prior art only
 
 ## Next handoff
 
-Manifest M002, Build/Qualification M001-M005, CI M001/M002/M002a/M003a/M003b/M003c/M003d, Bootstrap M001/M002/M002a, and Eggup Interoperability M001a retain closure records. Eggup Interoperability M003 is also closed downstream on the real Eggsact consumer.
+Every closed milestone retains its closure record, so do not read this section as a shortlist: Contract M001/M002, Release Manifest M001/M001a/M002/M003/M003a, Build/Qualification M001–M006, CI M001/M002/M002a/M003a–M003h, Bootstrap M001/M002/M002a, Eggup Interoperability M001/M001a, Ecosystem M001/M002, External backend evaluation M001, and Planning Hygiene M001 all have accepted closure records under `plans/closure/`. Eggup Interoperability M003 is additionally closed downstream on the real Eggsact consumer. Per-subsystem detail is in `plans/subsystems/*-roadmap.md`; the milestone-to-closure index is the table above.
 
 M003h is closed on the synchronized, verified candidate. **Ecosystem M002 stegoeggo is closed** at `plans/closure/ecosystem-adoption/002-status.md` §9: consumer implementation `3b96fae` and closure `c75132a` prove the second-repo cutover without a new Eggpack producer primitive, and the live evidence arrived as stegoeggo `v0.5.0` — Eggpack run `37181914252`, published 2026-10-04T06:34:19Z from source `57ca94c9…`, exact 15-asset inventory, manual publication, real public `0.4.2 -> 0.5.0` updater transition. The `0.4.3` milestone earlier planning anticipated was stopped pre-publication by the consumer on semver grounds and superseded by `0.5.0`.
 
@@ -304,7 +307,7 @@ The live evidence closes Ecosystem M001 and M002, discharges CI M003b, and satis
 | Bootstrap M003 | **Unblocked for candidate review**; no implementation authorized. Real two-consumer adoption evidence now exists (eggsact `v1.2.7`, stegoeggo `v0.5.0` run `37181914252`, both publicly shipping Eggpack-generated exact installers). |
 | Contract M003 | **Research/decision ready**; no implementation authorized. First-consumer evidence satisfied; duplicated `tomllib` parse/expand glue precisely identified across 2 repositories and 3 implementations. Any future plan stays a bounded local parse/expand/inspection surface, not a general CLI framework. |
 | Build/Qualification M006 | Closed under accepted ADR-0005 Option A; implementation `398cd43`, hosted run 36484758546 green. |
-| Eggup Interoperability M003 | Closed in Eggup/Eggsact. Consumer `eggstack/eggsact@65c916b`; Eggup closure `plans/closure/eggpack-manifest-interoperability/003-status.md`; hosted CI `36902758482` + drift `36902758396` green. |
+| Eggup Interoperability M003 | Closed in Eggup/Eggsact. Consumer `eggstack/eggsact@65c916b`; Eggup closure `eggstack/eggup: plans/closure/eggpack-manifest-interoperability/003-status.md`; hosted CI `36902758482` + drift `36902758396` green. |
 | Release Manifest M003 | Closed. `eggpack-manifest 0.1.0` published from `8d661e4` (checksum `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`), published bytes byte-identical to the consumer-qualified pin `678bbf04`, and exact registry-only `=0.1.0` resolution proven by an external consumer. This removed the Eggpack-owned prerequisite identified by Eggup M004a. |
 | Eggup M004 | Closed downstream in Eggup at `eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915` after publishing `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` from publication source `eggstack/eggup@02a1d32931be29cc3d8980833643b2cd822f2d28` under hosted run `37090397398`; formal Eggup status cleanup `eggstack/eggup@3b82d5397e728649a666690868a1e2d0fe42460d`. Eggpack does not claim that work as its own. The chain is no longer a blocker, and `eggup-eggpack 0.1.2` now consumes registry `eggpack-manifest =0.1.0`. |
 | Eggsact Git-to-registry migration | Not an Eggpack item. Downstream, Eggsact-owned, and separately authorized in `eggstack/eggsact`; it does not gate any Eggpack milestone. |

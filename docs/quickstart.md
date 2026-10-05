@@ -197,7 +197,8 @@ Any manual edit is caught — append a line and re-run to see:
 eggpack: ci check: drift detected (expected 6831 bytes, found 6845 bytes, first difference at Some(6831))
 ```
 
-(exit 1). Comparison is CRLF→LF only; there is no fuzzy matching.
+(exit 1). The "found" count is just your file's new size, so it depends on what
+you appended. Comparison is CRLF→LF only; there is no fuzzy matching.
 
 ## Next steps
 

@@ -208,7 +208,7 @@ provenance claim is made or implied.
 
 ## Dependencies / dependents
 
-Own dependencies (`crates/eggpack-core/Cargo.toml:14-24`):
+Own dependencies (`crates/eggpack-core/Cargo.toml:14-23`):
 
 | Crate | Used here for |
 | --- | --- |

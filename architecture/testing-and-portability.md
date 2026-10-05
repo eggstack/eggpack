@@ -43,7 +43,7 @@ What this buys: tests can reach `pub(crate)` and private items without widening
 visibility, which matters for crates that keep internal invariants private
 (`qualification.rs` reaches `qualify_target_for_host` internals directly). The
 cost is review burden. `eggpack-ci` carries 59 unit tests starting at
-`crates/eggpack-ci/src/lib.rs4710` inside a 10221-line `lib.rs` — roughly 5500
+`crates/eggpack-ci/src/lib.rs4710` inside a 10256-line `lib.rs` — roughly 5500
 lines of test code in one file, with golden-rewriting tools and assertions
 interleaved. `eggpack-cli` puts 12 tests in a 2940-line `main.rs`, which also
 means the binary's tests only run through the binary target, never as a library.

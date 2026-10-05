@@ -1,6 +1,6 @@
 # `eggpack-ci` — Consumer Seam, Handoffs, and Runtime Identity — Deep Dive
 
-The half of `eggpack-ci` (`crates/eggpack-ci/src/lib.rs`, 10221 lines) concerned
+The half of `eggpack-ci` (`crates/eggpack-ci/src/lib.rs`, 10256 lines) concerned
 with agreeing on artifacts and identities rather than doing release work: the
 build/qualification handoff documents, the external consumer validator and its
 private process runner, the Zig/cross-tool provisioning contract, and the
@@ -8,6 +8,16 @@ reusable-workflow runtime identity. It divides from [ci.md](ci.md) (projection
 model, job vocabulary, gates, aggregation) and [ci-rendering.md](ci-rendering.md)
 (policy types, renderers, drift checking). Regions: `:487-713`, `:941-963`,
 `:1837-2207`, `:3840-4705`.
+
+> **Known-stale citations in this file.** Commit `61b2c03` moved
+> `crates/eggpack-cli/src/main.rs` and `crates/eggpack-core/src/builder.rs`
+> substantially, and this file's anchors into those two were not re-based — see
+> [overview.md](overview.md) §Citation-verification state. Anchors into
+> `crates/eggpack-ci/src/lib.rs` are current; the `:1837-2207` and
+> `:3840-4705` region bounds above are the pre-`61b2c03` values and are now
+> `:1837-2209` and `:3840-4707`. Treat the `main.rs` and `builder.rs` line
+> references as indicative until someone re-bases them by symbol name. The prose,
+> the handoff constant names, and the seam contract itself are unaffected.
 
 ## Responsibility
 

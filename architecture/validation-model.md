@@ -50,11 +50,11 @@ given, line numbers are in that crate's `src/lib.rs`.
 
 | Crate | Types carrying `deny_unknown_fields` |
 | --- | --- |
-| contract | `ProductIdentity` `:132`, `ChecksumSpec` `:143`, `BundleEntry` `:152`, `ArchiveMember` `:162`, raw shapes `RawContract` `:222`, `RawTarget` `:230`, `RawAsset` `:240` |
-| manifest | `ReleaseManifest` `:58`, `TargetRecord` `:77`, `ArtifactRecord` `:112`, `BundleRecord` `:124`, `ArchiveMemberRecord` `:134`, `ByteEvidence` `:147`, tagged `ArtifactForm` `:87` |
-| core | `HostRequirement` `lib.rs:369`, `ToolchainRequirement` `lib.rs:384`, `TargetPolicy` `lib.rs:418`, `PackConfig` `lib.rs:447`, `BuildBinding` `builder.rs71`, `BuildBindingsV1` `builder.rs83`, tagged `LogicalOutputSelector` `builder.rs52`, `CandidateSmokeBinding` `qualification.rs:43`, `TargetQualificationBinding` `qualification.rs:60`, `QualificationBindingsV1` `qualification.rs:69`, `QualifiedCandidateEvidence` `qualification.rs:257`, `QualificationProcessEvidence` `qualification.rs:277`, `QualificationEvidence` `qualification.rs:289` |
+| contract | `ProductIdentity` `:133`, `ChecksumSpec` `:144`, `BundleEntry` `:153`, `ArchiveMember` `:163`, raw shapes `RawContract` `:222`, `RawTarget` `:230`, `RawAsset` `:240` |
+| manifest | `ReleaseManifest` `:59`, `TargetRecord` `:78`, `ArtifactRecord` `:113`, `BundleRecord` `:125`, `ArchiveMemberRecord` `:135`, `ByteEvidence` `:148`, tagged `ArtifactForm` `:88` |
+| core | `HostRequirement` `lib.rs:370`, `ToolchainRequirement` `lib.rs:385`, `TargetPolicy` `lib.rs:419`, `PackConfig` `lib.rs:448`, `BuildBinding` `builder.rs71`, `BuildBindingsV1` `builder.rs83`, tagged `LogicalOutputSelector` `builder.rs53`, `CandidateSmokeBinding` `qualification.rs:44`, `TargetQualificationBinding` `qualification.rs:61`, `QualificationBindingsV1` `qualification.rs:70`, `QualifiedCandidateEvidence` `qualification.rs:258`, `QualificationProcessEvidence` `qualification.rs:278`, `QualificationEvidence` `qualification.rs:290` |
 | bootstrap | `:267`, `:279` |
-| ci | `:41`, `:57`, `:73`, `:93`, `:452`, `:467`, `:486`, `:502`, `:727`, `:780`, `:815`, `:850`, `:870`, `:1843`, `:1861`, `:2207`, `:2231`, `:2257`, `:2290`, `:2308`, `:3872`, `:3967`, `:4451`, `:4471` |
+| ci | `:41`, `:57`, `:73`, `:93`, `:452`, `:467`, `:486`, `:502`, `:727`, `:780`, `:815`, `:850`, `:870`, `:1843`, `:1861`, `:2209`, `:2233`, `:2259`, `:2292`, `:2310`, `:3874`, `:3969`, `:4453`, `:4473` |
 | github | `:56`, `:187`, `:205`, `:297`, `:975`, `:985`, `:1112` |
 
 Contract parsing attaches its strictness to private `Raw*` mirror types
@@ -71,7 +71,7 @@ to types that are not part of an untrusted document's own surface:
   (`crates/eggpack-core/src/qualification.rs:278`), which does carry the
   attribute. Serde's attribute is not inherited by nested structs, so an extra
   key inside a `process` object is accepted.
-- `ReleasePlan` (`crates/eggpack-core/src/lib.rs:455`) and `PlannedTarget`
+- `ReleasePlan` (`crates/eggpack-core/src/lib.rs:456`) and `PlannedTarget`
   (`:467`) derive both traits with no `deny_unknown_fields`. I found no
   non-test call site that deserializes a `ReleasePlan` from a string; they are
   constructed in code (`crates/eggpack-core/src/lib.rs:576`,
@@ -110,7 +110,7 @@ be a breaking change to that document only.
 | --- | --- |
 | core | `lib.rs:490`, `lib.rs:504`, `lib.rs:533`, `builder.rs238`, `qualification.rs:138`, `qualification.rs:325`, `qualification.rs:574` |
 | bootstrap | `lib.rs:323`, `lib.rs:409` |
-| ci | `lib.rs:209`, `:253`, `:1897`, `:2011`, `:2351`, `:3910`, `:4009`, `:4512`, `:4611` |
+| ci | `lib.rs:209`, `:253`, `:1897`, `:2011`, `:2353`, `:3912`, `:4011`, `:4514`, `:4613` |
 | github | `lib.rs:124`, `:253`, `:347`, `:1025`, `:1162` |
 
 Version checking is therefore duplicated roughly twenty times, and the
@@ -341,7 +341,7 @@ Four findings, all verified above, none of them a claim about intent.
    attribute, so unknown keys inside a `QualificationProcessEvidence.process`
    object are accepted, even though the containing type
    (`crates/eggpack-core/src/qualification.rs:277-285`) is strict. `ReleasePlan`
-   (`crates/eggpack-core/src/lib.rs:455`) and `PlannedTarget` (`:467`) are also
+   (`crates/eggpack-core/src/lib.rs:456`) and `PlannedTarget` (`:467`) are also
    unannotated. In practice the first is reachable from a serialized evidence
    document; the latter two are constructed in code today.
 2. **The two-tier `PackConfig` gap is a real hole in the invariant.** A

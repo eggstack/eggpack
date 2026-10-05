@@ -4,9 +4,14 @@ How this repository is planned, how a milestone is allowed to be called closed,
 and where the authority for "what is the current state" lives. This is a
 cross-cutting concern about the *process*, not about any one crate.
 
-Code baseline `fc072af`. Planning state is a moving target: `plans/registry.md`
+Code baseline `61b2c03`. Planning state is a moving target: `plans/registry.md`
 is the authority for current status, and this document deliberately does **not**
 restate milestone statuses, because they change. Read the registry for those.
+
+This file cites no `file:line` references into `crates/`, so it does not share the
+re-verification burden described in `overview.md`. The one count table below is
+the exception: re-measure it with `find plans -name '*.md' | wc -l` before editing
+this document again.
 
 ## What `plans/` is for
 
@@ -246,6 +251,16 @@ say so explicitly or the seam looks unfinished.
 | What did a specific milestone actually do, and how was it verified? | `plans/closure/<subsystem>/NNN-status.md` |
 | What must remain true? | `plans/000-…` and `plans/001-…` |
 | How is new work shaped? | `plans/003-planning-process.md` and this document |
+| What are the commands, and what must I not weaken? | `AGENTS.md` |
+| What is the task-shaped starting point for this kind of work? | `.skills/<name>/SKILL.md` — **derived**, never authoritative |
+
+`AGENTS.md` and `.skills/` are the agent-facing layer over the same process. They
+exist so an agent does not have to reconstruct the hierarchy to know what to do
+next, and they are the two files most likely to rot: the registry's status block
+and this document's own status restatements are the recurring failure. When a
+skill and this document disagree, this document is right and the skill is what
+gets fixed. A skill that needs a new rule does not get one — the rule goes into
+`AGENTS.md` or the owning deep dive, and the skill points at it.
 
 `plans/` and `architecture/` have different jobs and should not be merged.
 `architecture/` describes the system as it is. `plans/` describes how the system

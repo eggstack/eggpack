@@ -1,7 +1,7 @@
 # `eggpack-ci` — Deep Dive
 
 Crate-level orientation for `eggpack-ci`: the largest component in the workspace
-at 10221 lines in a single `src/lib.rs`. This file explains how that file divides
+at 10256 lines in a single `src/lib.rs`. This file explains how that file divides
 and what flows through it. It does not restate per-area detail — three deep
 dives cover the parts.
 
@@ -18,9 +18,9 @@ Code baseline `fc072af`.
 
 | Deep dive | Owns | Approximate region of `src/lib.rs` |
 |---|---|---|
-| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:418-1843`, `:2924-3844` |
-| [ci-consumer-seam.md](ci-consumer-seam.md) | the external consumer validator, runtime identity, artifact handoff formats | `:1844-2207`, `:3845-4430`, `:4430-4594` |
-| this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `:42-453`, `:2208-2740`, `:2741-2923` |
+| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:418-1843`, `:2926-3846` |
+| [ci-consumer-seam.md](ci-consumer-seam.md) | the external consumer validator, runtime identity, artifact handoff formats | `:1844-2209`, `:3847-4432`, `:4432-4596` |
+| this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `:42-453`, `:2210-2742`, `:2743-2925` |
 
 Read this file first, then follow exactly one of the other two.
 
@@ -64,10 +64,10 @@ ReleaseCIPlanV1                  (:2309 executable release graph)
 release.yml                      (checked in, drift-checked)
 ```
 
-`ReleaseCIPlanV1::validate` (`:2350`) is the structural gate on this graph: exact
+`ReleaseCIPlanV1::validate` (`:2352`) is the structural gate on this graph: exact
 qualification/target count agreement, the fixed `required_gate` and `aggregate`
 job ids, handoff-name bounds, canonical ordering, and `schema_version == 1`.
-`from_json` (`:2339`) additionally bounds the document against
+`from_json` (`:2341`) additionally bounds the document against
 `MAX_RELEASE_PLAN_JSON` before parsing. A malformed or reordered graph is
 rejected rather than rendered.
 
@@ -76,11 +76,11 @@ rejected rather than rendered.
 | Job | Type | Role |
 |---|---|---|
 | build (one per target) | `TargetJob` (`:58`) | builds candidate bytes; carries `outputs: Vec<BuildOutput>` (`:94`) mapping contract logical slots to an explicit Cargo package + binary |
-| qualification (one per target) | `QualificationJob` (`:2208`) | runs the target's smoke binding and records evidence |
-| required gate | id fixed to `required_gate` (`:2357`) | fails the release unless every required target's evidence passes |
-| aggregate | `AggregateJob` (`:2232`) | finalizes, producing the manifest and the final handoff |
-| staging (optional) | `StagingJob` (`:2291`) | materializes the staging payload and stages a draft; `Option`, so graphs without staging are valid |
-| consumer validation (optional) | `ConsumerValidatorV1` (`:3873`) | per-target external validator, keyed by canonical target triple |
+| qualification (one per target) | `QualificationJob` (`:2210`) | runs the target's smoke binding and records evidence |
+| required gate | id fixed to `required_gate` (`:2359`) | fails the release unless every required target's evidence passes |
+| aggregate | `AggregateJob` (`:2234`) | finalizes, producing the manifest and the final handoff |
+| staging (optional) | `StagingJob` (`:2293`) | materializes the staging payload and stages a draft; `Option`, so graphs without staging are valid |
+| consumer validation (optional) | `ConsumerValidatorV1` (`:3875`) | per-target external validator, keyed by canonical target triple |
 
 Two distinctions are load-bearing:
 
@@ -90,20 +90,20 @@ Two distinctions are load-bearing:
   `CIPlan` therefore cannot claim that anything was qualified. Evidence appears
   only after the qualification jobs run — see `core-qualification.md`.
 - **Staging is optional and additive.** `staging` and `consumer_validators` are
-  `#[serde(default, skip_serializing_if = ...)]` (`:2323`, `:2327`), so a graph
+  `#[serde(default, skip_serializing_if = ...)]` (`:2325`, `:2329`), so a graph
   that does not stage is a valid, smaller graph rather than a special case.
 
 ## Gates and aggregation
 
-- `evaluate_gate` (`:2741`) and `evaluate_gate_with_consumer` (`:2600`) decide
+- `evaluate_gate` (`:2743`) and `evaluate_gate_with_consumer` (`:2602`) decide
   whether required targets passed. This is the CI-layer expression of the same
   fail-closed rule core enforces at finalization: missing or failing required
   evidence is a failure, never a pass and never a skip.
-- `aggregate_finalize` (`:2801`) and `aggregate_finalize_with_consumer`
-  (`:2664`) drive the aggregate job, producing the final handoff artifact.
-- `with_github_draft_staging` (`:2707`) attaches the staging job to a graph.
-- `AggregateOutcome` (`:2244`), `FinalizationSettings` (`:2258`), and
-  `ArchiveEncodingWrapper` (`:2270`) describe what the aggregate job is
+- `aggregate_finalize` (`:2803`) and `aggregate_finalize_with_consumer`
+  (`:2666`) drive the aggregate job, producing the final handoff artifact.
+- `with_github_draft_staging` (`:2709`) attaches the staging job to a graph.
+- `AggregateOutcome` (`:2246`), `FinalizationSettings` (`:2260`), and
+  `ArchiveEncodingWrapper` (`:2272`) describe what the aggregate job is
   permitted to do. The archive wrapper exists so the CI layer can constrain
   finalization to the allowed encodings without redefining them — `TarGzip`
   only, per `core-finalization.md`.
@@ -123,14 +123,14 @@ a fixed set of file names and JSON documents:
 | `CANDIDATES_DIR` (`:945`) | `candidates` | candidate bytes directory |
 | `QUALIFICATION_EVIDENCE_FILE` (`:943`) | `evidence.json` | per-target qualification evidence |
 | `GATE_OUTCOME_FILE` (`:947`) | `gate-outcome.json` | gate decision consumed by aggregate |
-| `CONSUMER_EVIDENCE_FILE` (`:3845`) | `consumer-evidence.json` | external validator output |
-| `RUNTIME_IDENTITY_DIR` (`:4430`) | `eggpack-runtime` | reusable-workflow runtime identity directory |
-| `RUNTIME_RELEASE_PLAN` (`:4432`) | `eggpack-runtime/release-plan.json` | runtime-resolved plan |
-| `RUNTIME_CI_PLAN` (`:4434`) | `eggpack-runtime/release-ci-plan.json` | runtime-resolved CI plan |
-| `RUNTIME_GITHUB_POLICY` (`:4436`) | `eggpack-runtime/github-draft.json` | runtime-resolved draft policy |
+| `CONSUMER_EVIDENCE_FILE` (`:3847`) | `consumer-evidence.json` | external validator output |
+| `RUNTIME_IDENTITY_DIR` (`:4432`) | `eggpack-runtime` | reusable-workflow runtime identity directory |
+| `RUNTIME_RELEASE_PLAN` (`:4434`) | `eggpack-runtime/release-plan.json` | runtime-resolved plan |
+| `RUNTIME_CI_PLAN` (`:4436`) | `eggpack-runtime/release-ci-plan.json` | runtime-resolved CI plan |
+| `RUNTIME_GITHUB_POLICY` (`:4438`) | `eggpack-runtime/github-draft.json` | runtime-resolved draft policy |
 
-The encode/decode pairs (`encode_qualification_evidence` `:2725`,
-`decode_qualification_evidence` `:2730`, `decode_consumer_evidence` `:2586`,
+The encode/decode pairs (`encode_qualification_evidence` `:2727`,
+`decode_qualification_evidence` `:2732`, `decode_consumer_evidence` `:2588`,
 `reconstruct_attempt` `:2005`, `validate_build_artifact_dir` `:2062`,
 `validate_qualification_artifact_dir` `:2111`, `stage_build_artifact_dir`
 `:2152`) are what make the two processes agree. Each is a fail-closed

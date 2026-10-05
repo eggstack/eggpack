@@ -1,8 +1,10 @@
 # docs
 
 User guides for Eggpack. Design docs and crate internals live in
-[../architecture/](../architecture/); planning status in
-[../plans/registry.md](../plans/registry.md).
+[../architecture/](../architecture/) (start at
+[overview.md](../architecture/overview.md)); planning status in
+[../plans/registry.md](../plans/registry.md); the operating contract for agents
+and contributors in [../AGENTS.md](../AGENTS.md).
 
 - [quickstart.md](quickstart.md) — resolve a one-target release and render its
   GitHub Actions workflow with the `eggpack` CLI (verified end-to-end, no

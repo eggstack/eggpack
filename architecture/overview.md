@@ -9,18 +9,53 @@ It deliberately does **not** replace Eggup: Eggup remains the consumer-side
 verified installation/update/rollback layer, and the product repository owns
 release/install policy. See [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md).
 
-Code baseline: the commit that introduces the bounded `git` verification path
-recorded in [process-execution.md](process-execution.md). Line counts below are
+Code baseline `61b2c03` (the commit that bounds the `git` verification path
+recorded in [process-execution.md](process-execution.md)). Line counts below are
 measured against that baseline and were re-verified when this index was last
 touched — re-verify them against the workspace if you edit the overview again.
 Milestone/evidence statuses are **not** restated here; `plans/registry.md` is the
 authority for those, and [principles-roadmap.md](principles-roadmap.md) narrates
 them.
 
-Every `file:line` citation in this directory was re-verified against the working
-tree after that change: 2502 citations checked, none out of range, and every
-citation into a file that the change touched was confirmed to still point at
-the same code, not merely the same line number.
+### Citation-verification state
+
+Citations in this directory are `file:line` references into
+`crates/*/src/*.rs`, and they are the main reason the deep dives are worth
+reading instead of the source. Keeping them true is a manual obligation, and it
+has been missed before, so record what is actually true rather than what was
+once true.
+
+The last code commit, `61b2c03`, changed five source files
+(`builder.rs`, `qualification.rs`, `ci/src/lib.rs`, `cli/src/main.rs`,
+`github/src/lib.rs`). It also edited most of the deep dives, but **did not
+re-base the line numbers** in six of them, so roughly ninety citations pointed at
+the wrong code while still being in range. A later pass re-based them against
+the current tree and verified each corrected anchor by name:
+
+- `github.md` — 42 anchors, uniformly `+6`
+- `ci.md` and `ci-rendering.md` — 62 anchors, `+2` above `ci/src/lib.rs:2200`
+  and `+29` above `:4723`
+- `process-execution.md` — the `eggpack-ci` row, `+2`
+- `validation-model.md` — 23 anchors that cited a `#[derive]`/`#[serde]`
+  attribute line rather than the item, plus the `ci` rows
+- `cli.md` — the `git` site, which also described the pre-`61b2c03` design in
+  which this crate spawned `git` itself
+- line counts and one out-of-range range in `core-planning.md`
+
+Two cautions learned the hard way. First, a file can be **partly** correct: in
+several of these documents the anchors below a shift point were already right,
+so a blanket re-base corrupts as much as it fixes — shift only the range the diff
+actually moved, and confirm by symbol name, never by arithmetic alone. Second,
+`determinism.md` and `testing-and-portability.md` were *reported* stale by an
+automated pass and were in fact correct; the tell was that the cited line already
+contained the named item.
+
+`ci-consumer-seam.md` still carries a known set of stale anchors into
+`cli/main.rs` and `core/builder.rs`, both of which moved substantially in
+`61b2c03`. Treat its line references as indicative until they are re-based; its
+prose and the constants it names are unaffected. Anything you re-base should be
+verified the same way — by reading the line and confirming it is the thing the
+sentence claims.
 
 ## How to read this document
 
@@ -34,6 +69,11 @@ This file has two jobs, deliberately:
    references into the source.
 
 Start here, then follow exactly one link into the area you are reviewing.
+
+If you are an agent looking for task-shaped guidance rather than a subsystem
+description, start at [`AGENTS.md`](../AGENTS.md) and then the
+[skills index](../.skills/README.md). Skills are **derived** — they route you to
+the documents below and carry no invariant of their own.
 
 ## Pipeline map
 
@@ -93,13 +133,18 @@ contract   manifest
 
 | Crate | Lines | Deep dive |
 |---|---|---|
-| `eggpack-contract` | 2302 | [contract.md](contract.md) |
+| `eggpack-contract` | 2302 (+405 tests) | [contract.md](contract.md) |
 | `eggpack-manifest` | 1354 | [manifest.md](manifest.md) |
 | `eggpack-core` | 5998 (4 files) | [core.md](core.md) |
 | `eggpack-bootstrap` | 3436 | [bootstrap.md](bootstrap.md) |
 | `eggpack-ci` | 10256 | [ci.md](ci.md) |
 | `eggpack-github` | 4873 (3025 + 1848 tests) | [github.md](github.md) |
 | `eggpack-cli` | 2954 | [cli.md](cli.md) |
+
+Counts are Rust source lines per crate. A count in parentheses is test code
+included in the total; `contract` is the only crate whose production line count
+is not its whole-crate count, because its conformance and fixture tests live in
+`tests/` rather than a `#[cfg(test)]` module.
 
 ### `eggpack-contract` — layout authority and validators
 
@@ -179,7 +224,7 @@ runtime identity contract (`ReleaseWorkflowShapeV1`,
 
 ### `eggpack-github` — staging payload and draft adapter
 
-`src/lib.rs` (3019) + `src/tests.rs` (1848, a `#[cfg(test)]` module). Note that
+`src/lib.rs` (3025) + `src/tests.rs` (1848, a `#[cfg(test)]` module). Note that
 the in-memory GitHub double `FixtureGithub` and its fault injectors live in
 `src/lib.rs`, **not** in `tests.rs`, and are not test-gated — they ship in the
 crate's public API. Depends on `contract`,
@@ -282,3 +327,10 @@ Pick the path that matches the question, then read only the linked files.
 - **"Can I trust the tests?"** — [testing-and-portability.md](testing-and-portability.md).
 - **"What is done, blocked, or next?"** — `plans/registry.md`, narrated in
   [planning-and-governance.md](planning-and-governance.md).
+- **"What is the process for opening or closing a milestone?"** — the
+  `planning-and-closure` skill, which routes to
+  [planning-and-governance.md](planning-and-governance.md) and
+  `plans/003-planning-process.md`.
+- **"Am I allowed to publish or overwrite something?"** —
+  [github.md](github.md) draft-only boundary, and the
+  `generated-ci-and-draft-staging` skill.

@@ -34,16 +34,57 @@ Producer-side release construction/distribution for Eggstack. Does NOT replace E
 - Windows Cargo builds require initialized MSVC env (`ilammy/msvc-dev-cmd`, `link.exe` under `VCToolsInstallDir`); bootstrap archive tests need pwsh 7 + `tar.exe`.
 - `eggpack ci generate` creates/atomically replaces only the explicit `--output` path, rejects symlinks. `eggpack ci check` never writes; CRLF→LF-only drift comparison.
 - Internal `ci _*` runner commands are file-in/file-out wrappers, not a scripting interface; no shell, no arbitrary commands.
+- `architecture/` line citations rot silently: editing a cited `.rs` file invalidates them, and a blanket re-base corrupts as much as it fixes because documents are often only *partly* updated. Re-base by symbol name, never arithmetic. Current state and the outstanding gap are recorded in `architecture/overview.md` §Citation-verification state.
+
+## Skills
+
+Read the relevant skill before starting the matching kind of work. Each is derived
+guidance that routes to a normative document; where a skill and `AGENTS.md` or
+`architecture/` disagree, the deep dive wins and the skill is what gets fixed.
+
+| Skill | Use it when |
+|---|---|
+| `.skills/pre-submit-gate/` | Finishing a change, before committing, or asked "is this ready to submit?" — the exact gate, the `cargo package` patch flags, and the Windows-only steps a local green run does not cover |
+| `.skills/architecture-routing/` | Before reading source — which deep dive is normative, which crate owns which boundary, and whether a suspected bug is doc drift |
+| `.skills/planning-and-closure/` | Opening, planning, correcting, or closing a milestone; updating the registry |
+| `.skills/generated-ci-and-draft-staging/` | Touching `ci generate`/`ci check`, the `ci _*` runner commands, the handoff file names, or draft staging/publication |
+| `.skills/contract-and-manifest-surface/` | Adding or changing a target, asset form, install name, or either schema-v1 document |
 
 ## Docs index
 
-- No `.skills/` or `opencode.json` in this repo — don't invent any. User-facing guides live in `docs/` (verified commands only); internals live in `architecture/`.
-- `architecture/overview.md` — module map, producer pipeline, key invariants; pins its verified commit (re-verify line counts against workspace when touching it).
-- `architecture/{contract,manifest,core,bootstrap,ci,github,cli}.md` — per-crate deep dives with type/function line refs. Read `contract.md` + `manifest.md` first, then `core.md`.
-- `architecture/principles-roadmap.md` — domain model, phases, ADRs 0001–0005, tooling, Eggup boundary, `dist` evaluation (disposition C: prior art only).
-- `architecture/eggup-manifest-consumer-v1.md` — Eggup consumer mapping; interface note, not a wire format.
+- `docs/` — user-facing guides, verified commands only. Start with `quickstart.md` (resolve → generate → check); every command and expected output there was run verbatim, so keep them exact when editing.
 - `plans/registry.md` — control surface (status, blockers, execution order, next handoff). Canonical direction: `plans/000/001/002/003`.
-- `docs/quickstart.md` — verified CLI walkthrough (resolve → generate → check). Every command/output there was run verbatim; keep them exact when editing.
+- `architecture/overview.md` — module map, producer pipeline, key invariants, and the index into every deep dive. Pins its verified baseline; re-verify its line counts and `file:line` citations against the workspace whenever you touch a cited file.
+- `architecture/eggup-manifest-consumer-v1.md` — Eggup consumer mapping; interface note, not a wire format.
+
+There is deliberately no `opencode.json` or other agent-runtime config here.
+`AGENTS.md` plus `architecture/overview.md` is the whole entry path.
+
+### Architecture deep dives
+
+Read the index in `overview.md` and follow one link. Grouped by what they cover:
+
+| Area | Document |
+|---|---|
+| Vocabulary, authority, phases, ADRs 0001–0005, `dist` (disposition C: prior art only) | [principles-roadmap.md](architecture/principles-roadmap.md) |
+| Planning process, closure discipline, registry | [planning-and-governance.md](architecture/planning-and-governance.md) |
+| Layout authority, schema-v1, conformance validators | [contract.md](architecture/contract.md) |
+| Final-bytes evidence, bounds, collision rules, publication status | [manifest.md](architecture/manifest.md) |
+| Pipeline orientation and cross-file contracts | [core.md](architecture/core.md) |
+| Planning stage, policy, `validate_policy` | [core-planning.md](architecture/core-planning.md) |
+| Build stage, bindings, bounded execution, MSVC | [core-build.md](architecture/core-build.md) |
+| Qualification methods, host matching, what native does not prove | [core-qualification.md](architecture/core-qualification.md) |
+| Finalization, gate, archives, sidecars, manifest aggregation | [core-finalization.md](architecture/core-finalization.md) |
+| Installer render API, install modes, PowerShell specifics | [bootstrap.md](architecture/bootstrap.md) |
+| Job-graph projection, gates, aggregation, CLI seam | [ci.md](architecture/ci.md) |
+| Renderers, caller-supplied policy, drift checking | [ci-rendering.md](architecture/ci-rendering.md) |
+| Handoff formats, consumer validator, runtime identity | [ci-consumer-seam.md](architecture/ci-consumer-seam.md) |
+| Staging payload, `GithubApi` seam, reconciliation, redaction | [github.md](architecture/github.md) |
+| Commands, `ci _*` runners, file-safety helpers, exit discipline | [cli.md](architecture/cli.md) |
+| Determinism and stable serialization, and where it is not claimed | [determinism.md](architecture/determinism.md) |
+| Fail-closed validation model | [validation-model.md](architecture/validation-model.md) |
+| Process execution, env allowlist, executable allowlist | [process-execution.md](architecture/process-execution.md) |
+| Test topology, lane matrix, MSRV | [testing-and-portability.md](architecture/testing-and-portability.md) |
 
 ## Planning conventions
 
