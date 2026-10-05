@@ -1,6 +1,10 @@
 # Bootstrap Installers Milestone 003 — Two-Consumer Adoption and Receipt-Boundary Decision
 
-Status: ready
+Status: closed
+
+Closure record: `plans/closure/bootstrap-installers/003-status.md`
+
+Closure disposition (2026-10-05): M003 is closed as the evidence/ownership decision pass it was registered as, with **zero production, configuration, or workflow changes in Eggpack and zero changes in either consumer repository**. Reviewed against Eggpack `013e091`, eggsact `d4e6e5c` (release `v1.2.7` -> `d8014cfe`), stegoeggo `v0.5.0` -> `57ca94c9`. All five candidate-review questions are answered with evidence: the existing exact-installer generator generalizes across both live consumers with every embedded name/size/SHA-256 equal to the consumer's own published `release-manifest.json`; remaining wrapper logic is product policy under ADR-0001 apart from one consumer-side asset-name reconstruction recorded as low-severity F-1; wrapper delegation is **declined** because neither installer form exposes a failure/outcome channel that could preserve a 404-only Cargo fallback while hard-failing 5xx/TLS/digest errors; and an **Eggup receipt handoff is rejected** because bootstrap installs exact bytes while Eggup owns transaction and rollback state. No common producer gap was found, so no M003a corrective was registered, and the roadmap §11 completion definition is satisfied. The optional consumer-side cleanup of F-1 becomes eligible once Contract M003 provides `eggpack contract expand --field asset`, under a plan registered in the consumer's own repository.
 
 Repository implementation baseline: `911da48c7c1c7967397a2d190730fc643c8c6dc3`
 
