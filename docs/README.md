@@ -10,12 +10,20 @@ and contributors in [../AGENTS.md](../AGENTS.md).
   GitHub Actions workflow with the `eggpack` CLI (verified end-to-end, no
   network, ~5 minutes).
 
-Per-crate references (kept next to the code, also rendered on crates.io):
+## Workspace layout
 
-- [../crates/eggpack-contract/README.md](../crates/eggpack-contract/README.md) — contract schema + conformance checks
-- [../crates/eggpack-manifest/README.md](../crates/eggpack-manifest/README.md) — manifest format + consumer integration
-- [../crates/eggpack-core/README.md](../crates/eggpack-core/README.md) — planning, building, qualification, finalization
-- [../crates/eggpack-bootstrap/README.md](../crates/eggpack-bootstrap/README.md) — installer generation
-- [../crates/eggpack-ci/README.md](../crates/eggpack-ci/README.md) — CI graph, rendering, drift, staging, consumer seam
-- [../crates/eggpack-github/README.md](../crates/eggpack-github/README.md) — draft staging adapter
-- [../crates/eggpack-cli/README.md](../crates/eggpack-cli/README.md) — CLI command reference
+Seven crates, one direction of dependency: `contract`/`manifest` → `core` →
+`bootstrap`/`github`/`ci` → `cli`.
+
+| Crate | Role |
+|---|---|
+| [eggpack-contract](../crates/eggpack-contract/README.md) | Portable schema-v1 release layout authority + conformance validators |
+| [eggpack-manifest](../crates/eggpack-manifest/README.md) | Bounded schema-v1 JSON evidence for finalized releases (the only published crate) |
+| [eggpack-core](../crates/eggpack-core/README.md) | Planning, Cargo building, qualification, finalization |
+| [eggpack-bootstrap](../crates/eggpack-bootstrap/README.md) | Deterministic first-install shell/PowerShell renderers |
+| [eggpack-ci](../crates/eggpack-ci/README.md) | CI graph projection + deterministic workflow render and drift check |
+| [eggpack-github](../crates/eggpack-github/README.md) | Staging payload + GitHub draft adapter (draft-only) |
+| [eggpack-cli](../crates/eggpack-cli/README.md) | The `eggpack` binary wiring it together, and the full command reference |
+
+Per-crate references are kept next to the code and are also rendered on
+crates.io for the published manifest crate.

@@ -191,14 +191,21 @@ Expected output (exit 0, never writes):
 ci check: match (6831 bytes)
 ```
 
-Any manual edit is caught — append a line and re-run to see:
+Any manual edit is caught. Append exactly this and re-run:
+
+```sh
+printf '# manual edit\n' >> out/release.yml
+$EGGPACK ci check --ci-plan out/release-ci-plan.json \
+  --github-policy github-policy.json --workflow out/release.yml
+```
 
 ```text
 eggpack: ci check: drift detected (expected 6831 bytes, found 6845 bytes, first difference at Some(6831))
 ```
 
-(exit 1). The "found" count is just your file's new size, so it depends on what
-you appended. Comparison is CRLF→LF only; there is no fuzzy matching.
+(exit 1). Those byte counts are reproducible because the edit is exactly 14
+bytes. Comparison is CRLF→LF only; there is no fuzzy matching, so a
+reformatted-but-equivalent file is drift too.
 
 ## Next steps
 
