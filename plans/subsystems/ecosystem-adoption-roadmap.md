@@ -76,6 +76,8 @@ Core direct build/finalization/staging prerequisites are closed, including Build
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
+Eggsearch is split into M003a/M003b because current research found real compatibility choices that must not be hidden inside a cross-repository implementation pass. Current Eggpack types can represent all seven target identities, Windows ARM64 hosts, and ARMv7 QEMU qualification, but generated CI does not provision an emulation runtime, the deterministic Zig provisioner does not yet encode Zig 0.13.0's legacy official archive naming, and generated workflows intentionally reject `id-token: write` while Eggsearch's current release evidence includes GitHub Artifact Attestations. M003a owns those decisions; M003b remains blocked until they are resolved.
+
 Eggup interoperability is optional per consumer and has its own gate.
 
 ## 7. Milestones
@@ -84,7 +86,11 @@ M001 eggsact direct release adoption.
 
 M002 stegoeggo direct release adoption.
 
-M003 eggsearch target/qualification diversity.
+M003a eggsearch seven-target compatibility preflight and migration design.
+
+Implementation plan: `plans/implementation/ecosystem-adoption/003a-eggsearch-seven-target-compatibility-preflight-and-migration-design.md`.
+
+M003b eggsearch target/qualification diversity adoption — blocked until M003a closes with all compatibility choices resolved and the required mirrored Eggsearch implementation plan is registered.
 
 M004 Gregg sibling bundle.
 
@@ -141,8 +147,9 @@ The migration replaced producer authority while composing around, not absorbing,
 |---|---|---|---|---|
 | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | `plans/closure/ecosystem-adoption/001-status.md`; consumer closure `eggstack/eggsact: plans/closure/distribution-update-release/005-status.md` | Implemented and published on release `v1.2.7` (live run 36652731202, 15-asset draft, producer pin M003g `e5c81f2`). The consumer-side Windows byte-reproducibility condition is closed by eggsact M005a (`685fa373`) |
 | M002 stegoeggo direct release adoption | closed | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | `plans/closure/ecosystem-adoption/002-status.md` §9; consumer closure `eggstack/stegoeggo: plans/closure/release-distribution/005-status.md` (`7bde933b`) | consumer cutover `3b96fae`; updater corrective M003 closed `f80eebe3`; no new Eggpack primitive required. Live evidence landed as `v0.5.0` (run `37181914252`, 15 assets, manual publication, real `0.4.2 -> 0.5.0` updater transition). The rerun-reuse item was not exercised on this release and is substituted by eggsact M005a evidence — see closure §9.3 |
-| M003 eggsearch target/qualification diversity | unblocked for research/plan; implementation not started | — | — | M001/M002 evidence is complete, so the ordering gate is cleared and preflight research is warranted now. Implementation still requires its own researched implementation plan. Preflight facts: 7 release targets including Linux ARMv7 with QEMU qualification and Windows ARM64; Zig `0.13.0` / cargo-zigbuild `0.20.1`; glibc 2.17 floors on Linux x86-64/AArch64; hand-maintained installer and target matrix; draft assembly currently uses `gh release upload --clobber`; immutable `v0.4.1` evidence exists. Must reconcile the older toolchain pins, Windows ARM64 runner/host mapping, QEMU qualification semantics, and the clobber-on-draft-rerun behavior against Eggpack's fail-closed staging policy |
-| M004 Gregg sibling bundle | blocked | — | — | remains after Eggsearch target-diversity evidence; prior adoption evidence + Gregg bundle/service review |
+| M003a eggsearch compatibility preflight + migration design | ready | `plans/implementation/ecosystem-adoption/003a-eggsearch-seven-target-compatibility-preflight-and-migration-design.md` | — | Read-only/scratch preflight against `eggstack/eggsearch@ec437cb`: resolve Zig 0.13.0 archive-layout vs current Eggpack provisioning, ARMv7 QEMU/runtime ownership, Windows ARM64 runner mapping, Artifact Attestation preservation under Eggpack's no-OIDC generated workflow, and no-clobber staging migration |
+| M003b eggsearch target/qualification diversity adoption | blocked | — | — | Requires M003a closure with no unresolved architecture choice, any prerequisite Eggpack producer plan closed, and a mirrored registered implementation plan in `eggstack/eggsearch` before external edits |
+| M004 Gregg sibling bundle | blocked | — | — | remains after M003b Eggsearch target-diversity adoption evidence; prior adoption evidence + Gregg bundle/service review |
 | M005 CodeGG runfile bundle | blocked | — | — | remains after a qualified sibling-bundle consumer; prior bundle evidence + CodeGG runfile review |
 | M006 Egress archive pair | blocked | — | — | remains after prior native adoption evidence; requires an explicit Egress archive/Python boundary review |
 | M007 specialized wheel/package evaluation | blocked | — | — | remains behind broader native adoption; separate package-adapter planning |
