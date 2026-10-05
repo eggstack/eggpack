@@ -152,7 +152,14 @@ itself is unreachable, as `configured Rust toolchain preflight failed` (`:606`) 
 captured linker diagnostics, since output contents are not returned. The obligation is met
 outside this crate: CI uses `ilammy/msvc-dev-cmd@v1` and asserts `link.exe` resolves under
 `VCToolsInstallDir` (`.github/workflows/ci.yml:44-56`). On naming, `discover_candidate`
-appends `.exe` when the triple contains the substring `windows` (`:854-856`).
+appends `.exe` when the triple contains the `-windows-` component (`:916-919`).
+The match is anchored on that component rather than a bare `windows` substring,
+so a hypothetical `x86_64-unknown-notwindowsish` triple does not pick up a
+Windows suffix; and the suffix is appended to the whole binary name via
+`set_file_name`, so a dotted name such as `tool.cli` resolves to `tool.cli.exe`
+as Cargo produces it, not to the truncating `tool.exe` that `set_extension`
+would have yielded. `valid_identifier` (`:311-316`) admits `.`, so this case is
+reachable rather than hypothetical.
 
 ## Candidate discovery and private target directories
 
@@ -238,7 +245,7 @@ iterations (`:1126-1244`); a real local Cargo fixture producing a direct candida
 ## Dependencies / dependents
 
 - Own dependencies used here: `command-group 5.0.1` (`Cargo.toml:21`, process groups), `toml
-  0.8` (`:20`, `from_toml` at `builder.rs:223`), `serde` derive (`:17`), `eggpack-contract`
+  0.8` (`:20`, `from_toml` at `builder.rs233`), `serde` derive (`:17`), `eggpack-contract`
   (`:15`, `DistributionContract` + `ExpandedAssets` at `builder.rs:5`), and `std`
   process/thread/IO primitives. `sha2` is a **crate-level** dependency but is not used in
   this file (it is used in `lib.rs`, `qualification.rs`, and `finalization.rs`).

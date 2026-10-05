@@ -316,7 +316,7 @@ reorder insensitivity (`:271`), and finding-sort stability (`:306`).
 | `simple-direct.toml` | `eggsact`, two `direct` targets (`linux-x64`, `macos-arm64`), one asset + one sidecar each. |
 | `codegg-bundle.toml` | `codegg`, one target, three-entry bundle (runfile, helper, manifest JSON). |
 | `egress-archive.toml` | `egress`, two targets, `.tar.gz` archive with two literal members; same install names on both targets. |
-| `eggsact-direct-targets.toml` | `eggsact`, five `direct` targets. Unused by this crate's own tests; reused by `eggpack-ci` (`crates/eggpack-ci/src/lib.rs:8722`) and `eggpack-cli` (`crates/eggpack-cli/src/main.rs:2678`). |
+| `eggsact-direct-targets.toml` | `eggsact`, five `direct` targets. Unused by this crate's own tests; reused by `eggpack-ci` (`crates/eggpack-ci/src/lib.rs8755`) and `eggpack-cli` (`crates/eggpack-cli/src/main.rs2667`). |
 | `observed-simple.toml` | `ObservedTargetMapping` for `simple-direct.toml` at `1.2.6`. |
 | `observed-codegg.toml` | `ObservedTargetMapping` for `codegg-bundle.toml` at `0.9.0`, looked up by alias. |
 | `observed-egress.toml` | `ObservedTargetMapping` for `egress-archive.toml` at `2.1.0`, looked up by alias. |

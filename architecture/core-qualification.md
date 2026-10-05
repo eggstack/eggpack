@@ -194,7 +194,7 @@ Every execution is a `CommandSpec` handed to the builder's bounded runner
 cleared environment plus the builder's small allowlist, and no shell: the
 candidate path and the fixed argv are separate OS arguments (`:859-860`). The
 process is spawned as a group; on deadline or cancellation the whole group is
-killed and waited before the outcome is classified (`src/builder.rs:478-527`).
+killed and waited before the outcome is classified (`src/builder.rs532-581`).
 
 | Bound | Source | Value |
 |---|---|---|
@@ -203,12 +203,12 @@ killed and waited before the outcome is classified (`src/builder.rs:478-527`).
 | Retained stdout/stderr | per-binding (`:852-853`, `:864-865`); validated `1..=262_144` (`:153-156`) | ≤256 KiB each |
 | Preflight capture | hardcoded (`:793-794`) | 8 KiB each |
 | Args | ≤128, ≤4096 B each, no NUL or ASCII control characters (`:157-162`) | fixed, never shell-expanded |
-| Executable allowlist | `src/builder.rs:396-415` | candidate must be an absolute path; QEMU only `qemu-x86_64`/`qemu-aarch64`/`qemu-arm` |
+| Executable allowlist | `src/builder.rs435-455` | candidate must be an absolute path; QEMU only `qemu-x86_64`/`qemu-aarch64`/`qemu-arm` |
 
 **Cancellation** is checked twice and both paths are typed. Before the smoke, an
 already-cancelled flag yields `Failed(SmokeFailed)` (`:831-842`); during the run,
 the builder's poll loop kills the group and returns `CommandOutcome::Cancelled`
-(`src/builder.rs:501-509`), which `status_from_process` maps to `SmokeFailed`
+(`src/builder.rs555-563`), which `status_from_process` maps to `SmokeFailed`
 (`:972-978`). There is deliberately no `Cancelled` failure variant — the
 distinction lives in the bounded process evidence, not the status taxonomy. The
 four typed terminal outcomes (non-zero, timeout, cancellation, output limit) are
@@ -218,7 +218,7 @@ asserted by `native_smoke_failure_timeout_cancellation_and_output_limit_are_type
 Two details: the smoke's working directory is the candidate's *grandparent*,
 canonicalized (`:996-1003`) — the per-target root, not `release/`; and the
 builder restores the candidate's exec bit before spawn
-(`src/builder.rs:416-424`), a mode-only change that leaves the recorded size and
+(`src/builder.rs456-464`), a mode-only change that leaves the recorded size and
 digest unaffected.
 
 Information boundary: the runner closure discards process error detail — every
@@ -326,9 +326,9 @@ rejection, and direct/bundle/archive inventories.
   (`finalization.rs:192-195`) and gates on it — `Passed`, or `Deferred` when the
   support tier is not `Required` (`finalization.rs:196-200`).
 - External: `eggpack-ci` encodes, decodes, and aggregates `QualificationEvidence`
-  (`eggpack-ci/src/lib.rs:2725-2730`, `:2743-2785`); `eggpack-cli` drives it
-  through the `ci _qualify-target` runner (`eggpack-cli/src/main.rs:528-599`),
-  which is why candidate paths are absolutized there (`main.rs:533-535`) —
+  (`eggpack-ci/src/lib.rs2727-2732`, `:2743-2785`); `eggpack-cli` drives it
+  through the `ci _qualify-target` runner (`eggpack-cli/src/main.rs517-588`),
+  which is why candidate paths are absolutized there (`main.rs522-524`) —
   `inspect_candidate` requires absolute paths (`:1093`).
 - `eggpack-github` and `eggpack-bootstrap` do not use this module.
 

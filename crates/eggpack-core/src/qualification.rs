@@ -793,6 +793,7 @@ where
             stdout_limit: 8192,
             stderr_limit: 8192,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         let result = match runner(&preflight, true) {
             Ok(result) => result,
@@ -852,6 +853,7 @@ where
             stdout_limit: smoke.stdout_limit,
             stderr_limit: smoke.stderr_limit,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         (command, true)
     } else {
@@ -864,6 +866,7 @@ where
             stdout_limit: smoke.stdout_limit,
             stderr_limit: smoke.stderr_limit,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         (command, false)
     };
@@ -2321,22 +2324,30 @@ stderr_limit = 1024
         fs::remove_dir_all(root).unwrap();
     }
 
+    // Not standalone coverage: these four are the child process fixtures that
+    // `run_native_child` re-executes in this test binary to exercise the
+    // bounded runner. `#[ignore]` keeps a normal `cargo test` run from hanging
+    // for 30s, flooding output, or exiting the harness nonzero; each is
+    // invoked deliberately, and only through that helper.
     #[test]
     #[ignore]
     fn qualification_child_target() {}
 
+    /// Child fixture: outruns the caller's timeout to prove process-group kill.
     #[test]
     #[ignore]
     fn qualification_child_sleep() {
         std::thread::sleep(Duration::from_secs(30));
     }
 
+    /// Child fixture: overruns the retained-output bound.
     #[test]
     #[ignore]
     fn qualification_child_output() {
         print!("{}", "x".repeat(16 * 1024));
     }
 
+    /// Child fixture: exits nonzero to prove nonzero classification.
     #[test]
     #[ignore]
     fn qualification_child_nonzero() {

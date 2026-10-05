@@ -2371,6 +2371,12 @@ struct ApiRelease {
     name: Option<String>,
     body: Option<String>,
     draft: bool,
+    /// Optional in the REST payload: a response that omits the field means the
+    /// release was not reported immutable. The default is required for
+    /// compatibility — making it mandatory would fail every release read
+    /// against an API that does not return it. Staging still fails closed:
+    /// a reported `true` refuses the draft, and an unreported one is rejected
+    /// by the upload call itself.
     #[serde(default)]
     immutable: bool,
     prerelease: bool,

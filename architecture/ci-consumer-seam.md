@@ -59,8 +59,8 @@ parsing; `to_json` validates before serializing.
 (`:1987`), setting `size: 1` as a non-zero placeholder (`:1983`) with an explicit
 comment that callers must not treat it as evidence (`:1974-1977`). The runner
 replaces it with the observed size and re-validates — the CLI does exactly that at
-`crates/eggpack-cli/src/main.rs:481`, then `validate_build_artifact_dir`
-(`main.rs:515`).
+`crates/eggpack-cli/src/main.rs470`, then `validate_build_artifact_dir`
+(`main.rs504`).
 
 ### `reconstruct_attempt`
 
@@ -99,12 +99,15 @@ release id, source revision, and target (`:2118-2123`).
 hard-links each candidate (falling back to copy, `:2144`), writes the handoff, then
 **re-validates the directory it just wrote** (`:2177`), so a size mismatch fails
 here. Two caveats: the handoff write is a plain `std::fs::write` (`:2175`), not an
-atomic replace, unlike the CLI's `atomic_write` (`main.rs:514`); and this function
+atomic replace, unlike the CLI's `atomic_write` (`main.rs503`); and this function
 has no caller outside this crate's own tests — the CLI stages inline at
-`main.rs:502-516` using the literals `"candidates"` and `"build-handoff.json"`
+`main.rs491-505` using the literals `"candidates"` and `"build-handoff.json"`
 rather than the constants. `cargo_output_path` (`:2183`) derives
 `<cargo_target_dir>/<target>/release/<binary>` after `validate_canonical_target_dir`
-(`:951`), appending `.exe` for Windows targets (`:2199-2201`).
+(`:951`), appending `.exe` for targets whose triple contains the `-windows-`
+component (`:2201-2203`). The suffix is appended to the full binary name, so a
+dotted name resolves to `tool.cli.exe`; this agrees with
+`discover_candidate` in `eggpack-core` and with Cargo's own naming.
 
 ## The external consumer validator
 
@@ -131,9 +134,9 @@ that target's bindings (`:2546-2567`).
 `script_path`, `candidate_path`, `work_dir`, the `expected_size` and
 `expected_sha256` to verify against, release identity strings, an optional
 `AtomicBool` cancellation flag, and an optional exact PATH override (`:4071`). The
-CLI populates it at `main.rs:777-789` with the size and digest taken from the
-**qualification evidence**, not from the handoff (`main.rs:781-782`), and refuses
-outright to run if that evidence is not `Passed` (`main.rs:740-745`).
+CLI populates it at `main.rs766-778` with the size and digest taken from the
+**qualification evidence**, not from the handoff (`main.rs770-771`), and refuses
+outright to run if that evidence is not `Passed` (`main.rs729-734`).
 
 Candidate identity is observed *before* any execution (`:4198-4200`) so evidence
 always carries validated linkage; a synthetic `evidence_size.max(1)` / all-zero
@@ -193,17 +196,17 @@ authority (`:3866-3867`).
   `:4678`, `:4685`.
 - **Wait-after-kill IS present** at every site: `:4394`, `:4666`, `:4671`, `:4679`,
   `:4686` — a partial match with core
-  (`crates/eggpack-core/src/builder.rs:503-516`).
+  (`crates/eggpack-core/src/builder.rs557-570`).
 - What escapes: a validator script that forks (or Python that spawns) leaves
   grandchildren alive past a timeout or cancellation, still holding the inherited
   stdout/stderr pipes. The kill reaches the direct child only; the grandchildren
-  are never signalled. Core's `group_spawn` (`builder.rs:479`) uses
+  are never signalled. Core's `group_spawn` (`builder.rs533`) uses
   `setpgid(0, 0)` + `killpg` on Unix and `TerminateJobObject` on Windows, so it does
   not have this hole.
 - **Output overshoot**: `read_limited` (`:4095`) and `read_limited_stderr` (`:4119`)
   append the full 8 KiB chunk *before* the limit check (`:4106` then `:4107`), so
   retained bytes can exceed the cap by up to 8191 bytes. Core's `drain`
-  (`builder.rs:565`) computes `keep = n.min(limit - len)` and truncates exactly.
+  (`builder.rs622`) computes `keep = n.min(limit - len)` and truncates exactly.
 - **Preflight discards its over-limit flags**: `:4402-4403` binds
   `let (out, _) = ...` / `let (err, _) = ...`, so an over-limit `--version` flood is
   neither failed on nor reported. Preflight only needs "Python 3" in the first 8 KiB.
@@ -280,7 +283,7 @@ ordered `safe_target` triples, 1..=256 `safe_metadata(alias, 128)` aliases, and 
 `validate()` on every embedded validator. One overclaim: the doc at `:4509-4510`
 says it validates "embedded binding/validator documents", but the code validates
 only the validators (`:4539-4541`). Bindings are not checked here — core's
-`validate_shape` is private (`crates/eggpack-core/src/builder.rs:227`,
+`validate_shape` is private (`crates/eggpack-core/src/builder.rs237`,
 `crates/eggpack-core/src/qualification.rs:137`) — so they are validated only
 transitively, later, inside `project_ci_plan` and `project_release_plan_with_consumer`
 during rendering. `pack_config()` (`:4551`) views the shape targets as a `PackConfig`.
@@ -315,15 +318,15 @@ every later job downloads *before* its `_verify-source` step (`:2938-2946`).
 decision made by whoever invokes the workflow.** The checked-in, drift-checked shape
 fixes the target set, alias list, bindings, validators, and staging intent. It does
 *not* fix the resolved plan's content: the CLI reads the contract and `PackConfig`
-from files in the checkout at the invocation ref (`crates/eggpack-cli/src/main.rs:130`,
-`:126`) and passes them to `resolve_runtime_release_plan` (`main.rs:140`). What ties
-those files to a specific commit is `verify_source_revision` (`main.rs:126`), which
+from files in the checkout at the invocation ref (`crates/eggpack-cli/src/main.rs123`,
+`:126`) and passes them to `resolve_runtime_release_plan` (`main.rs133`). What ties
+those files to a specific commit is `verify_source_revision` (`main.rs119`), which
 requires the given revision to equal HEAD in the explicit source root. Anyone who can
 invoke the workflow at a ref they control chooses the plan that ref resolves to —
 that is the point of a reusable workflow, and it is why the rendered tag guard
 (`:3213-3218`) matters more than the shape's contents. One minor seam weakness:
 `safe_metadata` (`:383`) permits commas, but the CLI splits `--selected` on `,`
-(`main.rs:136`), so a shape alias containing a comma would be silently split into two
+(`main.rs129`), so a shape alias containing a comma would be silently split into two
 aliases at resolution time; the shape's `selected_aliases` is not byte-equivalent to
 what resolution sees.
 
@@ -353,7 +356,7 @@ Where enforcement is weaker than it looks:
 4. `ReleaseWorkflowShapeV1::validate` does not validate its embedded bindings
    despite its doc comment (`:4509-4510` vs `:4539-4541`).
 5. `read_limited` retention can exceed its cap by up to 8 KiB (`:4105-4111`); core's
-   `drain` truncates exactly (`builder.rs:565`).
+   `drain` truncates exactly (`builder.rs622`).
 6. The interpreter preflight discards its over-limit flags (`:4402-4403`).
 7. `ensure_candidate_executable` (`:4281`) mutates the candidate's mode after its
    bytes were verified, with no re-check afterwards.
@@ -415,7 +418,7 @@ can drive the real downstream crates without a network. Notably absent:
 (`crates/eggpack-core/Cargo.toml:21`, `Cargo.lock:61`).
 
 Dependents: `eggpack-cli`, the only production consumer. It calls
-`resolve_runtime_release_plan` (`crates/eggpack-cli/src/main.rs:140`),
+`resolve_runtime_release_plan` (`crates/eggpack-cli/src/main.rs133`),
 `project_build_handoff` (`:451`), `validate_build_artifact_dir` (`:515`),
 `reconstruct_attempt` (`:572`, `:931`), `validate_qualification_artifact_dir`
 (`:628`), `run_consumer_validator` (`:790`), and

@@ -69,26 +69,19 @@ fn ci_verify_source(args: &[String]) -> Result<(), String> {
 }
 
 fn verify_source_revision(expected: &str, cwd: Option<&Path>) -> Result<(), String> {
-    let mut command = std::process::Command::new("git");
-    command.args(["rev-parse", "--verify", "HEAD^{commit}"]);
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let output = command
-        .output()
-        .map_err(|_| "checked-out source verification failed".to_owned())?;
-    if !output.status.success() {
-        return Err("checked-out source verification failed".to_owned());
-    }
-    let actual = std::str::from_utf8(&output.stdout)
-        .map_err(|_| "checked-out source verification failed".to_owned())?
-        .trim();
-    if actual.len() != 40
-        || !actual
+    if expected.len() != 40
+        || !expected
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        || actual != expected
     {
+        return Err("release plan source revision is invalid".to_owned());
+    }
+    // Bounded process-grouped `git` spawn with a cleared environment. The
+    // expected object name is matched inside the runner, so no captured output
+    // is returned to this process.
+    let evidence = eggpack_core::run_git_bounded(expected, cwd)
+        .map_err(|_| "checked-out source verification failed".to_owned())?;
+    if evidence.outcome != eggpack_core::CommandOutcome::Success {
         return Err("checked-out source does not match release plan".to_owned());
     }
     println!("checked-out source matches release plan");
@@ -372,20 +365,20 @@ fn ci_check(args: &[String]) -> Result<(), String> {
         let shape_text = read_bounded(&shape_path, 1_000_000, "workflow shape")?;
         let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
         let policy_text = read_bounded(&policy_path, 1_000_000, "github policy")?;
-        let existing =
-            std::fs::read(&workflow_path).map_err(|_| "workflow is unavailable".to_owned())?;
-        if existing.len() > 8_000_000 {
-            return Err("workflow exceeds size bound".to_owned());
-        }
+        let existing = read_bounded(&workflow_path, 8_000_000, "workflow")?;
         let shape = eggpack_ci::ReleaseWorkflowShapeV1::from_json(&shape_text)
             .map_err(|_| "invalid workflow shape".to_owned())?;
         let contract = eggpack_contract::DistributionContract::parse_toml_str(&contract_text)
             .map_err(|_| "invalid contract".to_owned())?;
         let policy: eggpack_ci::GitHubPolicy =
             serde_json::from_str(&policy_text).map_err(|_| "invalid github policy".to_owned())?;
-        let report =
-            eggpack_ci::check_reusable_release_github(&contract, &shape, &policy, &existing)
-                .map_err(|_| "reusable drift check failed".to_owned())?;
+        let report = eggpack_ci::check_reusable_release_github(
+            &contract,
+            &shape,
+            &policy,
+            existing.as_bytes(),
+        )
+        .map_err(|_| "reusable drift check failed".to_owned())?;
         if report.matches {
             println!("ci check: match ({} bytes)", report.expected_bytes);
             Ok(())
@@ -402,16 +395,12 @@ fn ci_check(args: &[String]) -> Result<(), String> {
         }
         let ci_text = read_bounded(&ci_plan_path, 1_000_000, "ci plan")?;
         let policy_text = read_bounded(&policy_path, 1_000_000, "github policy")?;
-        let existing =
-            std::fs::read(&workflow_path).map_err(|_| "workflow is unavailable".to_owned())?;
-        if existing.len() > 8_000_000 {
-            return Err("workflow exceeds size bound".to_owned());
-        }
+        let existing = read_bounded(&workflow_path, 8_000_000, "workflow")?;
         let graph: eggpack_ci::ReleaseCIPlanV1 = eggpack_ci::ReleaseCIPlanV1::from_json(&ci_text)
             .map_err(|_| "invalid ci plan".to_owned())?;
         let policy: eggpack_ci::GitHubPolicy =
             serde_json::from_str(&policy_text).map_err(|_| "invalid github policy".to_owned())?;
-        let report = eggpack_ci::check_release_github(&graph, &policy, &existing)
+        let report = eggpack_ci::check_release_github(&graph, &policy, existing.as_bytes())
             .map_err(|_| "release drift check failed".to_owned())?;
         if report.matches {
             println!("ci check: match ({} bytes)", report.expected_bytes);
@@ -2919,6 +2908,31 @@ mod tests {
             output_path.to_string_lossy().into_owned(),
         ]);
         ci_check(&check).unwrap();
+        // The workflow bound is applied before the file is read, so an
+        // oversized workflow is rejected rather than buffered.
+        let oversized = root.join("oversized.yml");
+        std::fs::File::create(&oversized)
+            .unwrap()
+            .set_len(8_000_001)
+            .unwrap();
+        let mut big = check.clone();
+        big[7] = oversized.to_string_lossy().into_owned();
+        assert_eq!(
+            ci_check(&big),
+            Err("workflow exceeds size bound".to_owned())
+        );
+        // Symlinked workflow input is refused like every other bounded input.
+        #[cfg(unix)]
+        {
+            let link = root.join("link.yml");
+            std::os::unix::fs::symlink(&output_path, &link).unwrap();
+            let mut linked = check.clone();
+            linked[7] = link.to_string_lossy().into_owned();
+            assert_eq!(
+                ci_check(&linked),
+                Err("workflow must not be a symlink".to_owned())
+            );
+        }
         // Any host mismatch still fails closed at the CLI boundary.
         let mut mismatched = shape.clone();
         mismatched

@@ -8,9 +8,16 @@ It does not restate the per-file detail — each stage has its own deep dive.
 output roots, archives, sidecars) and the only one that spawns **toolchain**
 processes as part of the release pipeline — Cargo, `cargo zigbuild`, Zig, and
 QEMU. Other crates touch the filesystem or spawn processes in narrower ways:
-`eggpack-cli` writes command outputs and shells out to `git` for source-revision
-verification, and `eggpack-ci` runs a caller-supplied external validator. `core`
-is the only crate that produces the bytes a release is made of.
+`eggpack-cli` writes command outputs and needs `git` for source-revision
+verification, and `eggpack-ci` runs a caller-supplied external validator.
+`core` is the only crate that produces the bytes a release is made of.
+
+The `git` spawn is the one non-toolchain process `core` executes, and it is
+deliberately here rather than in `cli`: `run_git_bounded`
+(`src/builder.rs:393`) runs through the same bounded runner as the build, so
+the CLI inherits the deadline, the process group, and the environment clear
+instead of owning a second, weaker spawn path. See
+[process-execution.md](process-execution.md).
 `contract` and `manifest` are pure leaves,
 `bootstrap` and `ci` derive documents from core's outputs, `github` consumes
 core's finalized release, and `cli` wires all of it.

@@ -8,25 +8,30 @@ implementations are not equivalent.
 
 ## Where external processes are spawned
 
-There are exactly three production execution sites. Two share one implementation;
-one is a fully independent reimplementation; one is unbounded.
+There are exactly two production execution implementations. `eggpack-core` owns
+the bounded runner and `eggpack-cli` delegates to it, so the two share one;
+`eggpack-ci` carries a fully independent reimplementation. No production spawn
+site is unbounded.
 
 | Site | Entry point | Spawn call | Deadline | Group handling | Environment |
 | --- | --- | --- | --- | --- | --- |
-| Core build + preflight | `run_bounded_cancellable` (`crates/eggpack-core/src/builder.rs:370`) | `group_spawn()` at `builder.rs:479` | `spec.timeout`, ≤ 86 400 s (`builder.rs:408`) | `command-group` group/job, `kill()` + `wait()` (`builder.rs:503-516`) | `env_clear()` + 20-var allowlist (`builder.rs:429`, `436-457`) |
-| Core qualification smoke (native) | `run_qualification_process` (`builder.rs:377`) | same `run_bounded_inner` | `smoke.timeout_ms` (`qualification.rs:863`) | same shared path | narrower 5-var allowlist (`builder.rs:433-434`) |
-| Core qualification smoke (QEMU) | `run_qemu_process` (`builder.rs:384`) | same `run_bounded_inner` | `smoke.timeout_ms` (`qualification.rs:851`) | same shared path | narrower 5-var allowlist |
-| CI consumer validator | `run_consumer_validator` (`crates/eggpack-ci/src/lib.rs:4151`) → `run_validator_process` (`lib.rs:4625`) | `command.spawn()` at `lib.rs:4638` | `validator.timeout_ms`, 1 000–600 000 ms (`lib.rs:3917`) | **none** — `Child::kill()` only (`lib.rs:4665`, `4670`, `4678`, `4685`) | `env_clear()` + `PATH` (+ `SYSTEMROOT` on Windows) (`lib.rs:4347-4354`) |
+| Core build + preflight | `run_bounded_cancellable` (`crates/eggpack-core/src/builder.rs:381`) | `group_spawn()` at `builder.rs:533` | `spec.timeout`, ≤ 86 400 s (`builder.rs:448`) | `command-group` group/job, `kill()` + `wait()` (`builder.rs:556-571`) | `env_clear()` + 20-var allowlist (`builder.rs:469`, `490-511`) |
+| Core qualification smoke (native) | `run_qualification_process` (`builder.rs:416`) | same `run_bounded_inner` | `smoke.timeout_ms` | same shared path | narrower 5-var allowlist (`builder.rs:487-488`) |
+| Core qualification smoke (QEMU) | `run_qemu_process` (`builder.rs:423`) | same `run_bounded_inner` | `smoke.timeout_ms` | same shared path | narrower 5-var allowlist |
+| Core git revision verification | `run_git_bounded` (`builder.rs:393`) | same `run_bounded_inner` | 30 s (`GIT_TIMEOUT`, `builder.rs:20`) | same shared path | 7-var allowlist incl. `HOME` (`builder.rs:473-485`) |
+| CLI source verification | `verify_source_revision` (`crates/eggpack-cli/src/main.rs:71`) | delegates to `run_git_bounded` | same 30 s | same shared path | same 7-var allowlist |
+| CI consumer validator | `run_consumer_validator` (`crates/eggpack-ci/src/lib.rs4153`) → `run_validator_process` (`lib.rs:4625`) | `command.spawn()` at `lib.rs:4638` | `validator.timeout_ms`, 1 000–600 000 ms (`lib.rs:3917`) | **none** — `Child::kill()` only (`lib.rs:4665`, `4670`, `4678`, `4685`) | `env_clear()` + `PATH` (+ `SYSTEMROOT` on Windows) (`lib.rs:4347-4354`) |
 | CI interpreter preflight | `run_interpreter_preflight` (`lib.rs:4372`) | `command.spawn()` at `lib.rs:4378` | `timeout_ms.min(30_000)` (`lib.rs:4387`) | **none** — `Child::kill()` at `lib.rs:4393` | same as above |
-| CLI source verification | `verify_source_revision` (`crates/eggpack-cli/src/main.rs:71`) | `command.output()` at `main.rs:77` | **none** | **none** | **inherited unchanged** |
 
 ### What is shared and what is independent
 
-The three `eggpack-core` entry points are thin wrappers over one private
-function, `run_bounded_inner` (`builder.rs:391`), differing only in the
-`ExecutableAllowance` passed: `Builder` (`builder.rs:374`), `Candidate`
-(`builder.rs:381`), `Qemu` (`builder.rs:388`). One implementation, one place to
-audit, one set of guarantees.
+The four `eggpack-core` entry points are thin wrappers over one private
+function, `run_bounded_inner` (`builder.rs:430`), differing only in the
+`ExecutableAllowance` passed: `Builder` (`builder.rs:385`), `Candidate`
+(`builder.rs:420`), `Qemu` (`builder.rs:427`), `Git` (`builder.rs:413`). One
+implementation, one place to audit, one set of guarantees. The allowance is what
+keeps the set narrow: `Git` admits only the literal `git` (`builder.rs:444`),
+exactly as `Qemu` admits only the three named QEMU binaries.
 
 `eggpack-ci` does **not** share it. `crates/eggpack-ci/Cargo.toml` declares no
 `command-group` dependency, and the validator uses `std::process::Command`
@@ -37,13 +42,29 @@ kill; it does not match on process groups. This is the largest risk difference i
 the workspace: a reimplementation that will not fail a compile-time or test-time
 check when core's contract drifts.
 
-The CLI `git` invocation is weaker again. It is a build-input trust check
-(`eggpack ci _verify-source`, `main.rs:55-69`), not a build step, and it is
-documented below as unbounded.
+The CLI `git` invocation no longer diverges. `verify_source_revision`
+(`main.rs:71`) validates the expected object name, then delegates to
+`eggpack_core::run_git_bounded` (`builder.rs:393`) and reads only the resulting
+`CommandOutcome`. It inherits the deadline, the process group, the environment
+clear, and the output cap, and it never receives captured bytes.
+
+The runner matches an exact expected value internally rather than returning it.
+`CommandSpec::expected_stdout` is a substring containment check, which is right
+for a tool banner (`builder.rs:128`) but too weak for a revision identity; the
+new `expected_stdout_exact` field (`builder.rs:134`) compares the trimmed stdout
+for equality (`builder.rs:596-602`), and a miss becomes
+`CommandOutcome::Failed(-1)` (`builder.rs:610`) rather than an error carrying
+output.
+
+The Git allowlist deliberately keeps `HOME` and `USERPROFILE`
+(`builder.rs:479-480`) that the narrower candidate and QEMU allowlists drop.
+`git` resolves helpers from `PATH`, and `safe.directory` is commonly set in the
+global config; clearing `HOME` would make self-hosted runners fail closed for a
+reason unrelated to release integrity.
 
 All `std::process::Command` uses in `eggpack-bootstrap` are inside its test
 module (`crates/eggpack-bootstrap/src/lib.rs:1050`), and the remaining CLI
-spawns are inside `mod tests` (`crates/eggpack-cli/src/main.rs:1166`). Neither
+spawns are inside `mod tests` (`crates/eggpack-cli/src/main.rs1155`). Neither
 crate has a production spawn site.
 
 ## Process groups and jobs
@@ -56,7 +77,7 @@ the job's build directory. The workspace therefore never uses bare `Child::kill`
 on a build or qualification path; it uses `command-group` 5.0.1
 (`crates/eggpack-core/Cargo.toml:22`, pinned in `Cargo.lock:61-64`).
 
-`group_spawn()` (`builder.rs:479`) returns a `GroupChild` owning a group/job with
+`group_spawn()` (`builder.rs533`) returns a `GroupChild` owning a group/job with
 two different implementations:
 
 - **Unix:** the child is spawned with `process_group(0)`, i.e. `setpgid(0, 0)`,
@@ -70,14 +91,14 @@ two different implementations:
 
 Killing is not enough. The group must then be *waited for*, twice over. In the
 timeout and cancellation branches, `kill()` is immediately followed by `wait()`
-(`builder.rs:505-507` for cancellation, `builder.rs:514-516` for the deadline). On
+(`builder.rs559-561` for cancellation, `builder.rs568-570` for the deadline). On
 Unix that `wait()` loops `waitpid` over the negated pgid precisely so that
 already-exited group members are reaped rather than left as zombies
 (`command-group` `src/stdlib/child/unix.rs:71-78`); on Windows it drains the job
 completion port with `INFINITE` before waiting on the child
 (`src/stdlib/child/windows.rs:97-99`). Second, after the loop breaks,
 `run_bounded_inner` requires a final `try_wait()` to return `Some`; a `None` is
-the error `process cleanup incomplete` (`builder.rs:530-533`). Skipping either
+the error `process cleanup incomplete` (`builder.rs584-587`). Skipping either
 wait is what leaves orphans and zombies behind a timeout, and both are present.
 
 The CI validator waits after killing (`lib.rs:4394`, `4666`, `4671`, `4679`,
@@ -86,58 +107,58 @@ The CI validator waits after killing (`lib.rs:4394`, `4666`, `4671`, `4679`,
 ## Timeouts and cancellation
 
 `run_bounded_inner` validates its own bounds before spawning and fails closed
-with `invalid process bounds or executable` (`builder.rs:406-415`): timeout must
+with `invalid process bounds or executable` (`builder.rs446-455`): timeout must
 be non-zero and at most 86 400 s, and both output limits must be in `1..=MAX_OUTPUT`
 where `MAX_OUTPUT = 256 * 1024` (`builder.rs:18`).
 
-The deadline is `Instant::now() + spec.timeout` (`builder.rs:499`) enforced by a
-poll loop (`builder.rs:500-527`), not a blocking wait: each iteration calls
-`child.try_wait()` (`builder.rs:519-522`) and sleeps 20 ms (`builder.rs:526`).
+The deadline is `Instant::now() + spec.timeout` (`builder.rs553`) enforced by a
+poll loop (`builder.rs554-581`), not a blocking wait: each iteration calls
+`child.try_wait()` (`builder.rs573-576`) and sleeps 20 ms (`builder.rs580`).
 Polling is what makes cancellation observable at all — a blocking `wait()` would
 only notice a flag after the child had already exited.
 
 Ordering inside the loop is the contract. Cancellation is tested first
-(`builder.rs:501`), the deadline second (`builder.rs:510`), exit status last. When
+(`builder.rs555`), the deadline second (`builder.rs564`), exit status last. When
 both apply in the same iteration, the run breaks with `(false, true)` and is
-classified `Cancelled` (`builder.rs:508`, `549`). A cancelled build therefore never
+classified `Cancelled` (`builder.rs562`, `549`). A cancelled build therefore never
 reports as timed out. The CI validator uses the same precedence: cancellation at
 `lib.rs:4661`, over-limit at `4669`, deadline at `4677`, each returning its own
 typed failure. A pre-loop cancellation check also exists in
-`qualification.rs:831-842`, so a cancelled qualification does not spawn at all.
+`qualification.rs832-843`, so a cancelled qualification does not spawn at all.
 
-Timeouts in use: builds get 1800 s (`builder.rs:736`); toolchain preflights get
-10 s each (`builder.rs:598`, `617`, `646`, `662`); the QEMU emulator preflight
+Timeouts in use: builds get 1800 s (`builder.rs797`); toolchain preflights get
+10 s each (`builder.rs655`, `617`, `646`, `662`); the QEMU emulator preflight
 gets 10 s (`qualification.rs:792`); smoke runs get `smoke.timeout_ms` bounded to
 `1..=86_400_000` (`qualification.rs:151-152`); CI validator runs get
 `1_000..=600_000` ms (`lib.rs:3917`) with the preflight further capped at 30 s
 (`lib.rs:4387`).
 
 How a timeout reaches the caller: never as an error. `run_bounded_inner` returns
-`Ok(ProcessEvidence)` with `CommandOutcome::TimedOut` (`builder.rs:546-547`,
-enum at `builder.rs:142-153`). The build path converts any non-`Success` outcome
+`Ok(ProcessEvidence)` with `CommandOutcome::TimedOut` (`builder.rs603-604`,
+enum at `builder.rs152-163`). The build path converts any non-`Success` outcome
 into a `BuildAttempt` carrying the evidence and no candidates
-(`builder.rs:739-749`). A timeout is therefore a recorded, typed,
+(`builder.rs800-810`). A timeout is therefore a recorded, typed,
 non-success *result*, not a raised error — which is what keeps a hung build from
 looking like a crash.
 
 One fidelity caveat in that classification: a failed `expected_stdout` check maps
-to `CommandOutcome::Failed(-1)` (`builder.rs:552-553`), and a signal-terminated
+to `CommandOutcome::Failed(-1)` (`builder.rs609-610`), and a signal-terminated
 process also maps to `Failed(-1)` via `status.code().unwrap_or(-1)`
-(`builder.rs:557`). Callers cannot distinguish a version mismatch from a
+(`builder.rs614`). Callers cannot distinguish a version mismatch from a
 signal kill by outcome alone.
 
 ## Output bounding and the no-output-leak rule
 
 Both stdout and stderr are piped and drained by dedicated threads
-(`builder.rs:430-431`, threads at `builder.rs:495` and `498`). `drain`
-(`builder.rs:565-581`) reads in 8 KiB chunks, keeps at most
+(`builder.rs470-471`, threads at `builder.rs549` and `498`). `drain`
+(`builder.rs622-638`) reads in 8 KiB chunks, keeps at most
 `limit - already_captured` bytes, and sets an overflow flag when a chunk does not
-fit (`builder.rs:572-576`). Oversized output is *dropped*, not buffered to disk
+fit (`builder.rs629-633`). Oversized output is *dropped*, not buffered to disk
 and not truncated-with-a-tail. Both reader threads are joined before the outcome
-is computed (`builder.rs:528-529`).
+is computed (`builder.rs582-583`).
 
 Overflow is a first-class failure. If either flag is set, the outcome is
-`CommandOutcome::OutputLimitExceeded` (`builder.rs:550-551`), ranked below
+`CommandOutcome::OutputLimitExceeded` (`builder.rs607-608`), ranked below
 timeout and cancellation but above exit status — an over-limit run is never
 reported as a build failure, so an unbounded log flood cannot be mistaken for a
 compiler error.
@@ -153,10 +174,10 @@ whereas `drain` truncates exactly to the limit.
 
 The decisive rule is that **captured output contents never cross the API
 boundary.** `ProcessEvidence` carries only an outcome and two byte counts
-(`builder.rs:174-179`, constructed at `builder.rs:559-563`); it has no output
+(`builder.rs184-189`, constructed at `builder.rs616-620`); it has no output
 fields at all. The `expected_stdout` version substring is compared inside
 `run_bounded_inner` (`builder.rs:542-545`) and is never stored, logged, or
-returned — the field's own doc comment says so (`builder.rs:123-124`).
+returned — the field's own doc comment says so (`builder.rs128-129`).
 `ConsumerValidationEvidenceV1` is built from identity, interpreter, outcome,
 size, and digest only (`lib.rs:4080-4090`).
 
@@ -169,14 +190,14 @@ failure text anywhere.
 
 ## Environment clearing and the allowlist
 
-Every bounded spawn begins with `env_clear()` (`builder.rs:429`; CI at
+Every bounded spawn begins with `env_clear()` (`builder.rs469`; CI at
 `lib.rs:4347`). Nothing is inherited implicitly. Each variable is then re-added
-only if it is present in the parent (`builder.rs:459-463`), and finally the
+only if it is present in the parent (`builder.rs513-517`), and finally the
 per-spec explicit overrides are applied with `command.envs(&spec.env)`
-(`builder.rs:477`) — for a build, that is exactly `CARGO_TARGET_DIR`
-(`builder.rs:351-355`).
+(`builder.rs531`) — for a build, that is exactly `CARGO_TARGET_DIR`
+(`builder.rs361-365`).
 
-The builder allowlist (`builder.rs:436-457`):
+The builder allowlist (`builder.rs490-511`):
 
 | Variable | Why it is allowed |
 | --- | --- |
@@ -218,14 +239,14 @@ caller-controlled.
 
 eggpack does not provision a Windows C toolchain and does not pretend to. The
 MSVC variables in the allowlist are *preserved if already present* and otherwise
-simply absent (`builder.rs:459-462`). Provisioning is the caller's and CI's
+simply absent (`builder.rs513-516`). Provisioning is the caller's and CI's
 responsibility: `.github/workflows/ci.yml:43-46` runs
 `ilammy/msvc-dev-cmd@v1` with `arch: x64` before any Windows build, and
 `ci.yml:47-56` then verifies that `VCToolsInstallDir` is set and that `link.exe`
 resolves underneath it.
 
 The one adjustment eggpack makes is path ordering. On Windows, if
-`VCToolsInstallDir` is set, `builder.rs:464-476` prepends
+`VCToolsInstallDir` is set, `builder.rs518-530` prepends
 `%VCToolsInstallDir%/bin/Hostx64/x64` to the copied `PATH`. `env_clear()` has
 discarded the environment `msvc-dev-cmd` carefully assembled, and this restores
 the single entry that determines which `link.exe` is used; the wider MSVC
@@ -234,25 +255,25 @@ about them.
 
 The consequence on an uninitialized Windows host is bounded and quiet. `cargo` is
 found through `PATH`, finds no `link.exe`, exits non-zero, and the run is recorded
-as `CommandOutcome::Failed(code)` (`builder.rs:556-557`) — or `Failed(-1)` if the
+as `CommandOutcome::Failed(code)` (`builder.rs613-614`) — or `Failed(-1)` if the
 tool was signal-terminated. The diagnostic that would explain *why* the link
 failed stays inside the discarded stderr buffer: only `stderr_bytes` is reported
-(`builder.rs:562`). An operator sees "build failed, N bytes of stderr", and the
+(`builder.rs619`). An operator sees "build failed, N bytes of stderr", and the
 missing-environment diagnosis has to come from the CI step that checks for it,
 not from the captured linker output.
 
 ## The executable allowlist (ADR-0004 boundary)
 
-`ExecutableAllowance` (`builder.rs:99-104`) is the per-strategy restriction on
-what may be executed. It is evaluated at `builder.rs:396-415`, *before* any
+`ExecutableAllowance` (`builder.rs103-109`) is the per-strategy restriction on
+what may be executed. It is evaluated at `builder.rs435-455`, *before* any
 `Command` is constructed, and a non-matching executable is rejected with
-`invalid process bounds or executable` (`builder.rs:406-414`).
+`invalid process bounds or executable` (`builder.rs446-454`).
 
 | Allowance | Permitted executable | Enforcement |
 | --- | --- | --- |
-| `Builder` | exactly `cargo`, `rustc`, or `zig` | `matches!(spec.executable.as_str(), ...)` (`builder.rs:398`) |
-| `Candidate` | any **absolute** path, which must then be made executable | `Path::new(&spec.executable).is_absolute()` (`builder.rs:400`) |
-| `Qemu` | exactly `qemu-x86_64`, `qemu-aarch64`, or `qemu-arm` | `matches!(...)` (`builder.rs:401-404`) |
+| `Builder` | exactly `cargo`, `rustc`, or `zig` | `matches!(spec.executable.as_str(), ...)` (`builder.rs437`) |
+| `Candidate` | any **absolute** path, which must then be made executable | `Path::new(&spec.executable).is_absolute()` (`builder.rs439`) |
+| `Qemu` | exactly `qemu-x86_64`, `qemu-aarch64`, or `qemu-arm` | `matches!(...)` (`builder.rs440-443`) |
 
 This is the enforcement point for ADR-0004's rejection of a generic shell DSL
 and of a "run whatever" escape hatch (`architecture/principles-roadmap.md:94-98`).
@@ -269,10 +290,10 @@ closed three-name list, matching the finite target→emulator mapping
 (`qualification.rs:785-788`). `Candidate` is *not* a closed list: it permits any
 absolute path. What constrains it is provenance rather than identity — the
 executable is `candidate.path` from a discovered candidate artifact
-(`qualification.rs:858-859`), which was itself produced by a bounded build,
+(`qualification.rs860-861`), which was itself produced by a bounded build,
 re-verified, and made executable. So the candidate allowance trusts a path's
 origin, not its name. That is a deliberate difference in mechanism, and it is
-why `ensure_candidate_executable` runs at `builder.rs:420-424` and a failure
+why `ensure_candidate_executable` runs at `builder.rs460-464` and a failure
 there is a build error rather than a spawn.
 
 The CI side closes the same hole by construction rather than by allowlist. The
@@ -286,17 +307,17 @@ nothing for an allowlist to filter.
 
 ## Preflight checks and their strength
 
-`preflight` (`builder.rs:584-674`) runs before any build, called from
-`execute_target_cancellable` at `builder.rs:720`. The checks are not of uniform
+`preflight` (`builder.rs641-735`) runs before any build, called from
+`execute_target_cancellable` at `builder.rs781`. The checks are not of uniform
 strength, and stating otherwise would misrepresent the guarantee.
 
 | Tool | Command | `expected_stdout` | Strength |
 | --- | --- | --- | --- |
-| `rustc` | `+<toolchain> --version` (`builder.rs:589-604`) | `None` (`builder.rs:601`) | **Exit status only** |
-| `cargo` | `+<toolchain> --version` (`builder.rs:608-623`) | `None` (`builder.rs:620`) | **Exit status only** |
-| `cargo-zigbuild` | `zigbuild --version` (`builder.rs:640-652`) | `Some("cargo-zigbuild <v>")` (`builder.rs:649`) | **Substring verified** |
-| `zig` | `version` (`builder.rs:656-668`) | `Some(<v>)` (`builder.rs:665`) | **Substring verified** |
-| QEMU | `<emulator> --version` (`qualification.rs:787-796`) | `None` (`qualification.rs:795`) | **Exit status only** |
+| `rustc` | `+<toolchain> --version` (`builder.rs646-662`) | `None` (`builder.rs658`) | **Exit status only** |
+| `cargo` | `+<toolchain> --version` (`builder.rs666-682`) | `None` (`builder.rs678`) | **Exit status only** |
+| `cargo-zigbuild` | `zigbuild --version` (`builder.rs699-712`) | `Some("cargo-zigbuild <v>")` (`builder.rs708`) | **Substring verified** |
+| `zig` | `version` (`builder.rs716-729`) | `Some(<v>)` (`builder.rs725`) | **Substring verified** |
+| QEMU | `<emulator> --version` (`qualification.rs787-797`) | `None` (`qualification.rs:795`) | **Exit status only** |
 | Python 3 | `--version` (`lib.rs:4365`, run at `lib.rs:4372`) | checked at `lib.rs:4412` | **Substring verified** (`"Python 3"`) |
 
 So the Zig toolchain is version-verified; the Rust toolchain is not. For `rustc`
@@ -312,22 +333,22 @@ exit-status-only, though there tool identity is a fixed finite mapping
 A missing interpreter is a failure, never a skip: an unusable `python3` returns
 `InterpreterUnavailable` (`lib.rs:4256-4261`) rather than passing validation
 vacuously. A missing cargo-zigbuild or Zig declaration is rejected before spawn
-(`builder.rs:632`, `638`).
+(`builder.rs691`, `638`).
 
 ## No shell interpretation
 
 Every production spawn passes an argument vector to `Command::new` plus
 `.args`/`.arg`. There is no `sh -c`, no `cmd /C`, and no shell string anywhere in
 a spawn path. Core: `Command::new(&spec.executable).args(&spec.args)`
-(`builder.rs:425-428`). CI: `Command::new(exe)` then `command.arg(script)` and
+(`builder.rs465-468`). CI: `Command::new(exe)` then `command.arg(script)` and
 `command.arg(candidate)` (`lib.rs:4343`, `4361-4362`).
 
 Because no shell is involved, the workspace does not need to escape, quote, or
 reject shell metacharacters. Instead it validates the *inputs*:
 
 - Cargo identifiers are restricted to ASCII alphanumerics, `_`, `-`, `.`, and at
-  most 128 bytes (`valid_identifier`, `builder.rs:301-306`), applied to package
-  and binary before an argv is built (`builder.rs:316-317`).
+  most 128 bytes (`valid_identifier`, `builder.rs311-316`), applied to package
+  and binary before an argv is built (`builder.rs326-327`).
 - Smoke argv is length- and count-capped and rejects NUL and all ASCII control
   characters (`qualification.rs:157-162`).
 - The CI script path must be absolute, and the interpreter is not configurable.

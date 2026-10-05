@@ -357,7 +357,7 @@ Normal update and service lifecycle stay with Eggup and the application.
 - Dependents: `eggpack-github` (regular; `crates/eggpack-github/Cargo.toml:18`,
   renders the installers it stages), `eggpack-cli` (regular;
   `crates/eggpack-cli/Cargo.toml:23`, parses a policy file at
-  `crates/eggpack-cli/src/main.rs:1017-1024`), `eggpack-ci` (dev;
+  `crates/eggpack-cli/src/main.rs1006-1013`), `eggpack-ci` (dev;
   `crates/eggpack-ci/Cargo.toml:24`, renderer tests only).
 
 ## Related deep dives

@@ -2197,7 +2197,9 @@ pub fn cargo_output_path(
     }
     let mut path = cargo_target_dir.join(target).join("release").join(binary);
     if target.contains("-windows-") {
-        path.set_extension("exe");
+        // Cargo appends the executable suffix to the full binary name; a binary
+        // name containing `.` keeps it (`tool.cli` -> `tool.cli.exe`).
+        path.set_file_name(format!("{binary}.exe"));
     }
     Ok(path)
 }
@@ -4718,6 +4720,33 @@ mod tests {
         ))
         .unwrap()
     }
+    #[test]
+    fn cargo_output_path_appends_exe_and_preserves_dotted_names() {
+        let root = std::path::Path::new("/target");
+        assert_eq!(
+            cargo_output_path(root, "x86_64-unknown-linux-gnu", "demo").unwrap(),
+            PathBuf::from("/target/x86_64-unknown-linux-gnu/release/demo")
+        );
+        assert_eq!(
+            cargo_output_path(root, "x86_64-pc-windows-msvc", "demo").unwrap(),
+            PathBuf::from("/target/x86_64-pc-windows-msvc/release/demo.exe")
+        );
+        // Cargo appends the suffix, so a dotted binary name keeps its own
+        // extension instead of having it replaced.
+        assert_eq!(
+            cargo_output_path(root, "x86_64-pc-windows-msvc", "tool.cli").unwrap(),
+            PathBuf::from("/target/x86_64-pc-windows-msvc/release/tool.cli.exe")
+        );
+        assert_eq!(
+            cargo_output_path(root, "aarch64-apple-darwin", "tool.cli").unwrap(),
+            PathBuf::from("/target/aarch64-apple-darwin/release/tool.cli")
+        );
+        // A triple that merely contains `windows` is not a Windows triple.
+        assert_eq!(
+            cargo_output_path(root, "x86_64-unknown-notwindowsish", "demo").unwrap(),
+            PathBuf::from("/target/x86_64-unknown-notwindowsish/release/demo")
+        );
+    }
     fn plan(strategy: BuildStrategy, support: SupportTier) -> (DistributionContract, ReleasePlan) {
         let contract = contract();
         let target = "x86_64-unknown-linux-gnu";
@@ -6164,6 +6193,8 @@ mod tests {
         );
     }
 
+    // Not standalone coverage: rewrites checked-in goldens in place through
+    // `write_golden`, so it must never run as part of a normal test pass.
     #[test]
     #[ignore]
     fn m002a_regenerate_goldens() {
@@ -6772,6 +6803,8 @@ mod tests {
         assert_golden(&rendered, include_str!("../tests/fixtures/m002-direct.yml"));
     }
 
+    // Not standalone coverage: rewrites checked-in goldens in place, so it must
+    // never run as part of a normal test pass.
     #[test]
     #[ignore]
     fn m003b_regenerate_goldens() {
@@ -10139,6 +10172,8 @@ support="required"
         std::fs::remove_dir_all(&root).unwrap();
     }
 
+    // Not standalone coverage: rewrites one checked-in golden in place, so it
+    // must never run as part of a normal test pass.
     #[test]
     #[ignore]
     fn m005_regenerate_m001_multitarget_golden() {

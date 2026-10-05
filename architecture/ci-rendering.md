@@ -323,8 +323,10 @@ tracked bytes as of compile time. There are ten `assert_golden` call sites
 alongside one contract input, `mixed-direct-targets.toml`.
 
 Three tests are `#[ignore]`d and all three mutate tracked fixtures:
-`m002a_regenerate_goldens` (`:6169`), `m003b_regenerate_goldens` (`:6777`), and
-`m005_regenerate_m001_multitarget_golden` (`:10144`). Each calls `write_golden`
+`m002a_regenerate_goldens` (`:6200`), `m003b_regenerate_goldens` (`:6810`), and
+`m005_regenerate_m001_multitarget_golden` (`:10179`). Each now carries a comment
+above its `#[ignore]` recording that it mutates tracked fixtures, and each calls
+`write_golden`
 (`:4818`), which is `#[allow(dead_code)]` and writes directly under
 `CARGO_MANIFEST_DIR` (`:4819-4821`) with no atomic replace, no symlink check,
 and no diff preview. Running `cargo test -p eggpack-ci --lib -- --ignored`

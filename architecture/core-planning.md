@@ -137,7 +137,7 @@ The `HostMismatch` **record** is not produced here. It is
 `QualificationStatus::Failed(QualificationFailure::HostMismatch)` for native,
 deferred-native, and emulated paths (`qualification.rs:694`, `:725`, `:760`).
 A non-matching host is a failed record — never a pass, never a skip, and never
-an executed smoke (asserted at `qualification.rs:1842-1867`). See
+an executed smoke (asserted at `qualification.rs1845-1870`). See
 `core-qualification.md`.
 
 **A native run does not prove a declared deployment floor.** `floor` is a

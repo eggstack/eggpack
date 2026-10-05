@@ -107,10 +107,11 @@ cannot touch anything the caller did not name. The output path is checked by
 prints `generated <n> bytes to <path>` (`:330-334`).
 
 `ci check` never writes. There is no `atomic_write`, `fs::write`, or
-`create_dir_all` anywhere in `:358-426`; the only effect on success is one
-`println!` (`:390`, `:417`). It reads the existing workflow with `std::fs::read`
-(`:375`, `:405`) and rejects above 8 MiB (`:377`, `:407`) — the bound is applied
-*after* the read, the one input in this crate not size-gated before allocation.
+`create_dir_all` anywhere in `:351-419`; the only effect on success is one
+`println!`. It reads the existing workflow through `read_bounded` at 8 MiB
+(`:368`, `:398`), so the bound is checked against file metadata *before* any
+allocation and the input is also refused if it is a symlink. This is the same
+gate every other input in the crate uses; the workflow is not a special case.
 
 Drift comparison is delegated. The CRLF→LF-only normalization lives in
 `eggpack-ci` (`normalize_newlines`, `crates/eggpack-ci/src/lib.rs:1818`, applied
@@ -167,7 +168,7 @@ path. Production bounds:
 | 64 KiB | draft template, consumer validators, consumer evidence, installer presentation | `:148`, `:180`, `:720`, `:864`, `:961`, `:1030` |
 | 256 KiB | install policy, github draft policy | `:1018`, `:1065`, `:1117` |
 | 1 MiB | release manifest, staging payload | `:1064`, `:1116` |
-| 8 MiB | existing workflow (checked *after* the read) | `:377`, `:407` |
+| 8 MiB | existing workflow, via `read_bounded` (checked *before* the read, symlink refused) | `:368`, `:398` |
 
 `reject_symlink_output` (`:257`) refuses an existing symlink or directory at the
 output path. It is reached only from `atomic_write` (`:270`), so callers cannot
@@ -298,10 +299,14 @@ crate. `grep -n 'Command::new'` returns `main.rs:72` plus five sites inside
 `mod tests` (`:1239`, `:1257`, `:1264`, `:1859`, `:1874`); every environment
 variable access in the file is likewise test-only (`:1242-1245`, `:1862-1865`).
 
-What it does: `Command::new("git")` (`:72`) with the fixed arguments `rev-parse
---verify HEAD^{commit}` (`:73`), an optional `current_dir` (`:74-76`), and a
-blocking `.output()` (`:77-79`). It trims stdout and requires exactly 40
-lowercase hex characters equal to the expected revision (`:83-93`).
+What it does: it validates that the expected revision is 40 lowercase hex
+characters (`:72-78`), then delegates to `eggpack_core::run_git_bounded`
+(`:81-82`), which owns the spawn. That helper builds a `CommandSpec` for
+`git rev-parse --verify HEAD^{commit}` (`crates/eggpack-core/src/builder.rs:396`,
+`400-402`) and runs it through the same `run_bounded_inner` used for builds: a
+30 s deadline (`builder.rs:20`), a 4 KiB retained-output cap (`builder.rs:22`),
+a `command-group` process group killed and waited on, and `env_clear()` with a
+7-var allowlist (`builder.rs:473-485`).
 
 Why it is load-bearing. A generated workflow renders concrete plans, paths, and
 policies. If the checkout has moved — a rebase, a tag force-update, a detached job
@@ -309,25 +314,23 @@ at the wrong commit — the workflow would build and aggregate bytes for a commi
 other than the one the plan was derived from, so every downstream artifact would
 describe a release the plan does not describe. Two call sites pin the identity:
 `ci _verify-source` (`:55-69`) requires the plan's `source_revision` to be 40
-lowercase hex (`:61-67`) then verifies it against the inherited working directory
-(`:68`); `ci _resolve-release` (`:126`) verifies the caller-supplied
-`--source-revision` against the explicit `--source-root` before resolving
-anything.
+lowercase hex then verifies it against the inherited working directory (`:68`);
+`ci _resolve-release` (`:119`) verifies the caller-supplied `--source-revision`
+against the explicit `--source-root` before resolving anything.
 
-It fails closed. Spawn failure, non-zero status, non-UTF-8 stdout, wrong length,
-non-hex characters, and mismatch all return an error (`:79-93`); only exact
+It fails closed. Anything other than `CommandOutcome::Success` is an error
+(`:84-86`): spawn failure, deadline, output-cap breach, non-zero status, and
+mismatch all collapse to one message that carries no git output. Only exact
 equality passes, and the pass path prints a fixed sentence carrying no revision
-text (`:94`). Captured stdout is compared, never printed, never in a diagnostic.
+text (`:87`).
 
-It does not follow the workspace contract documented in
-[process-execution.md](process-execution.md), which lists this site as the one
-unbounded spawn: no timeout, no process group or job object, no `env_clear` (the
-full environment is inherited, including ambient git config and credential
-helpers), and no cap on what `git` writes into the pipe. The consequence is
-concrete: a hung or hostile `git` earlier in `PATH` stalls the step indefinitely
-with no bound, and it is not killed as a group if it spawns children. This is a
-documented divergence; the core and `eggpack-ci` spawn sites do follow bounded,
-group-killed, environment-cleared execution.
+The expected object name is matched *inside* the runner
+(`builder.rs:596-602`) and never returned to this process, so the CLI cannot
+leak stdout even by accident. The comparison is exact rather than containment:
+`expected_stdout_exact` (`builder.rs:134`) requires the trimmed stdout to equal
+the expected value, which a substring check would not. This keeps the site
+inside the workspace contract in
+[process-execution.md](process-execution.md) rather than diverging from it.
 
 ## Error and exit discipline
 

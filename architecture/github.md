@@ -32,7 +32,7 @@ boundary is enforced in code, not by convention.
 | No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2374-2375`, `2026`, `2032` |
 
 `--clobber` is a workspace-wide non-goal enforced statically in `eggpack-ci`
-(`crates/eggpack-ci/src/lib.rs:3775`, `:6901`), not by a flag validated here.
+(`crates/eggpack-ci/src/lib.rs3777`, `:6901`), not by a flag validated here.
 Publication remains a separate human action: nothing in this crate ever flips a
 draft to published.
 
@@ -378,15 +378,20 @@ Deliberately **not** enforced here, listed honestly:
   returns a plain error and applies no narrow recovery, so it still fails closed
   — but as a confusing 422 rather than a clear bound violation.
 - **`immutable` defaults to `false` when the API omits it**
-  (`#[serde(default)]`, `2374-2375`). If GitHub stopped returning the field, the
-  immutable gates at `2026` and `2032` would pass on a default rather than on
-  observed evidence. This is the one fail-open default in the draft/immutable
-  enforcement.
+  (`#[serde(default)]`, `2380-2381`). This is the one place where a missing
+  field resolves to a permissive value, and it is deliberate: making the field
+  mandatory would fail *every* release read against an API that does not return
+  it, which is a strictly worse failure than the one it prevents. The gate at
+  `2032` therefore sees `immutable == false` without having observed it. In
+  practice the outcome is still fail-closed — a genuinely immutable release
+  rejects the asset upload server-side — but the rejection arrives as a transport
+  error rather than a clear "not a mutable draft", and the field is not evidence
+  the gate can rely on. Source now carries a comment recording the reasoning.
 - **No log-sink redaction**, because the crate has no logging dependency; there
   is no `tracing`/`log` call in `lib.rs`.
 - **`--clobber` is not a flag in this crate at all**; it is a workspace-level
   non-goal guarded statically in `eggpack-ci`
-  (`crates/eggpack-ci/src/lib.rs:3775`, `:6901`).
+  (`crates/eggpack-ci/src/lib.rs3777`, `:6901`).
 - **No authenticity, signature, or provenance claim.** Digests in the payload,
   the upload responses and the receipt are SHA-256 integrity facts only
   (`1915-1946`, `2107-2111`, `2176-2181`).
@@ -425,7 +430,7 @@ platform's CA configuration; combined with the fixed `api.github.com` /
 Dependents: `eggpack-cli` is a hard dependency
 (`crates/eggpack-cli/Cargo.toml:24`) and the only production caller.
 `_prepare-stage` uses `GitHubDraftTemplateV1::from_json`
-(`crates/eggpack-cli/src/main.rs:152`), `InstallerPresentationV1::from_json`
+(`crates/eggpack-cli/src/main.rs145`), `InstallerPresentationV1::from_json`
 (`:1038`) and `prepare_staging_payload_with_presentation` /
 `prepare_staging_payload` (`:1076`, `:1088`); `_stage-github-draft` uses
 `StagingPayloadV1::from_json` (`:1118`), `read_token` (`:1124`),

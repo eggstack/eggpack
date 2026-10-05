@@ -95,7 +95,7 @@ staging directory never enters the manifest.
 
 `release-manifest.json` is **not** written by this file — the manifest is
 returned in memory as a value (`:310-313`). Serialization to a file beside the
-finalized root happens in `eggpack-cli` (`crates/eggpack-cli/src/main.rs:994-999`
+finalized root happens in `eggpack-cli` (`crates/eggpack-cli/src/main.rs983-988`
 and the M003a handoff at `:1674-1686`, which asserts the file is absent inside
 the root) and, for staging, in `eggpack-github`
 (`crates/eggpack-github/src/lib.rs:31`, `FIXED_MANIFEST_NAME`). The
@@ -197,7 +197,7 @@ decides whether to serialize it.
 - No signature, provenance, or authenticity production.
 - No archive extraction, no installer rendering, no platform-install logic.
 - No CLI surface: the CLI reaches this stage through `eggpack-ci`
-  (`crates/eggpack-ci/src/lib.rs:2664-2698`, `:2795-2832`).
+  (`crates/eggpack-ci/src/lib.rs2666-2700`, `:2795-2832`).
 - Consumer-script validation happens before this stage, not here.
 
 ## Dependencies / dependents

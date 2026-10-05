@@ -51,8 +51,8 @@ the same facts always yield the same bytes.
 | `CIPlan` job outputs | `selector` | `crates/eggpack-ci/src/lib.rs:182` | imposed at construction |
 | `CIPlan.targets` (jobs) | `planned.target` | `crates/eggpack-ci/src/lib.rs:195` | imposed at construction |
 | `CIPlan.required_aggregation_dependencies` | lexical job id | `crates/eggpack-ci/src/lib.rs:196` | imposed at construction |
-| `ReleaseCIPlanV1.qualifications` | `target` | `crates/eggpack-ci/src/lib.rs:2504` | imposed at construction |
-| `LogicalOutputSelector` comparison | derived `Ord`: `Direct` < `BundleEntry{index}` < `ArchiveMember{source}` | `crates/eggpack-core/src/builder.rs:47-62` | derived, declaration-ordered |
+| `ReleaseCIPlanV1.qualifications` | `target` | `crates/eggpack-ci/src/lib.rs2506` | imposed at construction |
+| `LogicalOutputSelector` comparison | derived `Ord`: `Direct` < `BundleEntry{index}` < `ArchiveMember{source}` | `crates/eggpack-core/src/builder.rs51-66` | derived, declaration-ordered |
 | Qualification evidence candidates | `selector` | `crates/eggpack-core/src/finalization.rs:632` | imposed before evidence assembly |
 | Bootstrap installer cases | `(os, arch)` | `crates/eggpack-bootstrap/src/lib.rs:613-620` | imposed at projection |
 | Archive comparison source set | lexical, then `dedup` | `crates/eggpack-contract/src/lib.rs:1661-1662` | imposed over a merged `HashMap` key set |
@@ -60,7 +60,7 @@ the same facts always yield the same bytes.
 
 `LogicalOutputSelector` derives `Ord` from enum variant declaration order, so
 `Direct` sorts before every `BundleEntry` regardless of index, and `BundleEntry`
-before every `ArchiveMember` (`crates/eggpack-core/src/builder.rs:47`). That
+before every `ArchiveMember` (`crates/eggpack-core/src/builder.rs51`). That
 ordering is what makes `CIPlan::validate`'s strict-ascending check
 (`crates/eggpack-ci/src/lib.rs:333`) and finalization's candidate matching
 (`crates/eggpack-core/src/finalization.rs:395`) agree.
@@ -76,7 +76,7 @@ Order that is *preserved*, not imposed:
 - `DistributionContract::to_toml_string` explicitly preserves stored field and
   target order (`crates/eggpack-contract/src/lib.rs:269-270`).
 - `BundleEntry { index }` carries contract order inside the selector itself
-  (`crates/eggpack-core/src/builder.rs:53-56`), so bundle slot identity is
+  (`crates/eggpack-core/src/builder.rs57-60`), so bundle slot identity is
   declaration-derived.
 
 The net guarantee is split: the release *manifest* is canonical (sorted at
@@ -91,7 +91,7 @@ declarations being treated as part of the wire contract rather than as
 incidental layout. Examples: `ReleaseManifest`
 (`crates/eggpack-manifest/src/lib.rs:59-72`), `StagingPayloadV1`
 (`crates/eggpack-github/src/lib.rs:206-228`), `ReleaseCIPlanV1`
-(`crates/eggpack-ci/src/lib.rs:2309`).
+(`crates/eggpack-ci/src/lib.rs2311`).
 
 Two conventions make this fail closed:
 
@@ -99,13 +99,13 @@ Two conventions make this fail closed:
   (`crates/eggpack-manifest/src/lib.rs:58`, `:77`, `:112`, `:124`, `:134`,
   `:147`; `crates/eggpack-github/src/lib.rs:187`, `:205`, `:297`;
   `crates/eggpack-ci/src/lib.rs:1861`, `:2308`;
-  `crates/eggpack-core/src/builder.rs:66`, `:78`). An unrecognized field is a
+  `crates/eggpack-core/src/builder.rs70`, `:78`). An unrecognized field is a
   parse error, not a dropped key, so a third party's re-serialization cannot
   lose or reorder facts.
 - Internally tagged enums with explicit tag name and
   `rename_all = "snake_case"`: `ArtifactForm`
   (`crates/eggpack-manifest/src/lib.rs:87`), `LogicalOutputSelector`
-  (`crates/eggpack-core/src/builder.rs:48`), `FindingKind`
+  (`crates/eggpack-core/src/builder.rs52`), `FindingKind`
   (`crates/eggpack-contract/src/lib.rs:1356-1357`), and `PlannedAssetForm`
   (`crates/eggpack-core/src/lib.rs:478`).
 
@@ -114,7 +114,7 @@ are narrow and deliberate: `evidence_references` on `ReleaseManifest`
 (`crates/eggpack-manifest/src/lib.rs:71`), `smoke` on
 `TargetQualificationBinding`
 (`crates/eggpack-core/src/qualification.rs:63`), and `consumer_validators` on
-the CI orchestration graph (`crates/eggpack-ci/src/lib.rs:2327-2328`), the last
+the CI orchestration graph (`crates/eggpack-ci/src/lib.rs2329-2330`), the last
 keyed by `BTreeMap` so its object key order is lexical when present. A
 `BTreeMap` serialized by `serde_json` always emits keys sorted, so those
 documents are stable without an explicit sort.
@@ -236,15 +236,15 @@ rendered bytes is the line-ending convention a repository's `.gitattributes`
 may impose, and a lone `\r` or a trailing-whitespace edit is still drift.
 
 `eggpack ci check` never writes: it reads, re-renders, and reports
-(`crates/eggpack-cli/src/main.rs:358-425`), returning an error naming byte
+(`crates/eggpack-cli/src/main.rs351-414`), returning an error naming byte
 counts and first difference. `eggpack ci generate` is the only writer, writes
 only the explicit `--output` path, and rejects a symlink target
-(`crates/eggpack-cli/src/main.rs:301-355`; `atomic_write` at
-`crates/eggpack-cli/src/main.rs:269-270`).
+(`crates/eggpack-cli/src/main.rs294-348`; `atomic_write` at
+`crates/eggpack-cli/src/main.rs262-263`).
 
 Tests pin both directions: identical bytes and a CRLF-converted copy both report
 a match while a one-token change to `contents: read` is drift
-(`crates/eggpack-ci/src/lib.rs:4885-4904`); the five-target matrix renders and
+(`crates/eggpack-ci/src/lib.rs4914-4933`); the five-target matrix renders and
 checks with no drift (`:8971`); rendering twice is asserted equal
 (`:4834-4835`).
 
@@ -270,7 +270,7 @@ structural round-trips (`:402-437`).
 The same check runs at every boundary where a manifest crosses into consumer
 space: the CLI re-encodes and fails if the round-trip is not byte-identical
 before writing `release-manifest.json` beside the finalized root
-(`crates/eggpack-cli/src/main.rs:981-999`, test at `:1678-1684`); staging does
+(`crates/eggpack-cli/src/main.rs970-988`, test at `:1678-1684`); staging does
 the same for the manifest it writes
 (`crates/eggpack-github/src/lib.rs:774-790`, `:1443-1459`);
 `eggpack-github` re-sorts the payload clone on every `to_json`

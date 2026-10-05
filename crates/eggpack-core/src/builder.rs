@@ -16,6 +16,10 @@ use std::{
 };
 
 const MAX_OUTPUT: usize = 256 * 1024;
+/// Wall-time bound for the sanitized `git rev-parse` verification spawn.
+const GIT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Retained-output bound for the `git` verification spawn: a bare object name.
+const GIT_OUTPUT_LIMIT: usize = 4 * 1024;
 
 /// Restore POSIX exec bits on a transferred candidate before spawning it.
 ///
@@ -101,6 +105,7 @@ enum ExecutableAllowance {
     Builder,
     Candidate,
     Qemu,
+    Git,
 }
 
 /// Explicit shell-free process command. Executable and argv are separate OS arguments.
@@ -122,6 +127,11 @@ pub struct CommandSpec {
     pub stderr_limit: usize,
     /// Optional tool version substring checked internally and never returned.
     pub expected_stdout: Option<String>,
+    /// Optional exact trimmed-stdout match checked internally and never returned.
+    ///
+    /// Used where containment would be weaker than the invariant: the tool must
+    /// emit one exact value, not merely contain it among other output.
+    pub expected_stdout_exact: Option<String>,
 }
 
 /// Exact source command associated with a logical output.
@@ -362,6 +372,7 @@ pub fn cargo_command(
         stdout_limit: MAX_OUTPUT,
         stderr_limit: MAX_OUTPUT,
         expected_stdout: None,
+        expected_stdout_exact: None,
     })
 }
 
@@ -372,6 +383,34 @@ pub fn run_bounded_cancellable(
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
     run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Builder)
+}
+
+/// Run a bounded `git` process group that must echo exactly `expected` on stdout.
+///
+/// The only sanctioned `git` spawn in the workspace: bounded time and output,
+/// process-group cleanup, and a cleared environment. stdout is matched
+/// internally and never returned, so the caller learns only pass or fail.
+pub fn run_git_bounded(expected: &str, cwd: Option<&Path>) -> Result<ProcessEvidence, BuildError> {
+    let cwd = match cwd {
+        Some(cwd) => cwd.to_path_buf(),
+        None => std::env::current_dir().map_err(|_| build_err("working directory unavailable"))?,
+    };
+    let spec = CommandSpec {
+        executable: "git".into(),
+        args: vec![
+            "rev-parse".into(),
+            "--verify".into(),
+            "HEAD^{commit}".into(),
+        ],
+        cwd,
+        env: BTreeMap::new(),
+        timeout: GIT_TIMEOUT,
+        stdout_limit: GIT_OUTPUT_LIMIT,
+        stderr_limit: GIT_OUTPUT_LIMIT,
+        expected_stdout: None,
+        expected_stdout_exact: Some(expected.to_owned()),
+    };
+    run_bounded_inner(&spec, None, ExecutableAllowance::Git)
 }
 
 pub(crate) fn run_qualification_process(
@@ -402,6 +441,7 @@ fn run_bounded_inner(
             spec.executable.as_str(),
             "qemu-x86_64" | "qemu-aarch64" | "qemu-arm"
         ),
+        ExecutableAllowance::Git => spec.executable == "git",
     };
     if !executable_allowed
         || spec.timeout.is_zero()
@@ -430,7 +470,21 @@ fn run_bounded_inner(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let environment = if !matches!(allowance, ExecutableAllowance::Builder) {
+    let environment = if matches!(allowance, ExecutableAllowance::Git) {
+        // git resolves its helpers and DLLs from PATH, and reads the global
+        // config from HOME/USERPROFILE; `safe.directory` is frequently set
+        // there, so both must survive the environment clear.
+        [
+            "PATH",
+            "HOME",
+            "USERPROFILE",
+            "SystemRoot",
+            "WINDIR",
+            "TEMP",
+            "TMP",
+        ]
+        .as_slice()
+    } else if !matches!(allowance, ExecutableAllowance::Builder) {
         ["PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"].as_slice()
     } else {
         [
@@ -539,10 +593,13 @@ fn run_bounded_inner(
         .lock()
         .map_err(|_| build_err("stderr state unavailable"))?
         .clone();
-    let expected_missing = spec
-        .expected_stdout
-        .as_ref()
-        .is_some_and(|expected| !String::from_utf8_lossy(&stdout).contains(expected));
+    let expected_missing =
+        spec.expected_stdout
+            .as_ref()
+            .is_some_and(|expected| !String::from_utf8_lossy(&stdout).contains(expected))
+            || spec.expected_stdout_exact.as_ref().is_some_and(|expected| {
+                String::from_utf8_lossy(&stdout).trim() != expected.as_str()
+            });
     let outcome = if timed_out {
         CommandOutcome::TimedOut
     } else if cancelled {
@@ -599,6 +656,7 @@ fn preflight(
             stdout_limit: 1024,
             stderr_limit: 1024,
             expected_stdout: None,
+            expected_stdout_exact: None,
         },
         cancellation,
     )?;
@@ -618,6 +676,7 @@ fn preflight(
             stdout_limit: 1024,
             stderr_limit: 1024,
             expected_stdout: None,
+            expected_stdout_exact: None,
         },
         cancellation,
     )?;
@@ -647,6 +706,7 @@ fn preflight(
                 stdout_limit: 1024,
                 stderr_limit: 1024,
                 expected_stdout: Some(format!("cargo-zigbuild {expected}")),
+                expected_stdout_exact: None,
             },
             cancellation,
         )?;
@@ -663,6 +723,7 @@ fn preflight(
                 stdout_limit: 1024,
                 stderr_limit: 1024,
                 expected_stdout: Some(expected_zig.to_owned()),
+                expected_stdout_exact: None,
             },
             cancellation,
         )?;
@@ -851,8 +912,10 @@ pub fn discover_candidate(
         return Err(build_err("invalid binary name"));
     }
     let mut path = target_dir.join(target).join("release").join(binary);
-    if target.contains("windows") {
-        path.set_extension("exe");
+    if target.contains("-windows-") {
+        // Cargo appends the executable suffix to the full binary name; a binary
+        // name containing `.` keeps it (`tool.cli` -> `tool.cli.exe`).
+        path.set_file_name(format!("{binary}.exe"));
     }
     let metadata =
         fs::symlink_metadata(&path).map_err(|_| build_err("expected candidate missing"))?;
@@ -1050,6 +1113,99 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    fn windows_candidate_appends_exe_and_preserves_dotted_names() {
+        let root = crate::test_temp_dir("builder-exe-test");
+        let target = "x86_64-pc-windows-msvc";
+        let out = root.join(target).join("release");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join("demo.exe"), b"binary").unwrap();
+        assert_eq!(discover_candidate(&root, target, "demo").unwrap().1, 6);
+        fs::write(out.join("tool.cli.exe"), b"dotted").unwrap();
+        // Cargo appends the suffix: a dotted name keeps its own extension
+        // rather than having it replaced.
+        let (path, size) = discover_candidate(&root, target, "tool.cli").unwrap();
+        assert!(path.ends_with("tool.cli.exe"), "{path:?}");
+        assert_eq!(size, 6);
+        fs::remove_dir_all(root).unwrap();
+
+        // A replaced-extension lookup must not resolve: with only `tool.exe`
+        // present, `tool.cli` is a miss rather than a truncation match.
+        let root = crate::test_temp_dir("builder-exe-test-2");
+        let out = root.join(target).join("release");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join("tool.exe"), b"truncated").unwrap();
+        assert!(discover_candidate(&root, target, "tool.cli").is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn windows_candidate_matching_is_not_a_substring_heuristic() {
+        let root = crate::test_temp_dir("builder-triple-test");
+        let target = "x86_64-unknown-notwindowsish";
+        let out = root.join(target).join("release");
+        fs::create_dir_all(&out).unwrap();
+        fs::write(out.join("demo"), b"binary").unwrap();
+        assert!(discover_candidate(&root, target, "demo").is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn git_verification_is_bounded_and_exact() {
+        let root = crate::test_temp_dir("builder-git-test");
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
+                .output()
+        };
+        if !git(&["init", "--quiet"]).is_ok_and(|o| o.status.success()) {
+            fs::remove_dir_all(root).unwrap();
+            return; // git unavailable: nothing to verify
+        }
+        fs::write(root.join("f"), b"x").unwrap();
+        if !git(&["add", "f"]).is_ok_and(|o| o.status.success())
+            || !git(&["commit", "--quiet", "-m", "c"]).is_ok_and(|o| o.status.success())
+        {
+            fs::remove_dir_all(root).unwrap();
+            return;
+        }
+        let head = String::from_utf8(git(&["rev-parse", "HEAD"]).unwrap().stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        assert_eq!(head.len(), 40);
+        assert_eq!(
+            run_git_bounded(&head, Some(&root)).unwrap().outcome,
+            CommandOutcome::Success
+        );
+        // The match is exact, not containment: surrounding noise fails closed.
+        let noisy = format!(" {head} ");
+        assert_ne!(
+            run_git_bounded(&noisy, Some(&root)).unwrap().outcome,
+            CommandOutcome::Success
+        );
+        assert_ne!(
+            run_git_bounded(&head[..39], Some(&root)).unwrap().outcome,
+            CommandOutcome::Success
+        );
+        assert_ne!(
+            run_git_bounded(&"0".repeat(40), Some(&root))
+                .unwrap()
+                .outcome,
+            CommandOutcome::Success
+        );
+        // A non-repository working directory cannot resolve HEAD.
+        let outside = crate::test_temp_dir("builder-git-outside");
+        assert_ne!(
+            run_git_bounded(&head, Some(&outside)).unwrap().outcome,
+            CommandOutcome::Success
+        );
+        fs::remove_dir_all(outside).unwrap();
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn private_workspace_rejects_relative_and_reused_invocations() {
         let root = crate::test_temp_dir("private-test");
         assert!(private_target_dir(Path::new("relative"), "run", "target").is_err());
@@ -1068,6 +1224,7 @@ mod tests {
             stdout_limit: 1024,
             stderr_limit: 1024,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         let result = run_bounded_inner(&spec, None, ExecutableAllowance::Builder).unwrap();
         assert_eq!(result.outcome, CommandOutcome::Success);
@@ -1084,6 +1241,7 @@ mod tests {
             stdout_limit: 1024,
             stderr_limit: 1024,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         assert!(matches!(
             run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
@@ -1113,6 +1271,7 @@ mod tests {
             stdout_limit: 128,
             stderr_limit: 128,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         assert_eq!(
             run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
@@ -1154,6 +1313,7 @@ mod tests {
             stdout_limit: 4096,
             stderr_limit: 4096,
             expected_stdout: None,
+            expected_stdout_exact: None,
         };
         for iteration in 0..3 {
             spec.timeout = Duration::from_secs(60);

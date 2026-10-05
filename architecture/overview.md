@@ -9,12 +9,18 @@ It deliberately does **not** replace Eggup: Eggup remains the consumer-side
 verified installation/update/rollback layer, and the product repository owns
 release/install policy. See [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md).
 
-Code baseline: `fc072af` (this document and its deep dives are a docs-only
-change; no source file was modified). Line counts below are measured against
-that baseline and were re-verified when this index was written — re-verify them
-against the workspace if you touch the overview again. Milestone/evidence
-statuses are **not** restated here; `plans/registry.md` is the authority for
-those, and [principles-roadmap.md](principles-roadmap.md) narrates them.
+Code baseline: the commit that introduces the bounded `git` verification path
+recorded in [process-execution.md](process-execution.md). Line counts below are
+measured against that baseline and were re-verified when this index was last
+touched — re-verify them against the workspace if you edit the overview again.
+Milestone/evidence statuses are **not** restated here; `plans/registry.md` is the
+authority for those, and [principles-roadmap.md](principles-roadmap.md) narrates
+them.
+
+Every `file:line` citation in this directory was re-verified against the working
+tree after that change: 2502 citations checked, none out of range, and every
+citation into a file that the change touched was confirmed to still point at
+the same code, not merely the same line number.
 
 ## How to read this document
 
@@ -89,11 +95,11 @@ contract   manifest
 |---|---|---|
 | `eggpack-contract` | 2302 | [contract.md](contract.md) |
 | `eggpack-manifest` | 1354 | [manifest.md](manifest.md) |
-| `eggpack-core` | 5827 (4 files) | [core.md](core.md) |
+| `eggpack-core` | 5998 (4 files) | [core.md](core.md) |
 | `eggpack-bootstrap` | 3436 | [bootstrap.md](bootstrap.md) |
-| `eggpack-ci` | 10221 | [ci.md](ci.md) |
-| `eggpack-github` | 4867 (3019 + 1848 tests) | [github.md](github.md) |
-| `eggpack-cli` | 2940 | [cli.md](cli.md) |
+| `eggpack-ci` | 10256 | [ci.md](ci.md) |
+| `eggpack-github` | 4873 (3025 + 1848 tests) | [github.md](github.md) |
+| `eggpack-cli` | 2954 | [cli.md](cli.md) |
 
 ### `eggpack-contract` — layout authority and validators
 
@@ -126,13 +132,14 @@ never installed state.
 ### `eggpack-core` — the producer pipeline
 
 Four files. The only crate that writes release artifacts and the only one that
-spawns toolchain processes (Cargo, `cargo zigbuild`, Zig, QEMU):
+spawns toolchain processes (Cargo, `cargo zigbuild`, Zig, QEMU). It also owns the
+single bounded runner that `eggpack-cli` uses for `git` revision verification:
 
 | File | Lines | Stage | Deep dive |
 |---|---|---|---|
 | `src/lib.rs` | 1056 | `PackConfig` → `ReleasePlan`, policy types, `build_manifest` | [core-planning.md](core-planning.md) |
-| `src/builder.rs` | 1301 | bindings, command specs, bounded execution, candidate discovery | [core-build.md](core-build.md) |
-| `src/qualification.rs` | 2610 | qualification methods, host matching, evidence | [core-qualification.md](core-qualification.md) |
+| `src/builder.rs` | 1461 | bindings, command specs, bounded execution, candidate discovery | [core-build.md](core-build.md) |
+| `src/qualification.rs` | 2621 | qualification methods, host matching, evidence | [core-qualification.md](core-qualification.md) |
 | `src/finalization.rs` | 860 | `finalize_release`, archive assembly, manifest aggregation | [core-finalization.md](core-finalization.md) |
 
 Crate-level orientation, dependency direction, and the cross-file data
@@ -153,7 +160,7 @@ authenticity or provenance claims.
 
 ### `eggpack-ci` — release CI planning and workflow rendering
 
-Single `src/lib.rs` at 10221 lines, the largest component in the workspace.
+Single `src/lib.rs` at 10256 lines, the largest component in the workspace.
 Depends on `contract` + `core`. Projects a release into a provider-neutral
 graph (`project_ci_plan` → `CIPlan` → `TargetJob`; `project_release_plan` →
 `ReleaseCIPlanV1` with qualification, gate, aggregate/finalize, and staging
@@ -248,7 +255,9 @@ These are the review units that cut across crates. Each has a dedicated file.
 - **Safety:** `#![forbid(unsafe_code)]` workspace-wide (`unsafe_code = "deny"`),
   no shell interpretation of generated inputs, bounded process execution with
   timeouts/output limits/cancellation, environment allowlists, symlink
-  rejection on output paths.
+  rejection on output paths. No production spawn site is unbounded: `core` and
+  `cli` share one bounded runner, and `ci`'s independent reimplementation is the
+  only site without process-group kill.
 
 ## Review paths
 

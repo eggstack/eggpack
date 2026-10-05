@@ -52,7 +52,7 @@ given, line numbers are in that crate's `src/lib.rs`.
 | --- | --- |
 | contract | `ProductIdentity` `:132`, `ChecksumSpec` `:143`, `BundleEntry` `:152`, `ArchiveMember` `:162`, raw shapes `RawContract` `:222`, `RawTarget` `:230`, `RawAsset` `:240` |
 | manifest | `ReleaseManifest` `:58`, `TargetRecord` `:77`, `ArtifactRecord` `:112`, `BundleRecord` `:124`, `ArchiveMemberRecord` `:134`, `ByteEvidence` `:147`, tagged `ArtifactForm` `:87` |
-| core | `HostRequirement` `lib.rs:369`, `ToolchainRequirement` `lib.rs:384`, `TargetPolicy` `lib.rs:418`, `PackConfig` `lib.rs:447`, `BuildBinding` `builder.rs:67`, `BuildBindingsV1` `builder.rs:79`, tagged `LogicalOutputSelector` `builder.rs:48`, `CandidateSmokeBinding` `qualification.rs:43`, `TargetQualificationBinding` `qualification.rs:60`, `QualificationBindingsV1` `qualification.rs:69`, `QualifiedCandidateEvidence` `qualification.rs:257`, `QualificationProcessEvidence` `qualification.rs:277`, `QualificationEvidence` `qualification.rs:289` |
+| core | `HostRequirement` `lib.rs:369`, `ToolchainRequirement` `lib.rs:384`, `TargetPolicy` `lib.rs:418`, `PackConfig` `lib.rs:447`, `BuildBinding` `builder.rs71`, `BuildBindingsV1` `builder.rs83`, tagged `LogicalOutputSelector` `builder.rs52`, `CandidateSmokeBinding` `qualification.rs:43`, `TargetQualificationBinding` `qualification.rs:60`, `QualificationBindingsV1` `qualification.rs:69`, `QualifiedCandidateEvidence` `qualification.rs:257`, `QualificationProcessEvidence` `qualification.rs:277`, `QualificationEvidence` `qualification.rs:289` |
 | bootstrap | `:267`, `:279` |
 | ci | `:41`, `:57`, `:73`, `:93`, `:452`, `:467`, `:486`, `:502`, `:727`, `:780`, `:815`, `:850`, `:870`, `:1843`, `:1861`, `:2207`, `:2231`, `:2257`, `:2290`, `:2308`, `:3872`, `:3967`, `:4451`, `:4471` |
 | github | `:56`, `:187`, `:205`, `:297`, `:975`, `:985`, `:1112` |
@@ -65,7 +65,7 @@ the raw shapes do the work and `from_raw` (`:374`) converts them.
 **The audit answer is yes, there are types that lack it.** The gap is confined
 to types that are not part of an untrusted document's own surface:
 
-- `ProcessEvidence` (`crates/eggpack-core/src/builder.rs:173`) derives
+- `ProcessEvidence` (`crates/eggpack-core/src/builder.rs183`) derives
   `Serialize, Deserialize` with no `deny_unknown_fields`, and is nested inside
   `QualificationProcessEvidence`
   (`crates/eggpack-core/src/qualification.rs:278`), which does carry the
@@ -108,7 +108,7 @@ be a breaking change to that document only.
 
 | Crate | Enforcing sites |
 | --- | --- |
-| core | `lib.rs:490`, `lib.rs:504`, `lib.rs:533`, `builder.rs:228`, `qualification.rs:138`, `qualification.rs:325`, `qualification.rs:574` |
+| core | `lib.rs:490`, `lib.rs:504`, `lib.rs:533`, `builder.rs238`, `qualification.rs:138`, `qualification.rs:325`, `qualification.rs:574` |
 | bootstrap | `lib.rs:323`, `lib.rs:409` |
 | ci | `lib.rs:209`, `:253`, `:1897`, `:2011`, `:2351`, `:3910`, `:4009`, `:4512`, `:4611` |
 | github | `lib.rs:124`, `:253`, `:347`, `:1025`, `:1162` |
@@ -186,7 +186,7 @@ at construction, and the lookup itself is a linear equality scan. An
 cover the plan exactly, where a missing entry and an extra entry are both errors:
 
 - Build side — `BuildBindingsV1::validate_for`
-  (`crates/eggpack-core/src/builder.rs:259-299`) computes the expected selector
+  (`crates/eggpack-core/src/builder.rs269-309`) computes the expected selector
   set from the contract expansion (`:273-283`), converts the supplied bindings to
   a set (`:284`), and rejects any difference (`:285-289`, "bindings do not
   exactly cover contract Cargo slots"). A separate check at `:291-297` rejects a
@@ -196,7 +196,7 @@ cover the plan exactly, where a missing entry and an extra entry are both errors
   `self.targets.len() != plan.targets.len()` and rejects any key not in the plan
   (`:91-98`, "qualification target inventory differs from ReleasePlan"), with
   equality re-established by the per-target lookup at `:103-105`.
-  `BuildBindingsV1::validate_shape` (`crates/eggpack-core/src/builder.rs:227-255`)
+  `BuildBindingsV1::validate_shape` (`crates/eggpack-core/src/builder.rs237-265`)
   separately rejects duplicate selectors within a target and validates archive
   member source paths.
 
@@ -277,12 +277,12 @@ qualification whose host does not match. The parse-tier parity condition at
 **Practical implication: consumers must call `resolve`, not merely parse.**
 `PackConfig::from_toml` is a shape check, not an admission decision. Every
 production path in the workspace treats it that way — `resolve_runtime_release_plan`
-(`crates/eggpack-ci/src/lib.rs:4611-4621`) checks the version, calls `resolve`,
+(`crates/eggpack-ci/src/lib.rs4613-4623`) checks the version, calls `resolve`,
 and then independently re-checks that the plan's release id and revision equal
 the exact tag and revision, and `project_ci_plan` (`:128-140`) re-resolves and
 compares. I found no non-test call site of `PackConfig::from_toml`; its only
 uses are in tests (`crates/eggpack-core/src/lib.rs:665`, `:852`;
-`crates/eggpack-ci/src/lib.rs:9896`).
+`crates/eggpack-ci/src/lib.rs9929`).
 
 The Zig rule is deferred on purpose, and the reason is written down at
 `crates/eggpack-core/src/lib.rs:508-512`: `zig` is an additive optional field so
@@ -304,7 +304,7 @@ Errors are typed per crate and never cross a crate boundary as a generic string.
   likewise `#[non_exhaustive]`.
 - Four crates use single-field newtypes: `CoreError`
   (`crates/eggpack-core/src/lib.rs:74`), `BuildError`
-  (`crates/eggpack-core/src/builder.rs:88`), `QualificationError`
+  (`crates/eggpack-core/src/builder.rs92`), `QualificationError`
   (`crates/eggpack-core/src/qualification.rs:30`), `CiError`
   (`crates/eggpack-ci/src/lib.rs:28`), `GithubError`
   (`crates/eggpack-github/src/lib.rs:40`), and `BootstrapError`
@@ -315,7 +315,7 @@ Errors are typed per crate and never cross a crate boundary as a generic string.
 Two rules govern message content.
 
 **Diagnostics never echo captured process output.** The process runner drains
-both streams into bounded buffers (`crates/eggpack-core/src/builder.rs:488-498`),
+both streams into bounded buffers (`crates/eggpack-core/src/builder.rs542-552`),
 collapses them to a typed `CommandOutcome` (`:542-556`), and returns a
 `ProcessEvidence` (`:174-181`) carrying only the outcome plus byte *counts*. No
 error in the workspace embeds stdout or stderr text. Environment values are
@@ -337,7 +337,7 @@ to `MAX_DETAIL_LEN` (512), applied on every construction path including
 Four findings, all verified above, none of them a claim about intent.
 
 1. **`deny_unknown_fields` does not reach nested structs.**
-   `ProcessEvidence` (`crates/eggpack-core/src/builder.rs:173`) has no
+   `ProcessEvidence` (`crates/eggpack-core/src/builder.rs183`) has no
    attribute, so unknown keys inside a `QualificationProcessEvidence.process`
    object are accepted, even though the containing type
    (`crates/eggpack-core/src/qualification.rs:277-285`) is strict. `ReleasePlan`
