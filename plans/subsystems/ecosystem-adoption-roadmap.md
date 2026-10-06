@@ -85,7 +85,7 @@ What the four gaps actually were, now measured rather than assumed:
 - the attestation gap is a permission-placement gap: a narrow read-only product-owned workflow can attest exact already-staged bytes, so Eggpack's no-OIDC generated workflow is preserved untouched;
 - the clobber gap is not a gap: Eggpack's exact-reuse/refusal staging is strictly stronger, and operator recovery is a three-step procedure.
 
-M003b is now blocked on one *process* step only — a mirrored implementation plan registered in `eggstack/eggsearch` — and on the M003b-side re-proof obligations recorded in that closure.
+M003b's *process* step is discharged: the mirrored implementation plan was registered in `eggstack/eggsearch` before any external edit, and the cutover then landed there. M003b is conditionally closed at `plans/closure/ecosystem-adoption/003b-status.md` on live eggsearch `v0.4.2` draft-staging evidence. Its single named remaining condition is publication, which is a manual maintainer action and not an Eggpack work item.
 
 Eggup interoperability is optional per consumer and has its own gate.
 
@@ -101,12 +101,16 @@ Implementation plan: `plans/implementation/ecosystem-adoption/003a-eggsearch-sev
 
 Closure record: `plans/closure/ecosystem-adoption/003a-status.md`.
 
-M003b eggsearch target/qualification diversity adoption — **ready**. Paired plans are now registered in both repositories:
+M003b eggsearch target/qualification diversity adoption — **conditionally closed**. Paired plans are registered in both repositories:
 
-- Eggpack: `plans/implementation/ecosystem-adoption/003b-eggsearch-seven-target-eggpack-producer-cutover.md`;
+- Eggpack: `plans/implementation/ecosystem-adoption/003b-eggsearch-seven-target-eggpack-producer-cutover.md` (`325d44e`);
 - Eggsearch: `plans/implementation/eggpack-release-adoption/001-seven-target-eggpack-producer-cutover.md` (`eggstack/eggsearch@377f9e8`, registry `6767062`).
 
-The cutover intentionally preserves the existing 16 public files and adds `release-manifest.json`, `install-exact.sh`, and `install-exact.ps1`, making the post-cutover exact inventory 19 files. Implementation must re-prove glibc 2.17 after the toolchain bump, ARMv7 runtime validation, Windows ARM64, provenance subject parity, and the single-writer no-clobber cutover.
+Closure record: `plans/closure/ecosystem-adoption/003b-status.md`.
+
+Every M003a obligation was met with existing producer capability and no new Eggpack primitive. The cutover preserves the existing 16 public files and adds `release-manifest.json`, `install-exact.sh`, and `install-exact.ps1`, making the post-cutover exact inventory 19 files. Live evidence is eggsearch `v0.4.2`, hosted run `37531104901`, draft `405157598`: glibc 2.17 re-proven on all three GNU targets after the Zig 0.14.1 / cargo-zigbuild 0.23.3 bump, ARMv7 runtime validation carried by a required product-owned consumer validator that gated the required gate, Windows ARM64 required and green on `windows-11-arm`, provenance held in a separate read-only product-owned workflow with no OIDC permission in any generated job, and the legacy writer retired so exactly one writer exists.
+
+The named remaining condition is publication of the draft, which is a manual maintainer action.
 
 M004 Gregg sibling bundle.
 
@@ -148,7 +152,9 @@ Historical pre-adoption eggsact baseline, retained for traceability only: `eggst
 
 Current eggsact release authority is no longer duplicated. Since M001, producer target/artifact/checksum/qualification/workflow authority comes from checked-in `release/eggpack/` configuration and the generated workflow, drift-guarded by `eggpack ci check` at the pinned tool revision. `scripts/check-release-contract.py` and `src/update.rs` now *compare against* the Eggpack contract rather than restating producer facts.
 
-What genuinely remains duplicated across both adopted consumers is a specific, bounded piece of producer-fact parsing: each repository independently loads `release/eggpack/distribution.toml` with Python `tomllib` and re-implements the `{product}`/`{target}` asset expansion to compare it against a frozen product-owned name table. That residue is tracked as Contract M003's bounded research question, not as a failed adoption.
+What genuinely remains duplicated across the adopted consumers is a specific, bounded piece of producer-fact parsing: each repository independently loads `release/eggpack/distribution.toml` with Python `tomllib` and re-implements the `{product}`/`{target}` asset expansion to compare it against a frozen product-owned name table.
+
+That residue is **not** an open Eggpack question. Contract M003 is closed at `plans/closure/contract-conformance/003-status.md` on implementation `43fa2d7`, and `eggpack contract expand` now answers exactly this question as a bounded local scalar projection over existing schema-v1 semantics. Any further reduction of the duplicated parsing is consumer-owned cleanup: it belongs to a plan registered in that consumer repository, under that consumer's own process, and must not be smuggled into an adoption cutover.
 
 Product-owned behavior that Eggpack intentionally does not own, and which both consumers preserved:
 
@@ -164,7 +170,7 @@ The migration replaced producer authority while composing around, not absorbing,
 | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | `plans/closure/ecosystem-adoption/001-status.md`; consumer closure `eggstack/eggsact: plans/closure/distribution-update-release/005-status.md` | Implemented and published on release `v1.2.7` (live run 36652731202, 15-asset draft, producer pin M003g `e5c81f2`). The consumer-side Windows byte-reproducibility condition is closed by eggsact M005a (`685fa373`) |
 | M002 stegoeggo direct release adoption | closed | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | `plans/closure/ecosystem-adoption/002-status.md` §9; consumer closure `eggstack/stegoeggo: plans/closure/release-distribution/005-status.md` (`7bde933b`) | consumer cutover `3b96fae`; updater corrective M003 closed `f80eebe3`; no new Eggpack primitive required. Live evidence landed as `v0.5.0` (run `37181914252`, 15 assets, manual publication, real `0.4.2 -> 0.5.0` updater transition). The rerun-reuse item was not exercised on this release and is substituted by eggsact M005a evidence — see closure §9.3 |
 | M003a eggsearch compatibility preflight + migration design | closed | `plans/implementation/ecosystem-adoption/003a-eggsearch-seven-target-compatibility-preflight-and-migration-design.md` | `plans/closure/ecosystem-adoption/003a-status.md` | Read-only/scratch preflight against `eggstack/eggsearch@ec437cb`, zero production delta. All seven targets rendered (75723-byte workflow, `ci check: match`, byte-identical re-render); Windows ARM64 proven on `windows-11-arm`; G1 selected Option A (toolchain pin is implementation detail, glibc floor is policy); G2 selected Option A (Structural + required consumer validator); G3 selected Option A design-only (read-only provenance seam, no OIDC in generated jobs); G4 accepted (no-clobber strictly stronger). **No producer prerequisite plan registered** |
-| M003b eggsearch target/qualification diversity adoption | ready | `plans/implementation/ecosystem-adoption/003b-eggsearch-seven-target-eggpack-producer-cutover.md` | — | Paired Eggsearch M001 plan registered at `eggstack/eggsearch@377f9e8` / registry `6767062`; implementation obligations are glibc 2.17 re-proof on all three GNU targets, ARMv7 required validator, Windows ARM64, exact 16→19 additive inventory, provenance subject parity, and safe no-clobber single-writer cutover |
+| M003b eggsearch target/qualification diversity adoption | conditionally closed | `plans/implementation/ecosystem-adoption/003b-eggsearch-seven-target-eggpack-producer-cutover.md` | `plans/closure/ecosystem-adoption/003b-status.md` | Paired Eggsearch M001 plan registered at `eggstack/eggsearch@377f9e8` / registry `6767062`; implementation landed at `eabbf80`; hosted run `37531104901` staged eggsearch `v0.4.2` as draft `405157598` with the exact 19-asset inventory. Named condition: publication remains a manual maintainer action |
 | M004 Gregg sibling bundle | blocked | — | — | remains after M003b Eggsearch target-diversity adoption evidence; prior adoption evidence + Gregg bundle/service review |
 | M005 CodeGG runfile bundle | blocked | — | — | remains after a qualified sibling-bundle consumer; prior bundle evidence + CodeGG runfile review |
 | M006 Egress archive pair | blocked | — | — | remains after prior native adoption evidence; requires an explicit Egress archive/Python boundary review |

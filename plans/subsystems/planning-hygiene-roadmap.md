@@ -33,7 +33,8 @@ Resolved:
 - Ecosystem M002's live condition was met by stegoeggo `v0.5.0` and M002 is closed. The concrete owner is no longer a future `0.4.3` milestone — `0.4.3` was stopped pre-publication on consumer semver grounds and superseded by `0.5.0`;
 - Contract M003's consumer-evidence gate is satisfied, with the duplicated producer-fact parsing precisely identified across 2 repositories and 3 implementations;
 - Bootstrap M003's two-consumer adoption evidence now exists and it is unblocked for candidate review;
-- Ecosystem M003 Eggsearch's ordering gate is cleared for research/plan, with its preflight facts recorded.
+- Ecosystem M003 Eggsearch's ordering gate is cleared for research/plan, with its preflight facts recorded;
+- M002 then reconciled the post-M003a state itself: Contract M003 is described as closed wherever it appears, M003a as closed, and Ecosystem M003b as conditionally closed against the exact paired Eggpack/Eggsearch plan paths rather than a generic "mirrored plan required" note.
 
 ## 4. Milestones
 
@@ -59,17 +60,19 @@ Implementation plan:
 
 `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md`
 
-Status: ready.
+Status: closed.
 
-Objective: remove stale post-closure M003/M003a/M003b control-surface text, collapse duplicated contradictory agent-handoff prose, and bind the next Eggsearch adoption handoff to the exact paired Eggpack/Eggsearch plans once both are registered. M002 is docs/evidence-only and does not implement the cutover.
+Closure record: `plans/closure/planning-hygiene/002-status.md`.
+
+Outcome: docs/evidence-only. It removed the stale post-closure M003/M003a/M003b control-surface text, collapsed the duplicated and self-contradicting `AGENTS.md` current-handoff paragraph into one statement sourced from the registry, and bound the handoff to the exact registered paired-plan paths. The production/package/workflow diff is empty.
 
 ## 5. Completion definition
 
-The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition for its evidence set on 2026-10-04; M002 is the follow-up required after the later Contract M003, Bootstrap M003, and Ecosystem M003a closures changed the handoff state.
+The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition for its evidence set on 2026-10-04; M002 met it for the later Contract M003, Bootstrap M003, and Ecosystem M003a closures, so the planning-hygiene line has no open work.
 
 ## 6. Milestone status
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 current evidence baseline + blocker reconciliation | closed | `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md` | `plans/closure/planning-hygiene/001-status.md` | none; docs/evidence-only, zero production/package/workflow delta |
-| M002 post-M003a cross-repository handoff reconciliation | ready | `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md` | — | Pair-plan registration may proceed in parallel; closure reconciles final paired-plan paths/status and stale post-M003a text |
+| M002 post-M003a cross-repository handoff reconciliation | closed | `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md` | `plans/closure/planning-hygiene/002-status.md` | none; docs/evidence-only, empty production/package/workflow diff, handoff bound to exact paired-plan paths |
