@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 003b — Eggsearch Seven-Target Eggpack Producer Cutover
 
-Status: proposed pending mirrored Eggsearch plan registration
+Status: ready
 
 Class: capability / cross-repository adoption / operational qualification
 
@@ -17,6 +17,8 @@ Predecessor closure:
 Required mirrored consumer plan:
 
 - `eggstack/eggsearch: plans/implementation/eggpack-release-adoption/001-seven-target-eggpack-producer-cutover.md`
+- plan commit: `eggstack/eggsearch@377f9e8ae6c762e34dad77793f2c0c3069e9b41a`
+- registry commit: `eggstack/eggsearch@6767062aa24c402308fa388a932bd3384d6a7e90`
 
 Long-term references:
 
@@ -66,7 +68,7 @@ Proven by M003a:
 - provenance may remain in a separate Eggsearch-owned read-only workflow;
 - Eggpack no-clobber staging supersedes `gh release upload --clobber`.
 
-The plan becomes `ready` only when the paired Eggsearch plan above is registered.
+The paired Eggsearch plan is registered at `eggstack/eggsearch@377f9e8ae6c762e34dad77793f2c0c3069e9b41a` and its control-surface registration is `6767062aa24c402308fa388a932bd3384d6a7e90`. The process gate is therefore satisfied and M003b is `ready`.
 
 ## 3. Release-contract delta
 
