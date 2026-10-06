@@ -51,12 +51,25 @@ Closure record: `plans/closure/planning-hygiene/001-status.md`.
 
 Outcome: reconcile the active registry and affected subsystem roadmaps with current Eggsact/StegoEggo evidence, discharge CI M003b's obsolete external blocker, and leave each future line with an exact current blocker or research disposition. All ten acceptance criteria are met, with one §11 stop condition that fired during execution and was absorbed by explicit maintainer decision rather than re-planned; the closure record documents that decision and its consequence.
 
+### M002 — Post-M003a cross-repository handoff reconciliation
+
+Class: planning / closure hygiene / cross-repository handoff reconciliation
+
+Implementation plan:
+
+`plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md`
+
+Status: ready.
+
+Objective: remove stale post-closure M003/M003a/M003b control-surface text, collapse duplicated contradictory agent-handoff prose, and bind the next Eggsearch adoption handoff to the exact paired Eggpack/Eggsearch plans once both are registered. M002 is docs/evidence-only and does not implement the cutover.
+
 ## 5. Completion definition
 
-The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition on 2026-10-04.
+The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition for its evidence set on 2026-10-04; M002 is the follow-up required after the later Contract M003, Bootstrap M003, and Ecosystem M003a closures changed the handoff state.
 
 ## 6. Milestone status
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
 | M001 current evidence baseline + blocker reconciliation | closed | `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md` | `plans/closure/planning-hygiene/001-status.md` | none; docs/evidence-only, zero production/package/workflow delta |
+| M002 post-M003a cross-repository handoff reconciliation | ready | `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md` | — | Pair-plan registration may proceed in parallel; closure reconciles final paired-plan paths/status and stale post-M003a text |
