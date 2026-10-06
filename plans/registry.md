@@ -228,7 +228,7 @@ Manifest M001a corrective [CLOSED: target-local installs, global artifact filena
          |                    v                       v                        v
          |        Bootstrap M003 [CLOSED: EVIDENCE/OWNERSHIP, NO M003a]  Contract M003 [CLOSED]     Ecosystem M003a eggsearch preflight [CLOSED]
          |                    (roadmap 11 completion satisfied)             (bounded CLI surface)                  |
-         |                                                                         `--> Ecosystem M003b adoption [BLOCKED]
+         |                                                                         `--> Ecosystem M003b adoption [READY FOR PLAN AUTHORING; mirrored Eggsearch plan required]
          |
          `--> bootstrap installers M001 [CLOSED; direct first-install generator]
                         |
@@ -289,7 +289,7 @@ Eggup completed that publication sequence and closed M004 at `eggstack/eggup@ea1
 
 **No Eggpack plan is now `ready`.** All three registered lines are closed. The next work is **Eggsearch M003b**, which is ready for plan authoring but requires, before any external edit, a mirrored implementation plan registered in `eggstack/eggsearch` — plus the post-bump glibc 2.17 re-proof and an attestation-subject parity check. That is cross-repository work, so the next Eggpack action is to register the mirrored plan, not to author an adoption implementation on this side.
 
-Eggsearch **M003b is not ready**. M003a must settle the older Zig/cargo-zigbuild compatibility, ARMv7 runtime ownership, Windows ARM64 mapping, Artifact Attestation preservation under Eggpack's no-OIDC generated workflow, and no-clobber migration. Only after that closure may Eggpack author M003b and register the required mirrored plan in `eggstack/eggsearch`.
+Eggsearch **M003b is ready for plan authoring, not for implementation**. M003a settled all five questions it was holding: the older Zig/cargo-zigbuild pair migrates to the already-qualified pair with a mandatory post-bump glibc 2.17 re-proof; ARMv7 runtime ownership stays product-owned via `Structural` core qualification plus a required consumer validator; Windows ARM64 maps through current runner policy; Artifact Attestation preservation uses a separate read-only product-owned workflow that leaves generated jobs free of OIDC; and no-clobber staging supersedes `--clobber`. No producer prerequisite milestone was required. What M003b may **not** do yet is edit `eggstack/eggsearch`: the required mirrored implementation plan must be registered in that repository first, per planning process §9.
 
 Longer-horizon lines stay as recorded: Ecosystem M004-M007 behind completed Eggsearch adoption, Phase 12 provenance behind a dedicated trust ADR, Phase 13 package adapters behind broader native adoption, Phase 14 stabilization premature. Eggsact's Git-to-registry migration remains separately owned downstream.
 
