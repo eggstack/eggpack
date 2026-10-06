@@ -76,7 +76,16 @@ Core direct build/finalization/staging prerequisites are closed, including Build
 
 Complex adoption additionally depends on the release form/target diversity required by each consumer; bundle/archive producer paths are now qualified, but later milestones still require per-consumer evidence before planning.
 
-Eggsearch is split into M003a/M003b because current research found real compatibility choices that must not be hidden inside a cross-repository implementation pass. Current Eggpack types can represent all seven target identities, Windows ARM64 hosts, and ARMv7 QEMU qualification, but generated CI does not provision an emulation runtime, the deterministic Zig provisioner does not yet encode Zig 0.13.0's legacy official archive naming, and generated workflows intentionally reject `id-token: write` while Eggsearch's current release evidence includes GitHub Artifact Attestations. M003a owns those decisions; M003b remains blocked until they are resolved.
+Eggsearch is split into M003a/M003b because current research found real compatibility choices that must not be hidden inside a cross-repository implementation pass. **M003a has now resolved all four of those choices with evidence** (`plans/closure/ecosystem-adoption/003a-status.md`), and the answer turned out to be better for M003b than the split anticipated: **no new Eggpack producer capability is required.**
+
+What the four gaps actually were, now measured rather than assumed:
+
+- the Zig 0.13.0 archive-layout gap is real — Eggpack's provisioner emits `zig-<arch>-linux-<version>.tar.xz`, which 404s for 0.13.0 and 200s for 0.14.1 — but the pin appears in exactly one Eggsearch file and in no public document, while the guaranteed artefact is the glibc 2.17 floor asserted post-build by `readelf`. Migrating to the already-qualified pair is therefore implementation detail, not a compatibility change, and M003b must re-prove the floor against the real build graph before cutover;
+- the ARMv7 gap is a provisioning gap, not a schema gap: `Structural` core qualification plus a required product-owned consumer validator is expressible today and still gates aggregation, while `Emulated` renders `--qemu-sysroot` while provisioning nothing;
+- the attestation gap is a permission-placement gap: a narrow read-only product-owned workflow can attest exact already-staged bytes, so Eggpack's no-OIDC generated workflow is preserved untouched;
+- the clobber gap is not a gap: Eggpack's exact-reuse/refusal staging is strictly stronger, and operator recovery is a three-step procedure.
+
+M003b is now blocked on one *process* step only — a mirrored implementation plan registered in `eggstack/eggsearch` — and on the M003b-side re-proof obligations recorded in that closure.
 
 Eggup interoperability is optional per consumer and has its own gate.
 
@@ -86,11 +95,13 @@ M001 eggsact direct release adoption.
 
 M002 stegoeggo direct release adoption.
 
-M003a eggsearch seven-target compatibility preflight and migration design.
+M003a eggsearch seven-target compatibility preflight and migration design — **closed**.
 
 Implementation plan: `plans/implementation/ecosystem-adoption/003a-eggsearch-seven-target-compatibility-preflight-and-migration-design.md`.
 
-M003b eggsearch target/qualification diversity adoption — blocked until M003a closes with all compatibility choices resolved and the required mirrored Eggsearch implementation plan is registered.
+Closure record: `plans/closure/ecosystem-adoption/003a-status.md`.
+
+M003b eggsearch target/qualification diversity adoption — **ready for plan authoring**. All compatibility choices are resolved and no producer prerequisite milestone was required. The single remaining condition is the mirrored implementation plan registered in `eggstack/eggsearch` before any external edit, per planning process §9.
 
 M004 Gregg sibling bundle.
 
@@ -147,8 +158,8 @@ The migration replaced producer authority while composing around, not absorbing,
 |---|---|---|---|---|
 | M001 eggsact direct release adoption | closed | `plans/implementation/ecosystem-adoption/001-eggsact-direct-release-adoption-and-live-draft-qualification.md` | `plans/closure/ecosystem-adoption/001-status.md`; consumer closure `eggstack/eggsact: plans/closure/distribution-update-release/005-status.md` | Implemented and published on release `v1.2.7` (live run 36652731202, 15-asset draft, producer pin M003g `e5c81f2`). The consumer-side Windows byte-reproducibility condition is closed by eggsact M005a (`685fa373`) |
 | M002 stegoeggo direct release adoption | closed | `plans/implementation/ecosystem-adoption/002-stegoeggo-direct-release-adoption-and-second-consumer-qualification.md` | `plans/closure/ecosystem-adoption/002-status.md` §9; consumer closure `eggstack/stegoeggo: plans/closure/release-distribution/005-status.md` (`7bde933b`) | consumer cutover `3b96fae`; updater corrective M003 closed `f80eebe3`; no new Eggpack primitive required. Live evidence landed as `v0.5.0` (run `37181914252`, 15 assets, manual publication, real `0.4.2 -> 0.5.0` updater transition). The rerun-reuse item was not exercised on this release and is substituted by eggsact M005a evidence — see closure §9.3 |
-| M003a eggsearch compatibility preflight + migration design | ready | `plans/implementation/ecosystem-adoption/003a-eggsearch-seven-target-compatibility-preflight-and-migration-design.md` | — | Read-only/scratch preflight against `eggstack/eggsearch@ec437cb`: resolve Zig 0.13.0 archive-layout vs current Eggpack provisioning, ARMv7 QEMU/runtime ownership, Windows ARM64 runner mapping, Artifact Attestation preservation under Eggpack's no-OIDC generated workflow, and no-clobber staging migration |
-| M003b eggsearch target/qualification diversity adoption | blocked | — | — | Requires M003a closure with no unresolved architecture choice, any prerequisite Eggpack producer plan closed, and a mirrored registered implementation plan in `eggstack/eggsearch` before external edits |
+| M003a eggsearch compatibility preflight + migration design | closed | `plans/implementation/ecosystem-adoption/003a-eggsearch-seven-target-compatibility-preflight-and-migration-design.md` | `plans/closure/ecosystem-adoption/003a-status.md` | Read-only/scratch preflight against `eggstack/eggsearch@ec437cb`, zero production delta. All seven targets rendered (75723-byte workflow, `ci check: match`, byte-identical re-render); Windows ARM64 proven on `windows-11-arm`; G1 selected Option A (toolchain pin is implementation detail, glibc floor is policy); G2 selected Option A (Structural + required consumer validator); G3 selected Option A design-only (read-only provenance seam, no OIDC in generated jobs); G4 accepted (no-clobber strictly stronger). **No producer prerequisite plan registered** |
+| M003b eggsearch target/qualification diversity adoption | ready for plan authoring | — | — | All four compatibility choices resolved in M003a with no producer prerequisite. Remaining: a mirrored implementation plan registered in `eggstack/eggsearch` before any external edit, the post-bump glibc 2.17 re-proof for both floored Linux targets and ARMv7, and an attestation-subject parity check with a token that can read attestations. If the re-proof fails, M003b stops and returns to M003a |
 | M004 Gregg sibling bundle | blocked | — | — | remains after M003b Eggsearch target-diversity adoption evidence; prior adoption evidence + Gregg bundle/service review |
 | M005 CodeGG runfile bundle | blocked | — | — | remains after a qualified sibling-bundle consumer; prior bundle evidence + CodeGG runfile review |
 | M006 Egress archive pair | blocked | — | — | remains after prior native adoption evidence; requires an explicit Egress archive/Python boundary review |

@@ -1,6 +1,14 @@
 # Ecosystem Adoption Milestone 003a — Eggsearch Seven-Target Compatibility Preflight and Migration Design
 
-Status: ready
+Status: closed
+
+Closure record: `plans/closure/ecosystem-adoption/003a-status.md`
+
+Closure disposition (2026-10-06): M003a is closed as the read-only/scratch compatibility decision pass it was registered as, with **zero production delta** and no new Eggpack producer capability required — a better outcome for M003b than the split anticipated. All seven Eggsearch targets rendered through the real resolver and renderer (75723-byte workflow, `ci check: match`, byte-identical re-render) from a ten-file scratch config built under `/tmp` and discarded, with no file written to `eggstack/eggsearch`. Windows ARM64 is proven on `windows-11-arm` for build, qualify, and consumer validation. G1 selected Option A: the Zig 0.13.0 archive-layout gap is real — Eggpack emits `zig-<arch>-linux-<version>.tar.xz`, which 404s for 0.13.0 and 200s for 0.14.1 against ziglang.org — but `0.13.0` appears in exactly one Eggsearch file and in no public document, while the guaranteed artefact is the glibc 2.17 floor asserted post-build by an independent `readelf` scan; migrating to the already-qualified Zig `0.14.1` / cargo-zigbuild `0.23.3` pair is therefore implementation detail rather than a compatibility change, with a mandatory re-proof obligation recorded for M003b. G2 selected Option A: `Qualification::Structural` plus a required product-owned consumer validator renders with no `--qemu-sysroot` and still gates `required_gate` and `aggregate`, whereas `Emulated` renders a sysroot flag while provisioning nothing. G3 selected Option A at design level only, with no attestation created: a separate read-only product-owned workflow can attest exact already-staged draft bytes while every generated Eggpack job remains free of `id-token: write`. G4 accepted: no-clobber staging is strictly stronger than `--clobber` and operator recovery for an incomplete draft is a three-step procedure. One sharp edge is recorded as closure finding E-1: `Structural` classification forbids a core smoke binding, so a migrating consumer must omit the ARMv7 smoke entry and carry the runtime proof entirely in the consumer validator.
+
+**M003b is ready for plan authoring**, blocked on one process step only: a mirrored implementation plan registered in `eggstack/eggsearch` before any external edit, per planning process §9, plus the M003b-side glibc re-proof and an attestation-subject parity check.
+
+Reviewed Eggpack baseline `c892990`; external baseline `eggstack/eggsearch@ec437cb` (four documentation commits behind `origin/main` `33f508d`, with no workflow, source, or configuration drift, so the §2 material-change trigger was not tripped).
 
 Eggpack repository implementation baseline: `911da48c7c1c7967397a2d190730fc643c8c6dc3`
 
