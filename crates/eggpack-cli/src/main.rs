@@ -2,6 +2,7 @@
 #![deny(missing_docs)]
 //! Minimal deterministic Eggpack CLI.
 
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -102,10 +103,21 @@ const MAX_CONTRACT_BYTES: usize = 1_000_000;
 const MAX_SCALAR_BYTES: usize = 256;
 
 /// Bound an echoed argument detail.
+///
+/// The bound is a byte count, but `String::truncate` panics unless the index
+/// lands on a char boundary, so it is rounded down to one first: argv is
+/// caller-supplied, and this function exists precisely so a pathological
+/// argument cannot crash the CLI's single-line exit discipline.
 fn bound_echo(detail: &str) -> String {
     let mut out = detail.to_owned();
     if out.len() > MAX_SCALAR_BYTES {
-        out.truncate(MAX_SCALAR_BYTES);
+        // A UTF-8 character is at most four bytes, so this walks back at most
+        // three steps to a char boundary.
+        let mut cut = MAX_SCALAR_BYTES;
+        while !out.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.truncate(cut);
         out.push('…');
     }
     out
@@ -498,7 +510,20 @@ fn read_bounded(path: &Path, max: usize, label: &str) -> Result<String, String> 
     if metadata.len() > max as u64 {
         return Err(format!("{label} exceeds size bound"));
     }
-    std::fs::read_to_string(path).map_err(|_| format!("{label} cannot be read"))
+    // The size above is a pre-read observation, not a guarantee: the file can
+    // grow, or be replaced, between the check and the read. So the read itself
+    // is capped at one byte past the bound and the surplus is rejected, rather
+    // than reading an unbounded file and re-checking its length afterwards.
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(|_| format!("{label} cannot be read"))?
+        .take(max as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| format!("{label} cannot be read"))?;
+    if bytes.len() > max {
+        return Err(format!("{label} exceeds size bound"));
+    }
+    String::from_utf8(bytes).map_err(|_| format!("{label} is not valid UTF-8"))
 }
 
 fn reject_symlink_output(path: &Path) -> Result<(), String> {
@@ -513,6 +538,30 @@ fn reject_symlink_output(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Claim a fresh temp path beside `output` for this process and call.
+///
+/// The name carries a process-local counter as well as the pid, so two writes
+/// into the same parent cannot collide on one temp file, and the file is
+/// created exclusively so a pre-planted symlink is never followed.
+fn claim_temp(parent: &Path, kind: &str) -> Result<(PathBuf, std::fs::File), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    for _ in 0..64 {
+        let attempt = NEXT.fetch_add(1, Ordering::SeqCst);
+        let path = parent.join(format!(".eggpack-{kind}-{}-{attempt}", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err(format!("output temp {kind} failed")),
+        }
+    }
+    Err(format!("output temp {kind} exhausted"))
+}
+
 fn atomic_write(output: &Path, bytes: &[u8]) -> Result<(), String> {
     reject_symlink_output(output)?;
     let parent = output
@@ -525,21 +574,49 @@ fn atomic_write(output: &Path, bytes: &[u8]) -> Result<(), String> {
     if !parent_metadata.is_dir() || parent_metadata.file_type().is_symlink() {
         return Err("output parent is not a real directory".to_owned());
     }
-    let temp = parent.join(format!(".eggpack-tmp-{}", std::process::id()));
-    // Best-effort cleanup of a stale temp from a prior aborted run for this pid.
-    let _ = std::fs::remove_file(&temp);
-    std::fs::write(&temp, bytes).map_err(|_| "output temp write failed".to_owned())?;
+    let (temp, mut handle) = claim_temp(&parent, "tmp")?;
+    if handle
+        .write_all(bytes)
+        .and_then(|()| handle.flush())
+        .is_err()
+    {
+        let _ = std::fs::remove_file(&temp);
+        return Err("output temp write failed".to_owned());
+    }
+    drop(handle);
     match std::fs::rename(&temp, output) {
         Ok(()) => Ok(()),
         Err(_) => {
-            // Windows rename does not atomically replace; remove and retry once.
-            // This remains scoped to the explicit output path only.
-            if output.exists() {
-                std::fs::remove_file(output).map_err(|_| "output replace failed".to_owned())?;
-                std::fs::rename(&temp, output).map_err(|_| "output replace failed".to_owned())
+            // Windows rename does not atomically replace an existing file. The
+            // destination is moved aside rather than deleted, so a failed
+            // retry restores it instead of returning an error with the
+            // caller's file already gone. Still scoped to the explicit output
+            // path and its own temp files.
+            let backup = if output.exists() {
+                let (path, handle) = claim_temp(&parent, "prev")?;
+                drop(handle);
+                if std::fs::rename(output, &path).is_err() {
+                    let _ = std::fs::remove_file(&path);
+                    return Err("output replace failed".to_owned());
+                }
+                Some(path)
             } else {
-                let _ = std::fs::remove_file(&temp);
-                Err("output replace failed".to_owned())
+                None
+            };
+            match std::fs::rename(&temp, output) {
+                Ok(()) => {
+                    if let Some(backup) = backup {
+                        let _ = std::fs::remove_file(backup);
+                    }
+                    Ok(())
+                }
+                Err(_) => {
+                    if let Some(backup) = backup {
+                        let _ = std::fs::rename(&backup, output);
+                    }
+                    let _ = std::fs::remove_file(&temp);
+                    Err("output replace failed".to_owned())
+                }
             }
         }
     }
@@ -3347,6 +3424,46 @@ mod tests {
     }
 
     #[test]
+    fn echoed_argv_diagnostics_are_bounded_without_panicking() {
+        // argv is caller-supplied and the bound is a byte count: a
+        // byte-indexed truncate aborts the process on any value whose byte
+        // `MAX_SCALAR_BYTES` falls inside a multi-byte character.
+        for padding in [
+            MAX_SCALAR_BYTES - 1,
+            MAX_SCALAR_BYTES,
+            MAX_SCALAR_BYTES + 40,
+        ] {
+            let value = format!("{}é", "x".repeat(padding));
+            assert!(
+                value.len() > MAX_SCALAR_BYTES,
+                "fixture must exceed the bound"
+            );
+            let echoed = bound_echo(&value);
+            assert!(
+                echoed.len() <= MAX_SCALAR_BYTES + '…'.len_utf8(),
+                "{echoed}"
+            );
+            assert!(
+                value.starts_with(echoed.trim_end_matches('…')),
+                "must be a prefix"
+            );
+
+            // Both argv chokepoints stay on the single-line, non-panicking
+            // exit path instead of aborting.
+            let field = ContractField::parse(&value).unwrap_err();
+            assert!(field.starts_with("unsupported --field"), "{field}");
+            let positional = parse_contract_expand_args(&argv(&[&value])).unwrap_err();
+            assert!(
+                positional.starts_with("unexpected argument"),
+                "{positional}"
+            );
+        }
+        // A short multibyte value is echoed whole, never truncated.
+        assert_eq!(bound_echo("é"), "é");
+        assert_eq!(bound_echo("plain"), "plain");
+    }
+
+    #[test]
     fn m003_expands_every_field_and_resolves_aliases() {
         let root = temp_root("m003-direct");
         let simple = write_contract(&root, "simple", M003_SIMPLE);
@@ -3590,6 +3707,76 @@ mod tests {
                 "contract must not be a symlink"
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_write_replaces_in_place_and_leaves_no_temp_or_backup() {
+        let root = temp_root("atomic-write");
+        let output = root.join("release.yml");
+        atomic_write(&output, b"first\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "first\n");
+        // A second write replaces the contents in place.
+        atomic_write(&output, b"second\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&output).unwrap(), "second\n");
+        // Neither the temp nor the backup path survives a successful replace,
+        // and each call claims its own temp name.
+        let leftovers: Vec<String> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name != "release.yml")
+            .collect();
+        assert!(leftovers.is_empty(), "unexpected leftovers: {leftovers:?}");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn atomic_write_refuses_a_symlinked_output() {
+        let root = temp_root("atomic-write-symlink");
+        let real = root.join("real.txt");
+        std::fs::write(&real, b"keep\n").unwrap();
+        #[cfg(unix)]
+        {
+            let link = root.join("link.txt");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            assert_eq!(
+                atomic_write(&link, b"clobber\n").unwrap_err(),
+                "output must not be a symlink"
+            );
+            assert_eq!(std::fs::read_to_string(&real).unwrap(), "keep\n");
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_bounded_rejects_a_file_that_grows_past_the_bound() {
+        let root = temp_root("read-bounded");
+        let path = root.join("plan.json");
+        std::fs::write(&path, "{}").unwrap();
+        // The pre-read metadata check and the bounded read must agree: a file
+        // that is within the bound when observed is still accepted, and one
+        // over it is rejected by the bound rather than read whole.
+        assert_eq!(read_bounded(&path, 2, "plan").unwrap(), "{}");
+        assert_eq!(
+            read_bounded(&path, 1, "plan").unwrap_err(),
+            "plan exceeds size bound"
+        );
+        std::fs::write(&path, vec![b'x'; 64]).unwrap();
+        assert_eq!(
+            read_bounded(&path, 64, "plan").unwrap().len(),
+            64,
+            "exactly the bound is accepted"
+        );
+        assert_eq!(
+            read_bounded(&path, 63, "plan").unwrap_err(),
+            "plan exceeds size bound"
+        );
+        // Non-UTF-8 content is refused rather than silently replaced.
+        std::fs::write(&path, [0xff, 0xfe]).unwrap();
+        assert_eq!(
+            read_bounded(&path, 64, "plan").unwrap_err(),
+            "plan is not valid UTF-8"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

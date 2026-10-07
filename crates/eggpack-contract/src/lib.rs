@@ -120,11 +120,33 @@ impl fmt::Display for DistError {
 
 impl std::error::Error for DistError {}
 
+/// Bound a diagnostic detail to [`MAX_DETAIL_LEN`] bytes without ever
+/// splitting a multi-byte character.
+///
+/// `String::truncate` panics unless the index is a char boundary, so the
+/// byte bound is first rounded down to one. `bound` is the single chokepoint
+/// for every `DistError` construction in this crate, so a byte-bounded
+/// `truncate` here would turn any caller-supplied detail — an unknown target
+/// name, or the parser diagnostic quoting an untrusted source line — into a
+/// process abort instead of a fail-closed rejection.
 fn bound(mut s: String) -> String {
     if s.len() > MAX_DETAIL_LEN {
-        s.truncate(MAX_DETAIL_LEN);
+        s.truncate(char_boundary_floor(&s, MAX_DETAIL_LEN));
     }
     s
+}
+
+/// Largest index at or below `limit` that is a `char` boundary of `s`.
+///
+/// A UTF-8 character is at most four bytes, so this walks back at most three
+/// steps. `str::floor_char_boundary` expresses this directly but is newer than
+/// the workspace MSRV.
+fn char_boundary_floor(s: &str, limit: usize) -> usize {
+    let mut cut = limit;
+    while !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    cut
 }
 
 /// Opaque product identity. Version semantics remain caller-owned.
@@ -291,12 +313,15 @@ impl DistributionContract {
 
     /// Expands all file names for one target and opaque version string.
     ///
-    /// `version` is opaque (no SemVer ordering) but must be filesystem-safe
-    /// (non-empty, no `/`, `\\`, or control characters). `{alias}` templates
-    /// require looking up via that alias; looking up via the triple when the
-    /// template needs `{alias}` fails with [`DistError::MissingInput`]. The
-    /// expanded result is rejected if any release or install filename
-    /// collides, including ASCII case-only collisions.
+    /// `version` is opaque (no SemVer ordering) but must be portable, because
+    /// it is interpolated into release file names: `[A-Za-z0-9-_.+]` only, so
+    /// no path separator, no platform-reserved character, and nothing
+    /// `eggpack-manifest` would later refuse as an artifact file name.
+    /// `{alias}` templates require looking up via that alias; looking up via
+    /// the triple when the template needs `{alias}` fails with
+    /// [`DistError::MissingInput`]. The expanded result is rejected if any
+    /// release or install filename collides, including ASCII case-only
+    /// collisions.
     pub fn expand(
         &self,
         target_or_alias: &str,
@@ -560,13 +585,19 @@ fn convert_asset(raw: RawAsset) -> Result<AssetForm, DistError> {
                     "archive asset declares too many members",
                 ));
             }
-            let mut seen: HashSet<&str> = HashSet::new();
+            // Uniqueness is keyed on the ASCII-lowercased source, matching
+            // `ArchiveMemberInventory::new` and `validate_observed_mapping`.
+            // Exact-match keying here would let a case-colliding pair parse
+            // and expand, producing members that this crate's own inventory
+            // then refuses — and that also collide on a case-insensitive
+            // filesystem at extraction.
+            let mut seen: HashSet<String> = HashSet::new();
             for m in &members {
                 validate_member_source(&m.source)?;
                 validate_file_template(&m.install, false)?;
-                if !seen.insert(m.source.as_str()) {
+                if !seen.insert(m.source.to_ascii_lowercase()) {
                     return Err(DistError::invalid(format!(
-                        "duplicate archive member: {}",
+                        "duplicate or ASCII-case-colliding archive member: {}",
                         m.source
                     )));
                 }
@@ -661,6 +692,17 @@ fn validate_alias(alias: &str) -> Result<(), DistError> {
     Ok(())
 }
 
+/// Validates the opaque release/version string.
+///
+/// Eggpack applies no SemVer semantics and no release selection to it, but it
+/// is interpolated straight into release artifact file names, so it is held to
+/// the alphabet that both sides can materialize: what `eggpack-manifest`
+/// accepts as a release name, intersected with what every supported platform
+/// (POSIX and Windows) can store on disk. `+` is admitted because SemVer build
+/// metadata (`1.2.3-rc.1+build.5`) is legitimate; `:`, `*`, `?`, `"`, `<`,
+/// `>`, `|`, spaces and path separators are not, and rejecting them here is
+/// what stops a contract that parses and expands cleanly from producing an
+/// artifact name its own manifest rejects, hours later at finalization.
 fn validate_version(version: &str) -> Result<(), DistError> {
     if version.is_empty() || version.len() > MAX_NAME_LEN {
         return Err(DistError::invalid(
@@ -670,10 +712,8 @@ fn validate_version(version: &str) -> Result<(), DistError> {
     if version.chars().any(|c| c.is_control()) {
         return Err(DistError::invalid("version has control characters"));
     }
-    if version.contains(['/', '\\']) {
-        return Err(DistError::invalid(
-            "version must not contain path separators",
-        ));
+    if !version.chars().all(|c| is_safe_name_char(c) || c == '+') {
+        return Err(DistError::invalid("version must use [A-Za-z0-9-_.+] only"));
     }
     Ok(())
 }
@@ -1458,12 +1498,26 @@ pub fn validate_observed_mapping(
     }
     let expected = match contract.expand(&observed.target, version) {
         Ok(expanded) => expanded,
-        Err(_) => {
+        // Only an unresolvable target or alias is a target mismatch.
+        Err(DistError::UnknownTarget(_)) => {
             return ConformanceReport::new(vec![ConformanceFinding::new(
                 FindingKind::TargetMismatch,
                 "target",
                 Some("declared target or alias"),
                 Some(&observed.target),
+            )]);
+        }
+        // Every other expansion failure is a fault in the comparison's own
+        // inputs — an unusable release id, an `{alias}` template looked up by
+        // triple, a template or collision problem — not in the observed
+        // target. Reporting it as a target mismatch would send the operator
+        // after the target when the cause is elsewhere.
+        Err(error) => {
+            return ConformanceReport::new(vec![ConformanceFinding::new(
+                FindingKind::InvalidObservation,
+                "expansion",
+                Some(version),
+                Some(&error.to_string()),
             )]);
         }
     };
@@ -1942,6 +1996,37 @@ sidecar = "{asset}.sha256"
     }
 
     #[test]
+    fn bound_never_splits_a_character_or_panics() {
+        // `bound` is the single chokepoint for every `DistError`, so a byte
+        // bound applied with `String::truncate` would abort the process on any
+        // caller-supplied detail that straddles the boundary.
+        // `MAX_DETAIL_LEN - 1` and `MAX_DETAIL_LEN` place the byte bound
+        // inside the two-byte character, which is where a byte-indexed
+        // `truncate` panics.
+        for padding in [
+            MAX_DETAIL_LEN - 1,
+            MAX_DETAIL_LEN,
+            MAX_DETAIL_LEN + 5,
+            MAX_DETAIL_LEN * 3,
+        ] {
+            let detail = format!("{}é", "x".repeat(padding));
+            assert!(
+                detail.len() > MAX_DETAIL_LEN,
+                "fixture must exceed the bound"
+            );
+            let bounded = bound(detail.clone());
+            assert!(bounded.len() <= MAX_DETAIL_LEN, "bound is not a byte bound");
+            assert!(detail.starts_with(&bounded), "bound must be a prefix");
+            let rendered = DistError::invalid(detail).to_string();
+            assert!(rendered.starts_with("invalid distribution contract: "));
+        }
+        // The reachable path: an unknown target name is caller-supplied.
+        let c = DistributionContract::parse_toml_str(SIMPLE).unwrap();
+        let unknown = format!("{}é", "riscv64-unknown-linux-gnu-".repeat(12));
+        assert!(c.resolve(&unknown).is_err());
+    }
+
+    #[test]
     fn unknown_placeholder_is_rejected() {
         let s = SIMPLE.replace("{product}-{version}-{target}", "{product}-{env}-x");
         let err = DistributionContract::parse_toml_str(&s).unwrap_err();
@@ -2249,6 +2334,68 @@ sidecar = "{asset}.sha256"
         let s = ARCHIVE.replace("source = \"bin/egress-helper\"", "source = \"egress\"");
         let err = DistributionContract::parse_toml_str(&s).unwrap_err();
         assert!(matches!(err, DistError::InvalidInput(_)));
+        // ASCII case collisions are rejected at parse time too. Keying this
+        // check on the exact source instead would let such a contract parse
+        // and expand, and then be refused by `ArchiveMemberInventory::new`
+        // — an archive contract that can never be validated.
+        let cased = ARCHIVE.replace("source = \"bin/egress-helper\"", "source = \"EGRESS\"");
+        let err = DistributionContract::parse_toml_str(&cased).unwrap_err();
+        assert!(
+            matches!(&err, DistError::InvalidInput(detail) if detail.contains("case-colliding")),
+            "{err}"
+        );
+        assert!(DistributionContract::parse_toml_str(ARCHIVE).is_ok());
+    }
+
+    #[test]
+    fn expanded_release_names_are_acceptable_to_every_supported_platform() {
+        // The release id is opaque but lands in artifact file names, so the
+        // alphabet it may use has to be the intersection of the consumer's
+        // release-name rules and every filesystem Eggpack targets.
+        let c = DistributionContract::parse_toml_str(SIMPLE).unwrap();
+        for good in [
+            "1.2.3",
+            "v1.2.3-rc.1",
+            "1.2.3-rc.1+build.5",
+            "nightly_2026-10-05",
+        ] {
+            let e = c.expand("x86_64-unknown-linux-gnu", good).unwrap();
+            let ExpandedAssets::Direct(direct) = e.assets else {
+                panic!("expected direct");
+            };
+            for name in [
+                &direct.asset_file,
+                &direct.sidecar_file,
+                &direct.install_name,
+            ] {
+                assert!(
+                    name.chars().all(|c| is_safe_name_char(c) || c == '+'),
+                    "release id {good} expanded to unportable name {name}"
+                );
+            }
+        }
+        // `:` is rejected by `eggpack-manifest` as an unsafe artifact file
+        // name; `* ? " < > |` and spaces cannot be materialized on Windows at
+        // all. Neither may reach an expanded name.
+        for bad in [
+            "1.0.0:beta",
+            "1.0.0*",
+            "1.0.0?",
+            "1.0.0\"x",
+            "1.0.0<x",
+            "1.0.0>x",
+            "1.0.0|x",
+            "1.0.0 x",
+            "a/b",
+            "a\\b",
+            "",
+            "../evil",
+        ] {
+            assert!(
+                c.expand("x86_64-unknown-linux-gnu", bad).is_err(),
+                "release id {bad:?} must fail closed"
+            );
+        }
     }
 
     #[test]

@@ -118,7 +118,7 @@ subcommand, and `contract_expand` (`:295`) reads, expands, projects, and prints:
 
 ```text
 --contract (required, once)  local path, read through read_bounded with a 1 MiB bound
---release-id (required, once) opaque expansion input, not a release selector
+--release-id (required, once) opaque expansion input, not a release selector; [A-Za-z0-9-_.+], since it lands in artifact file names
 --target (required, once)    target triple or alias, resolved by the contract
 --field (required, once)     canonical-target | asset | sidecar | install
 ```
@@ -225,9 +225,11 @@ straight into these handlers (argv[0] assertions at `lib.rs:5846`, `6722`, `6741
 
 `read_bounded` (`496`) guards every input: `symlink_metadata`, refuse a symlink
 (`499-501`), refuse anything not a regular file (`502-504`), refuse a length
-above the caller's bound (`505-507`), then read (`508`). Failures are reported
-with the caller's `label`, so diagnostics name the input class rather than echo a
-path. Production bounds:
+above the caller's bound (`505-507`), then read through a `take(max + 1)` reader
+and reject any surplus (`510-522`). The read is bounded as well as the check: a
+file that grows, or is replaced, between the two cannot be read past the bound.
+Failures are reported with the caller's `label`, so diagnostics name the input
+class rather than echo a path. Production bounds:
 
 | Bound | Inputs | Lines |
 |---|---|---|
@@ -235,16 +237,19 @@ path. Production bounds:
 | 64 KiB | draft template, consumer validators, consumer evidence, installer presentation | `402`, `434`, `974`, `1118`, `1215`, `1284` |
 | 256 KiB | install policy, github draft policy | `1272`, `1319`, `1371` |
 | 1 MiB | release manifest, staging payload | `1318`, `1370` |
-| 8 MiB | existing workflow, via `read_bounded` (checked *before* the read, symlink refused) | `622`, `652` |
+| 8 MiB | existing workflow, via `read_bounded` (checked before *and* during the read, symlink refused) | `622`, `652` |
 
 `reject_symlink_output` (`504`) refuses an existing symlink or directory at the
 output path. It is reached only from `atomic_write` (`516`), so callers cannot
 forget it; a non-existent path passes, which is the create case.
 
-`atomic_write` (`516`) writes a temporary sibling `.eggpack-tmp-<pid>` (`528`),
-removes a stale one from a prior aborted run (`537`), writes (`538`), and
-renames over the destination (`539`). Where rename does not replace, it removes
-and retries once (`541-551`).
+`atomic_write` claims a fresh temporary sibling through `claim_temp`:
+`.eggpack-tmp-<pid>-<counter>`, opened with `create_new` so two calls in one
+process cannot collide and a pre-planted symlink is never followed. It writes
+that file and renames it over the destination. Where rename does not replace
+(Windows), it renames the destination *aside* to `.eggpack-prev-<pid>-<counter>`
+first and retries; if that retry fails it moves the destination back, so a
+failed replace never leaves the caller's file deleted.
 
 What "atomic" buys: a concurrent reader of `--output` sees either the previous
 file or the complete new one, never a truncated document. All 15 production

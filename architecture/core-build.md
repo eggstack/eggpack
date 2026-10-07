@@ -79,10 +79,11 @@ are `MAX_OUTPUT` (256 KiB, `:18`, `:362-363`), and `expected_stdout` is `None` (
 `preflight` (`:584-674`) runs before any build: `rustc +<toolchain> --version` (`:589`) and
 `cargo +<toolchain> --version` (`:608`), each 10 s / 1024 bytes, failing closed on any
 non-`Success` outcome (`:605-607`, `:624-626`). Under `CargoZigbuild` it also requires both
-cross-tool versions to be declared (`:628-639`) and substring-checks `cargo zigbuild
---version` against `cargo-zigbuild <expected>` (`:649`) and `zig version` against the
-expected Zig version (`:665`); mismatch yields `cargo-zigbuild version mismatch` / `Zig
-version mismatch` (`:654`, `:670`). The expected substring is compared internally and never
+cross-tool versions to be declared (`:628-639`) and requires each declared pin to be a complete
+`MAJOR.MINOR.PATCH` version. `cargo zigbuild --version` and `zig version` are matched by
+**trimmed equality** (`expected_stdout_exact`), not by substring, so a pin of `0.23.3` is not
+satisfied by a reported `0.23.30`; mismatch yields `cargo-zigbuild version mismatch` / `Zig
+version mismatch`. The expected value is compared internally and never
 surfaced (`:124`).
 
 ## Bounded cancellable process execution

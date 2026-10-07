@@ -176,7 +176,11 @@ execution, with no re-check afterwards.
 (`:3954`) is `Passed` or `Failed(..)`. `ConsumerValidationEvidenceV1` (`:3968`)
 records schema version, release/source/target identity, selector, interpreter,
 outcome, observed size, and observed digest — nothing else; a test asserts the
-encoded JSON contains no `stdout`, `stderr`, or `output` key (`:7611-7613`).
+encoded JSON contains no `stdout`, `stderr`, or `output` key (`:7611-7613`). A
+candidate that was never read is recorded as absent (`size` 0, digest `null`) and
+validation rejects either half without the other: this document is evidence of
+what the producer saw, so no digest is ever synthesized for a file that was not
+hashed.
 
 The validator is **caller-supplied**, so it is not a security boundary against a
 hostile caller: a caller who supplies `script` supplies arbitrary code that eggpack

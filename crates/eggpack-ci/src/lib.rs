@@ -3982,10 +3982,15 @@ pub struct ConsumerValidationEvidenceV1 {
     pub interpreter: ValidatorInterpreterV1,
     /// Bounded process outcome summary.
     pub outcome: ConsumerValidationOutcome,
-    /// Observed candidate size in bytes.
+    /// Observed candidate size in bytes; 0 when no candidate was observed.
     pub candidate_size: u64,
-    /// Observed candidate lowercase SHA-256 hex.
-    pub candidate_sha256: String,
+    /// Observed candidate lowercase SHA-256 hex, or `None` when no candidate
+    /// was observed.
+    ///
+    /// An absent observation is recorded as absent. This document is evidence
+    /// of what the producer actually saw, so a never-read candidate must never
+    /// appear here as a plausible-looking digest.
+    pub candidate_sha256: Option<String>,
 }
 
 impl ConsumerValidationEvidenceV1 {
@@ -4012,17 +4017,34 @@ impl ConsumerValidationEvidenceV1 {
             || !safe_metadata(&self.release_id, 256)
             || !safe_metadata(&self.source_revision, 256)
             || !safe_target(&self.target)
-            || self.candidate_size == 0
         {
             return Err(fail("invalid or out-of-bounds consumer evidence"));
         }
-        if self.candidate_sha256.len() != 64
-            || !self
-                .candidate_sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(fail("consumer evidence digest must be lowercase hex"));
+        // Either a candidate was observed, in which case both halves of its
+        // identity are present and well-formed, or neither is. A size without
+        // a digest — or a digest without a size — would record an identity
+        // that was never observed.
+        match (&self.candidate_sha256, self.candidate_size) {
+            (Some(digest), size) if size > 0 => {
+                if digest.len() != 64
+                    || !digest
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                {
+                    return Err(fail("consumer evidence digest must be lowercase hex"));
+                }
+            }
+            (Some(_), _) => {
+                return Err(fail(
+                    "consumer evidence digest without an observed candidate size",
+                ));
+            }
+            (None, 0) => {}
+            (None, _) => {
+                return Err(fail(
+                    "consumer evidence candidate size without an observed digest",
+                ));
+            }
         }
         Ok(())
     }
@@ -4077,7 +4099,7 @@ fn consumer_evidence_shell(
     request: &ConsumerValidationRequest<'_>,
     outcome: ConsumerValidationOutcome,
     candidate_size: u64,
-    candidate_sha256: String,
+    candidate_sha256: Option<String>,
 ) -> Result<ConsumerValidationEvidenceV1, CiError> {
     let evidence = ConsumerValidationEvidenceV1 {
         schema_version: 1,
@@ -4105,12 +4127,14 @@ fn read_limited(stream: Option<std::process::ChildStdout>, limit: usize) -> (Vec
         match stream.read(&mut chunk) {
             Ok(0) => break,
             Ok(count) => {
-                bytes.extend_from_slice(&chunk[..count]);
-                if bytes.len() > limit {
+                // The bound is checked before the bytes are retained, so the
+                // accumulator never grows past `limit` even transiently.
+                if bytes.len().saturating_add(count) > limit {
                     // Drain is abandoned; caller kills the child and the
                     // pipe closes on drop.
                     return (bytes, true);
                 }
+                bytes.extend_from_slice(&chunk[..count]);
             }
             Err(_) => break,
         }
@@ -4129,10 +4153,10 @@ fn read_limited_stderr(stream: Option<std::process::ChildStderr>, limit: usize) 
         match stream.read(&mut chunk) {
             Ok(0) => break,
             Ok(count) => {
-                bytes.extend_from_slice(&chunk[..count]);
-                if bytes.len() > limit {
+                if bytes.len().saturating_add(count) > limit {
                     return (bytes, true);
                 }
+                bytes.extend_from_slice(&chunk[..count]);
             }
             Err(_) => break,
         }
@@ -4198,19 +4222,16 @@ pub fn run_consumer_validator(
                 && meta.len() <= MAX_VALIDATOR_SCRIPT_BYTES
         });
     // Candidate identity is observed before any execution so evidence always
-    // carries the validated linkage.
+    // carries the validated linkage. When there is nothing to observe, the
+    // evidence records an absent candidate rather than a synthetic one: a
+    // never-read candidate must not be published as a digest, because this
+    // document is a claim about final bytes.
     let (observed_size, observed_sha) = hash_candidate_file(request.candidate_path);
     let candidate_ok = is_regular_nonempty_file(request.candidate_path)
         && observed_size == request.expected_size
         && observed_sha == request.expected_sha256;
-    // Evidence requires a non-zero size and 64-hex digest even when the
-    // candidate itself is the failure point.
-    let evidence_size = observed_size.max(1);
-    let evidence_sha = if observed_sha.len() == 64 {
-        observed_sha.clone()
-    } else {
-        "0".repeat(64)
-    };
+    let evidence_size = observed_size;
+    let evidence_sha = (observed_sha.len() == 64).then_some(observed_sha);
     if !candidate_ok {
         return consumer_evidence_shell(
             request,
@@ -4415,6 +4436,26 @@ fn run_interpreter_preflight(
 }
 
 /// Join a finished reader thread without blocking; true when over-limit.
+/// Join both reader threads and report whether either hit its output bound.
+///
+/// Used on every early exit from the validator loop. The child is killed first,
+/// so its pipes close and these joins return; leaving the handles to drop
+/// detaches threads that still hold a pipe no one drains, and their completion
+/// is part of the run's time bound.
+fn drain_readers(
+    stdout: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>,
+    stderr: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>,
+) -> bool {
+    let mut over = false;
+    if let Some(handle) = stdout.take() {
+        over |= handle.join().unwrap_or_default().1;
+    }
+    if let Some(handle) = stderr.take() {
+        over |= handle.join().unwrap_or_default().1;
+    }
+    over
+}
+
 fn take_finished_over(handle: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>) -> bool {
     if handle.as_ref().is_some_and(|thread| thread.is_finished()) {
         if let Some(joined) = handle.take().map(|thread| thread.join()) {
@@ -4591,8 +4632,10 @@ fn validate_source_revision(revision: &str) -> Result<(), CiError> {
 /// consumes the checked-out HEAD revision, resolves PackConfig against
 /// DistributionContract through `PackConfig::resolve`, and uses the exact
 /// tag as the opaque `release_id` (no product-specific transformation).
-/// Returns the invocation-local ReleasePlan; the caller additionally
-/// resolves the static GitHub draft template for the same tag.
+///
+/// Resolution is pure: no clock, no environment reads, and no GitHub or
+/// network access. GitHub appears in this function only through the caller's
+/// separate draft-template resolution for the same tag.
 pub fn resolve_runtime_release_plan(
     contract: &DistributionContract,
     pack_config: &PackConfig,
@@ -4666,11 +4709,13 @@ fn run_validator_process(
         {
             let _ = child.kill();
             let _ = child.wait();
+            drain_readers(&mut stdout_handle, &mut stderr_handle);
             return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled);
         }
         if take_finished_over(&mut stdout_handle) || take_finished_over(&mut stderr_handle) {
             let _ = child.kill();
             let _ = child.wait();
+            drain_readers(&mut stdout_handle, &mut stderr_handle);
             return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit);
         }
         match child.try_wait() {
@@ -4679,6 +4724,7 @@ fn run_validator_process(
                 if std::time::Instant::now() >= deadline {
                     let _ = child.kill();
                     let _ = child.wait();
+                    drain_readers(&mut stdout_handle, &mut stderr_handle);
                     return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout);
                 }
                 std::thread::sleep(Duration::from_millis(5));
@@ -4690,14 +4736,7 @@ fn run_validator_process(
             }
         }
     };
-    let mut over = false;
-    if let Some(handle) = stdout_handle.take() {
-        over |= handle.join().unwrap_or_default().1;
-    }
-    if let Some(handle) = stderr_handle.take() {
-        over |= handle.join().unwrap_or_default().1;
-    }
-    if over {
+    if drain_readers(&mut stdout_handle, &mut stderr_handle) {
         return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit);
     }
     match status {
@@ -7638,7 +7677,7 @@ mod tests {
             interpreter: ValidatorInterpreterV1::Python3,
             outcome: ConsumerValidationOutcome::Passed,
             candidate_size: 4,
-            candidate_sha256: "0".repeat(64),
+            candidate_sha256: Some("ab".repeat(32)),
         };
         let json = evidence.to_json().unwrap();
         assert!(!json.contains("stdout"));
@@ -7712,7 +7751,7 @@ mod tests {
         .unwrap();
         assert_eq!(evidence.outcome, ConsumerValidationOutcome::Passed);
         assert_eq!(evidence.candidate_size, size);
-        assert_eq!(evidence.candidate_sha256, sha);
+        assert_eq!(evidence.candidate_sha256.as_deref(), Some(sha.as_str()));
         assert_eq!(evidence.selector, LogicalOutputSelector::Direct);
         // Non-zero exit fails.
         let script = m003d_write_script(&parent, "fail.py", "import sys\nsys.exit(3)\n");
@@ -7793,6 +7832,27 @@ mod tests {
             ConsumerValidationOutcome::Failed(ConsumerValidationFailure::CandidateMismatch)
         );
         let _ = other_size;
+        // A candidate that was never read is recorded as absent, not as a
+        // plausible-looking digest: nothing was observed, so nothing is
+        // claimed. The classified mismatch outcome is unchanged.
+        let absent = parent.join("absent-candidate");
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &absent, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::CandidateMismatch)
+        );
+        assert_eq!(evidence.candidate_size, 0);
+        assert_eq!(evidence.candidate_sha256, None);
+        // A half-recorded identity is rejected rather than published.
+        let mut half = evidence.clone();
+        half.candidate_sha256 = Some("ab".repeat(32));
+        assert!(half.validate().is_err());
+        let mut half = evidence.clone();
+        half.candidate_size = 4;
+        assert!(half.validate().is_err());
         // Symlink script rejects as unavailable (no PATH-selected script).
         #[cfg(unix)]
         {
@@ -8004,7 +8064,7 @@ mod tests {
             interpreter: ValidatorInterpreterV1::Python3,
             outcome,
             candidate_size: 4,
-            candidate_sha256: "0".repeat(64),
+            candidate_sha256: Some("ab".repeat(32)),
         }
     }
 

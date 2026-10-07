@@ -20,6 +20,21 @@ const MAX_OUTPUT: usize = 256 * 1024;
 const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Retained-output bound for the `git` verification spawn: a bare object name.
 const GIT_OUTPUT_LIMIT: usize = 4 * 1024;
+/// Floor on the post-reap drain budget.
+///
+/// On the timeout and cancellation paths the caller's deadline has already
+/// passed, but the killed process group's pipes still have to reach EOF, so
+/// the drain budget never collapses to zero.
+const MIN_DRAIN_GRACE: Duration = Duration::from_secs(1);
+/// Ceiling on the post-reap drain budget, so a generous caller deadline does
+/// not turn a parked reader into a long wait.
+///
+/// The group is only killed on the timeout and cancellation paths, so a
+/// descendant that outlives a normally-exited child cannot be reaped from
+/// here and a longer wait would not produce EOF. The pipes are either closed
+/// already or held open by a leaked descendant, so the run fails closed
+/// instead.
+const MAX_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Restore POSIX exec bits on a transferred candidate before spawning it.
 ///
@@ -327,30 +342,31 @@ pub fn cargo_command(
         return Err(build_err("invalid Cargo identifier"));
     }
     let rustup = target.policy.toolchain.rust.as_str();
-    let mut args = match target.policy.strategy {
-        BuildStrategy::NativeCargo => vec![
-            "+".to_owned() + rustup,
-            "build".into(),
-            "--release".into(),
-            "--locked".into(),
-            "--target".into(),
-            target.target.clone(),
-        ],
-        BuildStrategy::CargoZigbuild => vec![
-            "+".to_owned() + rustup,
-            "zigbuild".into(),
-            "--release".into(),
-            "--locked".into(),
-            "--target".into(),
-            target.target.clone(),
-        ],
-    };
-    if target.policy.strategy == BuildStrategy::CargoZigbuild {
-        if let CompatibilityFloor::Glibc { major, minor } = target.policy.floor {
-            args[5] = format!("{}.{major}.{minor}", target.target);
-        } else if matches!(target.policy.floor, CompatibilityFloor::Macos { .. }) {
-            return Err(build_err("macOS floor cannot use cargo-zigbuild"));
+    // Built by named position rather than index: the target triple is written
+    // once and never patched afterwards, so inserting a flag can no longer
+    // leave the floor override pointing at an unrelated argument.
+    let mut args = vec!["+".to_owned() + rustup];
+    args.push(
+        match target.policy.strategy {
+            BuildStrategy::NativeCargo => "build",
+            BuildStrategy::CargoZigbuild => "zigbuild",
         }
+        .into(),
+    );
+    args.extend(["--release".to_owned(), "--locked".to_owned()]);
+    if target.policy.strategy == BuildStrategy::CargoZigbuild {
+        let triple = match target.policy.floor {
+            CompatibilityFloor::Glibc { major, minor } => {
+                format!("{}.{major}.{minor}", target.target)
+            }
+            CompatibilityFloor::Macos { .. } => {
+                return Err(build_err("macOS floor cannot use cargo-zigbuild"));
+            }
+            CompatibilityFloor::None => target.target.clone(),
+        };
+        args.extend(["--target".to_owned(), triple]);
+    } else {
+        args.extend(["--target".to_owned(), target.target.clone()]);
     }
     args.extend([
         "--package".into(),
@@ -579,8 +595,19 @@ fn run_bounded_inner(
         }
         thread::sleep(Duration::from_millis(20));
     };
-    t1.join().map_err(|_| build_err("stdout reader failed"))?;
-    t2.join().map_err(|_| build_err("stderr reader failed"))?;
+    // The child — and on the kill paths its whole process group — is reaped,
+    // but the deadline must still bound the whole run: a drain thread returns
+    // only at pipe EOF, which needs every write end closed, so a descendant
+    // that inherited stdout and outlived the child would park the join for
+    // that descendant's entire lifetime. The joins therefore get a bounded
+    // budget taken from what is left of the caller's own deadline, and a
+    // reader still parked at it is detached and failed closed below.
+    let drain_budget = until
+        .saturating_duration_since(Instant::now())
+        .clamp(MIN_DRAIN_GRACE, MAX_DRAIN_GRACE);
+    let drain_until = Instant::now() + drain_budget;
+    let drained = join_drained(t1, drain_until, "stdout reader failed")?
+        && join_drained(t2, drain_until, "stderr reader failed")?;
     let status = child
         .try_wait()
         .map_err(|_| build_err("process wait failed"))?
@@ -604,7 +631,7 @@ fn run_bounded_inner(
         CommandOutcome::TimedOut
     } else if cancelled {
         CommandOutcome::Cancelled
-    } else if out_over || err_over {
+    } else if !drained || out_over || err_over {
         CommandOutcome::OutputLimitExceeded
     } else if expected_missing {
         CommandOutcome::Failed(-1)
@@ -619,6 +646,28 @@ fn run_bounded_inner(
         stderr_bytes: stderr.len(),
     })
 }
+/// Join one drain thread, bounded by `drain_until`.
+///
+/// Returns `false` when the reader is still parked at the budget — the write
+/// end it is waiting on belongs to a process that outlived the supervised
+/// child. The handle is then dropped, which detaches the thread rather than
+/// blocking; the retained bytes are then incomplete and the caller reports
+/// the run as failed.
+fn join_drained(
+    handle: thread::JoinHandle<()>,
+    drain_until: Instant,
+    reader_error: &'static str,
+) -> Result<bool, BuildError> {
+    while !handle.is_finished() {
+        if Instant::now() >= drain_until {
+            return Ok(false);
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+    handle.join().map_err(|_| build_err(reader_error))?;
+    Ok(true)
+}
+
 fn drain<R: Read>(mut reader: R, capture: Arc<Mutex<(Vec<u8>, bool)>>, limit: usize) {
     let mut buffer = [0; 8192];
     loop {
@@ -705,8 +754,10 @@ fn preflight(
                 timeout: Duration::from_secs(10),
                 stdout_limit: 1024,
                 stderr_limit: 1024,
-                expected_stdout: Some(format!("cargo-zigbuild {expected}")),
-                expected_stdout_exact: None,
+                // Trimmed equality, not a substring test: a pin of `0.23.3`
+                // must not be satisfied by a reported `0.23.30`.
+                expected_stdout: None,
+                expected_stdout_exact: Some(format!("cargo-zigbuild {expected}")),
             },
             cancellation,
         )?;
@@ -722,8 +773,9 @@ fn preflight(
                 timeout: Duration::from_secs(10),
                 stdout_limit: 1024,
                 stderr_limit: 1024,
-                expected_stdout: Some(expected_zig.to_owned()),
-                expected_stdout_exact: None,
+                // Same rule for Zig: the reported version must equal the pin.
+                expected_stdout: None,
+                expected_stdout_exact: Some(expected_zig.to_owned()),
             },
             cancellation,
         )?;
@@ -818,6 +870,12 @@ pub fn execute_target_cancellable(
             size,
         });
         last = evidence;
+    }
+    if candidates.is_empty() {
+        // A build that produced no candidate has produced nothing to finalize.
+        // Reporting it as a success attempt with an empty candidate list would
+        // leave the empty list as the only signal, so it fails closed here.
+        return Err(build_err("build produced no candidates"));
     }
     Ok(BuildAttempt {
         release_id: plan.release_id.clone(),
@@ -1401,6 +1459,72 @@ mod tests {
             assert!(cancellation_started.is_file());
         }
         fs::remove_dir_all(root).unwrap();
+    }
+    // Not standalone coverage: this is a child fixture re-executed by
+    // `parked_drain_reader_cannot_outlive_the_deadline` in this test binary.
+    // It returns immediately after spawning a descendant that inherits the
+    // stdout write end, so no EOF ever arrives on that pipe.
+    #[test]
+    #[ignore]
+    // Detaching the grandchild is the behaviour under test: this fixture must
+    // return while the descendant is still running, so waiting on it is exactly
+    // what cannot happen here. The test harness exits immediately afterwards.
+    #[allow(clippy::zombie_processes)]
+    fn builder_child_leaves_parked_descendant() {
+        std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "builder::tests::builder_child_holds_stdout",
+                "--ignored",
+                "--nocapture",
+            ])
+            .spawn()
+            .unwrap();
+    }
+
+    /// Child fixture: outlives its parent, holding the inherited pipe open.
+    #[test]
+    #[ignore]
+    fn builder_child_holds_stdout() {
+        std::thread::sleep(Duration::from_secs(20));
+    }
+
+    /// A child that exits normally while a descendant still holds its stdout
+    /// write end must not park the runner. Pipe EOF never arrives, so the
+    /// drain join has to be bounded and the run has to fail closed.
+    #[test]
+    fn parked_drain_reader_cannot_outlive_the_deadline() {
+        let spec = CommandSpec {
+            executable: std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            args: vec![
+                "--exact".into(),
+                "builder::tests::builder_child_leaves_parked_descendant".into(),
+                "--ignored".into(),
+                "--nocapture".into(),
+            ],
+            cwd: std::env::current_dir().unwrap(),
+            env: BTreeMap::new(),
+            timeout: Duration::from_secs(10),
+            stdout_limit: 4096,
+            stderr_limit: 4096,
+            expected_stdout: None,
+            expected_stdout_exact: None,
+        };
+        let started = Instant::now();
+        let evidence = run_bounded_inner(&spec, None, ExecutableAllowance::Candidate).unwrap();
+        assert_eq!(
+            evidence.outcome,
+            CommandOutcome::OutputLimitExceeded,
+            "a parked drain reader must fail the run closed, not report success"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(15),
+            "bounded run took {:?}; the parked reader defeated the deadline",
+            started.elapsed()
+        );
     }
     #[test]
     fn real_local_cargo_fixture_builds_a_direct_candidate() {

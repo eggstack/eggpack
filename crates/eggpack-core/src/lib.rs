@@ -94,12 +94,25 @@ fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
     };
     arch && os
 }
+/// Whether a cross-tool pin is a complete version.
+///
+/// A pin must name a full `MAJOR.MINOR.PATCH`, optionally followed by a SemVer
+/// pre-release and/or build suffix. A partial pin is not a version: `0` and
+/// `0.14` match almost any reported version under the preflight's comparison,
+/// which would leave a declared toolchain requirement effectively unset while
+/// every check still reported success.
 fn valid_tool_version(value: &str) -> bool {
+    let core = value.split(['-', '+']).next().unwrap_or_default();
+    let parts: Vec<&str> = core.split('.').collect();
     !value.is_empty()
         && value.len() <= 64
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
+        && parts.len() == 3
+        && parts
+            .iter()
+            .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
@@ -121,7 +134,9 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
             .as_ref()
             .is_some_and(|v| !valid_tool_version(v))
     {
-        return Err(err("toolchain requirement is empty or overlong"));
+        return Err(err(
+            "toolchain requirement is empty, overlong, or not a complete version",
+        ));
     }
     match policy.strategy {
         BuildStrategy::NativeCargo => {
@@ -274,12 +289,18 @@ pub fn build_manifest(
 }
 
 fn digest_file(path: &Path) -> Result<(u64, String), CoreError> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| err("finalized file is unavailable"))?;
-    if !metadata.file_type().is_file() {
+    // The symlink rejection is a property of the path policy, so it stays a
+    // path observation. The read then happens through the handle that was
+    // opened, and the evidence recorded is of those bytes: a path replaced
+    // between the check and the open can no longer make the digest describe
+    // some other file than the one that was inspected.
+    let link_metadata =
+        fs::symlink_metadata(path).map_err(|_| err("finalized file is unavailable"))?;
+    if !link_metadata.file_type().is_file() {
         return Err(err("finalized input is not a regular non-symlink file"));
     }
-    let mut reader =
-        BufReader::new(File::open(path).map_err(|_| err("finalized file cannot be opened"))?);
+    let file = File::open(path).map_err(|_| err("finalized file cannot be opened"))?;
+    let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
     let mut size = 0u64;
     let mut buf = [0u8; 65536];
@@ -453,6 +474,7 @@ pub struct PackConfig {
 }
 /// Canonically ordered pure release planning result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReleasePlan {
     /// Schema version exactly 1.
     pub schema_version: u32,
@@ -465,6 +487,7 @@ pub struct ReleasePlan {
 }
 /// One selected target's canonical policy and contract-derived artifact form.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlannedTarget {
     /// Canonical contract triple.
     pub target: String,
@@ -503,6 +526,13 @@ impl PackConfig {
         let c: Self = toml::from_str(s).map_err(|_| err("invalid PackConfig TOML"))?;
         if c.schema_version != 1 || c.targets.is_empty() {
             return Err(err("invalid PackConfig version or empty targets"));
+        }
+        // Bounded at parse time, like every other count in the workspace
+        // (bindings, manifest targets, inventory entries, archive members).
+        // The file is caller-supplied, so an unbounded target array would
+        // allocate before anything downstream could reject it.
+        if c.targets.len() > 256 {
+            return Err(err("PackConfig target count out of bounds"));
         }
         let mut seen = std::collections::HashSet::new();
         // Parse stays lenient about the additive Zig field so historical
@@ -554,8 +584,8 @@ impl PackConfig {
             }
             let mut policy = policies
                 .get(&t.triple)
+                .copied()
                 .ok_or_else(|| err("selected target has no policy"))?
-                .to_owned()
                 .clone();
             policy.target = t.triple.clone();
             let artifact_form = match &t.asset {

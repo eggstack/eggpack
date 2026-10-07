@@ -155,7 +155,14 @@ Both stdout and stderr are piped and drained by dedicated threads
 `limit - already_captured` bytes, and sets an overflow flag when a chunk does not
 fit (`builder.rs629-633`). Oversized output is *dropped*, not buffered to disk
 and not truncated-with-a-tail. Both reader threads are joined before the outcome
-is computed (`builder.rs582-583`).
+is computed, under a bounded budget (`join_drained`, `builder.rs`): a reader
+returns only at pipe EOF, which needs every write end closed, so a descendant
+that inherited stdout and outlived the child would otherwise park the join for
+that descendant's whole lifetime. The budget is what remains of the caller's own
+deadline, clamped to `MIN_DRAIN_GRACE`..`MAX_DRAIN_GRACE`; a reader still parked
+at it is detached and the run fails closed as `OutputLimitExceeded`. This also
+removes a false-success path: a child that exits zero while a descendant holds
+the pipe used to be reported as a success with incomplete captured output.
 
 Overflow is a first-class failure. If either flag is set, the outcome is
 `CommandOutcome::OutputLimitExceeded` (`builder.rs607-608`), ranked below
@@ -167,10 +174,11 @@ The CI validator caps the same way (`read_limited` at `lib.rs:4097`,
 `read_limited_stderr` at `lib.rs:4121`) and additionally detects the overflow
 *promptly* rather than at the deadline: `take_finished_over`
 (`lib.rs:4418-4425`) joins only finished readers, and a completed over-limit
-reader kills the run at once (`lib.rs:4671-4675`). One weakness: these readers
-append the full chunk before comparing against the limit (`lib.rs:4105-4111`),
-so retained bytes can exceed the configured limit by up to one 8 KiB chunk,
-whereas `drain` truncates exactly to the limit.
+reader kills the run at once (`lib.rs:4671-4675`). Both CI readers compare the bound *before* retaining the chunk
+(`lib.rs:4119-4127`), so retained bytes never exceed the configured limit even
+transiently, matching `drain`. Both are also joined on every early exit
+(`drain_readers`): the child is killed first, so the joins return, and a
+detached reader would otherwise keep a pipe alive that nobody drains.
 
 The decisive rule is that **captured output contents never cross the API
 boundary.** `ProcessEvidence` carries only an outcome and two byte counts

@@ -231,6 +231,27 @@ impl ReleaseManifest {
         for r in &self.evidence_references {
             bounded(r, MAX_EVIDENCE, "evidence reference")?;
         }
+        // The structural bounds above must imply the document bound: a document
+        // that this crate's own `from_json` would refuse is not a valid
+        // manifest, so `validate` rejects it here instead of letting `to_json`
+        // emit something no reader can parse back. Counting is bounded, so the
+        // serialized length cannot exceed the largest admissible document plus
+        // JSON punctuation and escapes.
+        self.check_document_bound()
+    }
+
+    /// Reject a manifest whose canonical serialization exceeds the document
+    /// bound accepted by `from_json`.
+    fn check_document_bound(&self) -> Result<(), ManifestError> {
+        let mut worst_case = self.clone();
+        // `to_json` serializes a canonical (sorted) copy; ordering cannot change
+        // the encoded length, so measuring this copy bounds the canonical one.
+        worst_case.targets.sort_by(|a, b| a.target.cmp(&b.target));
+        let encoded = serde_json::to_string(&worst_case)
+            .map_err(|e| invalid(format!("JSON serialization: {e}")))?;
+        if encoded.len() > MAX_DOCUMENT_BYTES {
+            return Err(ManifestError::TooLarge);
+        }
         Ok(())
     }
 
@@ -356,6 +377,60 @@ mod tests {
             sha256: "ab".repeat(32),
         }
     }
+    /// A manifest that satisfies every structural bound must still serialize
+    /// inside the document bound: `from_json` refuses a larger document, so a
+    /// document that violates the bound without being readable back would be a
+    /// valid manifest only until it was written.
+    #[test]
+    fn a_valid_manifest_always_fits_the_document_bound() {
+        let members: Vec<ArchiveMemberRecord> = (0..MAX_RECORDS)
+            .map(|index| ArchiveMemberRecord {
+                source: format!("bin/member-{index:04}-{}", "p".repeat(MAX_NAME - 14)),
+                install: format!("member-{index:04}"),
+                bytes: ByteEvidence {
+                    size: 3,
+                    sha256: "ab".repeat(32),
+                },
+            })
+            .collect();
+        let worst_case = ReleaseManifest {
+            schema_version: 1,
+            product_id: "e".repeat(MAX_ID),
+            release_id: "r".repeat(MAX_ID),
+            source_revision: "a".repeat(MAX_REVISION),
+            targets: (0..MAX_TARGETS)
+                .map(|index| TargetRecord {
+                    target: format!("x86_64-unknown-linux-gnu-{index:03}"),
+                    form: ArtifactForm::Archive {
+                        artifact: artifact(&format!("a-{index:03}-{}", "n".repeat(MAX_NAME - 6))),
+                        members: members.clone(),
+                    },
+                })
+                .collect(),
+            evidence_references: (0..MAX_EVIDENCE_REFERENCES)
+                .map(|index| format!("refs/{index:03}-{}", "e".repeat(MAX_EVIDENCE - 10)))
+                .collect(),
+        };
+        assert!(
+            worst_case.validate().is_err(),
+            "this fixture must exceed the document bound for the assertion to mean anything"
+        );
+        // A document that cannot be read back is rejected at validation, so
+        // `to_json` never emits one.
+        assert!(matches!(
+            worst_case.validate(),
+            Err(ManifestError::TooLarge)
+        ));
+        assert!(worst_case.to_json().is_err());
+        // Within bounds, the round trip is exact.
+        let ok = manifest(ArtifactForm::Direct {
+            artifact: artifact("app"),
+            install: "app".into(),
+        });
+        let text = ok.to_json().unwrap();
+        assert!(ReleaseManifest::from_json(&text).is_ok());
+    }
+
     fn manifest(form: ArtifactForm) -> ReleaseManifest {
         ReleaseManifest {
             schema_version: 1,

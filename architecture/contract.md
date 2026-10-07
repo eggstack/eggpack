@@ -125,11 +125,18 @@ sidecar = "{asset}.sha256"         # may additionally use {asset}
   escaping, no nesting, no stray `}`, no deferred syntax (`:769-825`); literals are
   `[A-Za-z0-9-_.]` (`:812-816`). Expansion is data substitution only, and the result is re-checked
   for emptiness, length, leftover braces, and separators (`:865-875`).
-- **`version`** is opaque — no SemVer ordering, no prerelease semantics — but filesystem-safe:
-  non-empty, ≤128 bytes, no control characters, no `/` or `\` (`:664-679`).
+- **`version`** is opaque — no SemVer ordering, no prerelease semantics — but portable: non-empty,
+  ≤128 bytes, and `[A-Za-z0-9-_.+]` only. It is interpolated into release file names, so the
+  alphabet is the intersection of what `eggpack-manifest` accepts as an artifact file name and what
+  every supported platform can store: `:` (rejected by the manifest) and `* ? " < > |` and spaces
+  (not representable on Windows) are refused at expansion. `+` is admitted for SemVer build
+  metadata such as `1.2.3-rc.1+build.5` (`validate_version`).
 - **Member `source`** is literal, never templated; `{` and `}` are rejected (`:718-722`).
-- **Pre-expansion uniqueness** covers bundle entry assets and installs and archive member installs,
-  using bounded labels such as `entries[0].asset` (`:526-539`, `:574-580`). Sidecar collisions
+- **Pre-expansion uniqueness** covers bundle entry assets and installs, archive member installs, and
+  archive member `source` paths, using bounded labels such as `entries[0].asset` (`:526-539`,
+  `:574-580`). Member sources are keyed on the ASCII-lowercased value, matching
+  `ArchiveMemberInventory::new` and `validate_observed_mapping`: a case-colliding pair is rejected
+  here rather than parsing into an archive contract that its own inventory would refuse. Sidecar collisions
   cannot be checked here — one sidecar template per target, expanded once per asset — so they
   surface at `expand` time.
 

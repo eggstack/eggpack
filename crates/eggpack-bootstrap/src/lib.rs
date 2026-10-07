@@ -864,11 +864,23 @@ fn ps_verify_block(payload_var: &str, size: u64, sha: &str) -> String {
         "  if ((Get-Item -LiteralPath {payload}).Length -ne {size}) {{ throw 'size mismatch' }}\n  if ((Get-FileHash -LiteralPath {payload} -Algorithm SHA256).Hash.ToLowerInvariant() -ne {sha}) {{ throw 'SHA-256 mismatch' }}\n",
         payload = payload_var,
         size = size,
-        sha = shq(&sha.to_lowercase())
+        // PowerShell single-quoted strings are verbatim literals, so this must
+        // use the PowerShell quoter: the POSIX quoter's `'\''` escape would
+        // leave stray quote characters inside the compared digest and break
+        // every digest check in the generated installer.
+        sha = psq(&sha.to_lowercase())
     )
 }
 
 /// Render deterministic PowerShell for direct, bundle, and archive releases.
+///
+/// `policy` is validated here exactly as it is for the POSIX renderer, and is
+/// required for bundle and archive targets. Windows has no exec bit, so the
+/// [`InstallMode`] selected for each install name is carried but has no
+/// effect: verified bytes are moved into place and inherit the destination
+/// directory ACL, for `Executable` and `Data` alike. A policy valid for POSIX
+/// is therefore valid here, and the mode difference is not observable in the
+/// emitted script.
 pub fn render_powershell_with_policy(
     c: &DistributionContract,
     m: &ReleaseManifest,
@@ -989,8 +1001,12 @@ pub fn render_powershell_with_policy(
                     expected = expected_list
                 ));
                 block.push_str("      foreach ($line in $actual) { if ([string]::IsNullOrEmpty($line)) { throw 'unsafe archive member' }; if ($line.StartsWith('/')) { throw 'unsafe archive member' }; if ($line.Contains('\\')) { throw 'unsafe archive member' }; if ($line.Contains(':')) { throw 'unsafe archive member' }; if ($line -match '\\.\\.') { throw 'unsafe archive member' } }\n");
-                block.push_str("      $missing = @($expected | Where-Object { $actual -notcontains $_ }); if ($missing.Count -gt 0) { throw 'archive member inventory mismatch' }\n");
-                block.push_str("      $extra = @($actual | Where-Object { $expected -notcontains $_ }); if ($extra.Count -gt 0) { throw 'archive member inventory mismatch' }\n");
+                // `-cnotcontains` is the case-sensitive form. `-notcontains` would let an
+                // inventory whose member names differ only in case pass while
+                // disagreeing with the producer's `member_set_sha256`, which
+                // is computed over the exact lowercased-hex member list.
+                block.push_str("      $missing = @($expected | Where-Object { $actual -cnotcontains $_ }); if ($missing.Count -gt 0) { throw 'archive member inventory mismatch' }\n");
+                block.push_str("      $extra = @($actual | Where-Object { $expected -cnotcontains $_ }); if ($extra.Count -gt 0) { throw 'archive member inventory mismatch' }\n");
                 block.push_str("      $extractDir = Join-Path $tmp 'extracted'\n      New-Item -ItemType Directory -Path $extractDir | Out-Null\n      & tar.exe -xzf $archive -C $extractDir\n      if ($LASTEXITCODE -ne 0) { throw 'archive extraction failed' }\n");
                 for member in members {
                     block.push_str(&format!(
@@ -2436,6 +2452,128 @@ sidecar = "{asset}.sha256"
 
     #[cfg(unix)]
     #[test]
+    fn powershell_emitted_literals_use_powershell_escaping() {
+        // PowerShell single-quoted strings are verbatim literals: an embedded
+        // quote is escaped by doubling it, not by the POSIX `'\''` form. A
+        // literal produced with the POSIX quoter keeps its quote characters
+        // and silently corrupts every comparison it feeds.
+        assert_eq!(psq("abc"), "'abc'");
+        assert_eq!(psq("ab'cd"), "'ab''cd'");
+        assert_eq!(shq("ab'cd"), "'ab'\\''cd'");
+
+        // The digest is lowercased for the comparison, then quoted with
+        // PowerShell's doubling escape.
+        let block = ps_verify_block("$payload", 7, "Ab'01");
+        assert!(
+            block.contains("-ne 'ab''01'"),
+            "digest literal is not PowerShell-quoted: {block}"
+        );
+        assert!(
+            !block.contains("'\\''"),
+            "POSIX quoting leaked into the PowerShell emitter: {block}"
+        );
+        // Digests in flight are already validated lowercase hex, so the
+        // emitted literal is the bare digest the manifest recorded.
+        let digest = "ab".repeat(32);
+        assert!(ps_verify_block("$p", 1, &digest).contains(&format!("-ne '{digest}'")));
+    }
+
+    #[test]
+    fn powershell_archive_inventory_comparison_is_case_sensitive() {
+        // `-notcontains` is case-insensitive in PowerShell, which would accept
+        // a member list differing only in case from the contract's while the
+        // producer's `member_set_sha256` covers the exact list.
+        let (contract, manifest, policy, archive_bytes, _) = host_archive_case();
+        let archive_name = match &manifest.targets[0].form {
+            ArtifactForm::Archive { artifact, .. } => artifact.name.clone(),
+            _ => panic!("archive expected"),
+        };
+        let mut routes = HashMap::new();
+        routes.insert(
+            format!("/releases/{archive_name}"),
+            (archive_bytes, "200 OK".into()),
+        );
+        let spec = BootstrapSpec {
+            origin: serve_map(routes),
+            fixture_http: true,
+        };
+        let script = render_powershell_with_policy(&contract, &manifest, &spec, &policy).unwrap();
+        assert_eq!(script.matches("-cnotcontains").count(), 2, "{script}");
+        assert!(
+            !script.contains("$actual -notcontains") && !script.contains("$expected -notcontains"),
+            "case-insensitive member inventory comparison emitted"
+        );
+        // The archive path binds each install name to the member resolved by
+        // its exact contract source, verified by that member's own digest —
+        // not by joining an install name against a digest.
+        assert!(script.contains("$member = Join-Path $extractDir 'hostbin'"));
+        assert!(script.contains("[IO.File]::Move($member0, $dest0)"));
+        assert!(!script.contains("$file0"));
+    }
+
+    #[test]
+    fn powershell_direct_path_destination_is_the_exact_install_name() {
+        // The direct branch downloads to a temp payload, verifies that
+        // payload's size and digest, and only then moves it to the install
+        // name. The destination is that exact name: the digest gates bytes, it
+        // never contributes to a path.
+        let c = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let direct = |target: &str| eggpack_manifest::TargetRecord {
+            target: target.into(),
+            form: ArtifactForm::Direct {
+                artifact: eggpack_manifest::ArtifactRecord {
+                    name: format!("eggsact-1.2.6-{target}"),
+                    size: 3,
+                    sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+                        .into(),
+                },
+                install: "eggsact".into(),
+            },
+        };
+        let m = ReleaseManifest {
+            schema_version: 1,
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![
+                direct("x86_64-unknown-linux-gnu"),
+                direct("aarch64-apple-darwin"),
+            ],
+            evidence_references: vec![],
+        };
+        let spec = BootstrapSpec {
+            origin: "https://example.invalid/releases".into(),
+            fixture_http: false,
+        };
+        let script = render_powershell(&c, &m, &spec).unwrap();
+        // The destination is the exact install name the manifest recorded,
+        // carried in the case table and joined onto the caller's destination.
+        assert!(script.contains("$install='eggsact'"), "{script}");
+        assert!(
+            script.contains("$file = Join-Path $dest $install"),
+            "{script}"
+        );
+        assert!(
+            script.contains("[IO.File]::Move($payload, $file)"),
+            "{script}"
+        );
+        // Size and digest only ever gate the downloaded payload; neither is
+        // spliced into a path.
+        assert!(
+            script.contains("-ne $size") && script.contains("-ne $sha"),
+            "{script}"
+        );
+        assert!(
+            !script.contains("Join-Path $dest '$"),
+            "digest or artifact name leaked into the install path"
+        );
+        assert!(!script.contains("member_set_sha256"), "{script}");
+    }
+
+    #[test]
     #[allow(clippy::type_complexity)]
     fn m002_archive_posix_runtime_matrix() {
         use std::{fs, os::unix::fs::PermissionsExt, process::Command};
@@ -3214,6 +3352,18 @@ sidecar = "{asset}.sha256"
                     ("hostbin", member_main.as_slice()),
                     ("bin/host-helper", member_helper.as_slice()),
                     ("extra-file", b"extra" as &[u8]),
+                ]),
+                "archive member inventory mismatch",
+            ),
+            (
+                // Case-only member drift must not pass: `-notcontains`
+                // compares case-insensitively, so `HOSTBIN` would satisfy an
+                // inventory requiring `hostbin` while disagreeing with the
+                // producer's `member_set_sha256` over the exact member list.
+                "case-mismatch",
+                build_deterministic_tar_gz(&[
+                    ("HOSTBIN", member_main.as_slice()),
+                    ("bin/host-helper", member_helper.as_slice()),
                 ]),
                 "archive member inventory mismatch",
             ),

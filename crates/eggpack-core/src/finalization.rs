@@ -435,6 +435,13 @@ fn create_tar_gzip(path: &Path, members: &[(&str, &CandidateArtifact)]) -> Resul
             .set_path(member_name)
             .map_err(|_| err("archive member path rejected"))?;
         header.set_size(size);
+        // A uniform `0o755` for every member is deliberate and is pinned by
+        // the determinism contract (architecture/determinism.md and the
+        // finalization deep dive): it is part of the archive's stable bytes.
+        // It is also only a default — every supported install path applies an
+        // explicit per-entry mode afterwards (`InstallMode`, rendered by the
+        // bootstrap installers and honoured by Eggup), so a data member is
+        // never left executable by extraction alone.
         header.set_mode(0o755);
         header.set_uid(0);
         header.set_gid(0);

@@ -148,11 +148,14 @@ canonically, since the interop test asserts `to_json() == fixture.trim()` (`:652
 
 Three precise limits. The sort is `String` ordering — UTF-8 byte order, not locale
 or Unicode collation. **`evidence_references` is not sorted**; it is emitted in
-input order (`:254` serializes the clone as-is). And `to_json` never re-checks
-its own output against `MAX_DOCUMENT_BYTES` — output size is bounded only
-indirectly, by the collection and string bounds already validated. The method
-documents itself as "stable application serialization, not signing-grade
-canonical JSON" (`:238`).
+input order (the canonicalization serializes the clone as-is). And the
+document-size guarantee is closed at validation, not at serialization:
+`validate` ends with `check_document_bound`, which measures the canonical
+encoding and returns `TooLarge` past `MAX_DOCUMENT_BYTES`. `to_json` validates
+first, so it cannot emit a document its own `from_json` would refuse — the
+structural bounds now *imply* the document bound rather than merely approximating
+it. The method documents itself as "stable application serialization, not
+signing-grade canonical JSON" (`:238`).
 
 ## Collision rules: global vs target-local
 

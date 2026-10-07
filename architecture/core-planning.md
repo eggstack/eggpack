@@ -107,9 +107,13 @@ emitting compact `serde_json`. Those two string bounds are *only* enforced here;
 `validate_policy` (`:105-163`) enforces, in order:
 
 - **Toolchain bounds** (`:106-125`): `rust` non-empty, ≤64 bytes, alphanumeric
-  or `.-+_`; optional `cargo_zigbuild` and `zig` pass `valid_tool_version`
-  (`:97-103`) — non-empty, ≤64 bytes, same character set. Failure message is
-  the single shared "toolchain requirement is empty or overlong".
+  or `.-+_`; optional `cargo_zigbuild` and `zig` additionally pass
+  `valid_tool_version` (`:97-103`) — a **complete `MAJOR.MINOR.PATCH`**, with an
+  optional SemVer pre-release/build suffix. A partial pin is rejected: `0` and
+  `0.14` would satisfy the preflight comparison against almost any reported
+  version, leaving a declared requirement effectively unset while every check
+  still reported success. Failure message is the single shared "toolchain
+  requirement is empty, overlong, or not a complete version".
 - **Strategy/tool coupling** (`:126-141`): `NativeCargo` must declare neither
   cross-tool field; `CargoZigbuild` must declare **both**. Fails closed — there
   is no ambient-tool fallback.

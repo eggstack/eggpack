@@ -210,6 +210,41 @@ fn direct_mapping_reports_asset_sidecar_and_install_name_drift() {
 }
 
 #[test]
+fn expansion_failures_are_not_reported_as_target_mismatches() {
+    let contract = load("simple-direct.toml");
+    let observation = ObservedTargetMapping {
+        target: "linux-x64".to_string(),
+        canonical_target: "x86_64-unknown-linux-gnu".to_string(),
+        assets: ObservedTargetAssets::Direct(ObservedDirectMapping {
+            asset_file: "whatever".to_string(),
+            sidecar_file: "whatever.sha256".to_string(),
+            install_name: "whatever".to_string(),
+        }),
+    };
+    // An unresolvable target or alias is the one case that is a target fault.
+    let unknown = ObservedTargetMapping {
+        target: "riscv64-unknown-linux-gnu".to_string(),
+        ..observation.clone()
+    };
+    let report = validate_observed_mapping(&contract, "1.2.6", &unknown);
+    assert_eq!(report_kinds(&report), [FindingKind::TargetMismatch]);
+    assert_eq!(report.findings[0].label, "target");
+
+    // A fault in the release id used for the comparison is not: reporting it
+    // as a target mismatch would point away from the actual cause.
+    for version in ["1.0.0:beta", "1.0.0*", "1.0.0 x", "../evil", ""] {
+        let report = validate_observed_mapping(&contract, version, &observation);
+        assert_eq!(
+            report_kinds(&report),
+            [FindingKind::InvalidObservation],
+            "version {version:?}"
+        );
+        assert_eq!(report.findings[0].label, "expansion");
+        assert_eq!(report.findings[0].expected.as_deref(), Some(version));
+    }
+}
+
+#[test]
 fn bundle_and_archive_mapping_conformance_cover_every_member() {
     let bundle_contract = load("codegg-bundle.toml");
     let bundle = bundle_contract

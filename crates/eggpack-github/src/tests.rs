@@ -1136,6 +1136,96 @@ async fn renamed_and_422_responses_fail_closed() {
 }
 
 #[tokio::test]
+async fn omitted_upload_digest_still_fails_closed_at_the_final_inventory() {
+    // The digest check right after an upload is conditional on the response
+    // carrying one; the post-upload inventory requires it unconditionally.
+    // This pins the unconditional branch, so removing it cannot pass silently.
+    let source = "a".repeat(40);
+    let (policy, payload, bytes) = payload_for_adapter(&source);
+    let fixture = FixtureGithub::with_tag(&source);
+    fixture.omit_digest_next();
+    let error = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        bytes.get(name).cloned().ok_or_else(|| fail("missing"))
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.to_string(), "staged asset evidence mismatch");
+}
+
+#[tokio::test]
+async fn release_listing_bound_exhaustion_fails_closed_instead_of_truncating() {
+    // A truncated release listing hides the draft for this tag, and staging
+    // would then create a second release for a tag that already has one.
+    let source = "a".repeat(40);
+    let (mut policy, payload, bytes) = payload_for_adapter(&source);
+    policy.max_list_pages = 1;
+    let fixture = FixtureGithub::with_tag(&source);
+    // One full page of unrelated releases: the listing may have more behind
+    // it, and the bound is spent.
+    for id in 0..LIST_PAGE_SIZE as u64 {
+        fixture.seed_release(
+            fixture_release(
+                1_000 + id,
+                &format!("v0.0.{id}"),
+                "other",
+                "notes",
+                false,
+                true,
+                false,
+            ),
+            Vec::new(),
+        );
+    }
+    let error = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        bytes.get(name).cloned().ok_or_else(|| fail("missing"))
+    })
+    .await
+    .unwrap_err();
+    assert_eq!(error.to_string(), "release pagination bound exhausted");
+    assert_eq!(
+        fixture.create_calls(),
+        0,
+        "truncation must never be answered by creating a release"
+    );
+}
+
+#[tokio::test]
+async fn an_existing_tag_is_reused_and_never_created_twice() {
+    let source = "a".repeat(40);
+    let (policy, payload, bytes) = payload_for_adapter(&source);
+    let fixture = FixtureGithub::with_tag(&source);
+    let first = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        bytes.get(name).cloned().ok_or_else(|| fail("missing"))
+    })
+    .await
+    .unwrap();
+    assert!(first.created);
+    assert_eq!(fixture.create_calls(), 1);
+
+    // Re-running against the same tag reuses the draft rather than creating a
+    // second release for it.
+    let second = stage_with_bytes(&payload, &policy, &fixture, "token", |name| {
+        bytes.get(name).cloned().ok_or_else(|| fail("missing"))
+    })
+    .await
+    .unwrap();
+    assert!(!second.created);
+    assert_eq!(second.github_release_id, first.github_release_id);
+    assert_eq!(fixture.create_calls(), 1);
+    assert_eq!(fixture.upload_calls(), 2, "both assets were reused");
+
+    // And the fixture itself refuses the request GitHub refuses.
+    let error = fixture
+        .create_release("acme", "widget", "v1.2.3", "widget 1.2.3", "notes", false)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "http_422_already_exists: github rejected duplicate release tag"
+    );
+}
+
+#[tokio::test]
 async fn starter_502_cleanup_is_narrow_and_resumable() {
     let source = "a".repeat(40);
     let (policy, payload, bytes) = payload_for_adapter(&source);

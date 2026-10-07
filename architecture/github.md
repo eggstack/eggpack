@@ -148,11 +148,12 @@ verify-after-upload: the only way to observe a remote mutation is a counter the
 test itself inspects, and each counter is asserted against a fault that should
 have prevented the call.
 
-Two honest limitations of the double: `FixtureGithub::list_releases` returns an
-empty vector for any page other than 1 (`2863-2865`), so it does not model
-multi-page release listing; and `create_release` always returns
-`draft: true, immutable: false` (`2892-2893`), so the "server returned a
-non-draft creation" rejection at `2026` is unreachable through it.
+Two honest limitations of the double: `create_release` always returns
+`draft: true, immutable: false`, so the "server returned a non-draft
+creation" rejection at `2026` is unreachable through it. Its release listing
+pages like the real endpoint (100 per page) and its `create_release` refuses a
+tag that already has a release with `422 already_exists`, so release-listing
+truncation and duplicate-tag creation are both reachable in tests.
 
 ## Staging payload materialization
 
@@ -203,9 +204,12 @@ adapters over it.
    tag, title, prerelease and body (`1978-1988`).
 3. `verify_tag_source` — the tag must already exist and peel to
    `payload.source_revision` (`1990-1997`, implementation `1778-1814`).
-4. Paginated release lookup over pages `1..=max_list_pages` (`1999-2012`), then
-   `find_exact_release`, which fails on more than one same-tag record
-   (`1816-1830`).
+4. Paginated release lookup over pages `1..=max_list_pages`
+   (`list_all_releases`), then `find_exact_release`, which fails on more than one
+   same-tag record. A full page on the last permitted page fails closed with
+   "release pagination bound exhausted" — a truncated listing must never be
+   read as "this tag has no release", which would turn into a duplicate-tag
+   creation attempt for a tag that already has one.
 5. If absent, `create_release`, then assert the tag matches and the release is a
    mutable draft (`2016-2030`). If present, assert it is a mutable draft
    (`2032`), the tag matches (`2035`), and title, prerelease and body all match
@@ -232,11 +236,11 @@ adapters over it.
 11. Emit the receipt with `draft: true`, `immutable: false`, the `created` flag,
     `uploaded` / `reused` counts, and assets sorted by name (`2194-2210`).
 
-Asset pagination (`list_all_assets`, `1893-1913`) fetches pages
-`1..=policy.max_list_pages`; a short page (fewer than `ASSET_PAGE_SIZE` = 100,
-`36`) terminates successfully, while a full page on the last permitted page
-fails closed with "asset pagination bound exhausted". Default 16 pages, maximum
-32 (`100-102`, `141-143`).
+Pagination is one shared bounded paginator, `list_all_pages`, used for both the
+release and asset listings: pages `1..=policy.max_list_pages` are fetched, a
+short page (fewer than `LIST_PAGE_SIZE` = 100, `37`) terminates successfully, and
+a full page on the last permitted page fails closed with "release/asset
+pagination bound exhausted". Default 16 pages, maximum 32 (`100-102`, `141-143`).
 
 Bounded transfer: `streamed_upload_body` (`1869-1891`) streams the asset through
 `futures_util::stream::try_unfold` in `UPLOAD_CHUNK_BYTES` (64 KiB, `35`) chunks
@@ -371,12 +375,6 @@ Deliberately **not** enforced here, listed honestly:
 - **A cap on total uploaded bytes.** There is a per-request response bound and a
   platform-`usize` conversion (`1873-1874`), but no maximum asset size. A payload
   is bounded by asset count (≤ 1024, `270`) rather than total size.
-- **Release-list pagination does not fail closed on bound exhaustion.** The loop
-  at `1999-2012` breaks on an empty or short page and otherwise simply stops
-  after `max_list_pages`. A target release beyond the bound would be treated as
-  absent and the subsequent `create_release` rejected by GitHub; that path
-  returns a plain error and applies no narrow recovery, so it still fails closed
-  — but as a confusing 422 rather than a clear bound violation.
 - **`immutable` defaults to `false` when the API omits it**
   (`#[serde(default)]`, `2386-2387`). This is the one place where a missing
   field resolves to a permissive value, and it is deliberate: making the field

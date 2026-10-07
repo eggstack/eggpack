@@ -33,7 +33,8 @@ const FIXED_POSIX_NAME: &str = "install.sh";
 const FIXED_POWERSHELL_NAME: &str = "install.ps1";
 /// Maximum upload read/write chunk, bounding per-asset transfer memory.
 const UPLOAD_CHUNK_BYTES: usize = 64 * 1024;
-const ASSET_PAGE_SIZE: usize = 100;
+/// GitHub's fixed page size for both the release and asset listings.
+const LIST_PAGE_SIZE: usize = 100;
 
 /// Bounded staging failure with redacted diagnostics.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -501,24 +502,44 @@ pub fn read_token(env_name: &str) -> Result<String, GithubError> {
     Ok(value)
 }
 
+/// Digest one staging file with a fixed-size buffer.
+///
+/// The bytes are never held in memory: a finalized release bundle can be far
+/// larger than the process should grow to accommodate, and the rest of this
+/// crate already streams — `streamed_upload_body` and `verify_file` both read
+/// in `UPLOAD_CHUNK_BYTES` chunks. Peak memory here is therefore independent
+/// of artifact size.
 fn digest_file(path: &Path) -> Result<(u64, String), GithubError> {
     let metadata =
         std::fs::symlink_metadata(path).map_err(|_| fail("staging file is unavailable"))?;
     if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() == 0 {
         return Err(fail("staging file must be a non-empty regular file"));
     }
-    let bytes = std::fs::read(path).map_err(|_| fail("staging file cannot be read"))?;
+    use sha2::Digest;
+    use std::io::Read as _;
+    let mut file = std::fs::File::open(path).map_err(|_| fail("staging file cannot be read"))?;
+    let mut hasher = sha2::Sha256::new();
+    let mut buffer = vec![0u8; UPLOAD_CHUNK_BYTES];
+    let mut size: u64 = 0;
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|_| fail("staging file cannot be read"))?;
+        if count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..count]);
+        size = size
+            .checked_add(count as u64)
+            .ok_or_else(|| fail("staging file size exceeds the platform bound"))?;
+    }
     let after =
         std::fs::symlink_metadata(path).map_err(|_| fail("staging file changed during read"))?;
-    if after.file_type().is_symlink() || !after.is_file() || after.len() != bytes.len() as u64 {
+    if after.file_type().is_symlink() || !after.is_file() || after.len() != size {
         return Err(fail("staging file changed during read"));
     }
-    use sha2::Digest;
-    let digest = sha2::Sha256::digest(&bytes);
-    Ok((
-        bytes.len() as u64,
-        digest.iter().map(|b| format!("{b:02x}")).collect(),
-    ))
+    let digest = hasher.finalize();
+    Ok((size, digest.iter().map(|b| format!("{b:02x}")).collect()))
 }
 
 fn reject_symlink_dir(path: &Path, label: &str) -> Result<(), GithubError> {
@@ -1890,26 +1911,60 @@ fn streamed_upload_body(
     ))
 }
 
+/// Page through one listing endpoint, failing closed when the bound is hit.
+///
+/// A batch that is completely filled (`LIST_PAGE_SIZE`) may have more pages
+/// behind it, so running out of pages while that is still true means the
+/// listing was truncated. The caller would otherwise act on a partial view —
+/// for releases, by concluding the target tag has no release and creating a
+/// second one for a tag that already has one — so truncation is an explicit
+/// error, never a short list. `label` names the listing in that message.
+async fn list_all_pages<T, F, Fut>(
+    max_pages: u32,
+    label: &'static str,
+    mut fetch: F,
+) -> Result<Vec<T>, GithubError>
+where
+    F: FnMut(u32) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<T>, GithubError>>,
+{
+    let mut all = Vec::new();
+    for page in 1..=max_pages {
+        let batch = fetch(page).await?;
+        let full = batch.len() >= LIST_PAGE_SIZE;
+        all.extend(batch);
+        if !full {
+            return Ok(all);
+        }
+        if page == max_pages {
+            return Err(fail(match label {
+                "asset" => "asset pagination bound exhausted",
+                _ => "release pagination bound exhausted",
+            }));
+        }
+    }
+    Ok(all)
+}
+
+async fn list_all_releases(
+    transport: &impl GithubApi,
+    policy: &GitHubDraftPolicyV1,
+) -> Result<Vec<RemoteRelease>, GithubError> {
+    list_all_pages(policy.max_list_pages, "release", |page| {
+        transport.list_releases(&policy.owner, &policy.repository, page)
+    })
+    .await
+}
+
 async fn list_all_assets(
     transport: &impl GithubApi,
     policy: &GitHubDraftPolicyV1,
     release_id: u64,
 ) -> Result<Vec<RemoteAsset>, GithubError> {
-    let mut all = Vec::new();
-    for page in 1..=policy.max_list_pages {
-        let batch = transport
-            .list_assets(&policy.owner, &policy.repository, release_id, page)
-            .await?;
-        let full = batch.len() == ASSET_PAGE_SIZE;
-        all.extend(batch);
-        if !full {
-            return Ok(all);
-        }
-        if page == policy.max_list_pages {
-            return Err(fail("asset pagination bound exhausted"));
-        }
-    }
-    Ok(all)
+    list_all_pages(policy.max_list_pages, "asset", |page| {
+        transport.list_assets(&policy.owner, &policy.repository, release_id, page)
+    })
+    .await
 }
 
 fn verify_file(file: &mut dyn ReadSeek, expected: &StagingAsset) -> Result<(), GithubError> {
@@ -1996,20 +2051,11 @@ where
     )
     .await?;
 
-    let mut seen: Vec<RemoteRelease> = Vec::new();
-    for page in 1..=policy.max_list_pages {
-        let batch = transport
-            .list_releases(&policy.owner, &policy.repository, page)
-            .await?;
-        if batch.is_empty() {
-            break;
-        }
-        let full = batch.len() >= 100;
-        seen.extend(batch);
-        if !full {
-            break;
-        }
-    }
+    // A truncated release listing would hide the existing draft for this tag,
+    // and staging would then try to create a second release for a tag that
+    // already has one. Bound exhaustion fails closed here, exactly as it does
+    // on the asset listing.
+    let seen = list_all_releases(transport, policy).await?;
     let existing = find_exact_release(&seen, &policy.tag)?;
     let (release, created) = match existing {
         None => {
@@ -2647,6 +2693,7 @@ struct FixtureInner {
     next_asset_id: u64,
     upload_rename_next: bool,
     upload_digest_mismatch_next: bool,
+    upload_omit_digest_next: bool,
     upload_size_mismatch_next: bool,
     upload_fail_502_create_starter: bool,
     upload_fail_502_next: Option<String>,
@@ -2656,7 +2703,24 @@ struct FixtureInner {
     delete_calls: u32,
 }
 
-/// Deterministic in-memory GitHub fixture.
+/// Deterministic in-memory GitHub fixture: a **test double, not an adapter**.
+///
+/// This type performs no network I/O whatsoever — every "remote" fact it
+/// returns comes from state seeded through the `seed_*`/`set_*`/`fail_*`
+/// injectors below, and the injectors exist so tests can model the remote
+/// answers staging must survive. It therefore implements `GithubApi` exactly
+/// as the real transport does, and nothing in the type system distinguishes
+/// the two: any code holding `&impl GithubApi` would accept this double and
+/// report staging success with no network traffic at all.
+///
+/// It is kept out of the rendered documentation on purpose. Wiring it into a
+/// non-test code path is a defect even though it compiles, so the only
+/// supported consumers are `#[cfg(test)]` modules and test crates.
+///
+/// Fidelity limits that remain, by design: releases are listed in seeded order
+/// with no filtering, and `get_tag` resolves only explicitly registered tag
+/// objects.
+#[doc(hidden)]
 #[derive(Debug)]
 pub struct FixtureGithub {
     inner: Mutex<FixtureInner>,
@@ -2677,6 +2741,7 @@ impl FixtureGithub {
                 next_asset_id: 1000,
                 upload_rename_next: false,
                 upload_digest_mismatch_next: false,
+                upload_omit_digest_next: false,
                 upload_size_mismatch_next: false,
                 upload_fail_502_create_starter: true,
                 upload_fail_502_next: None,
@@ -2755,6 +2820,16 @@ impl FixtureGithub {
         inner.upload_size_mismatch_next = true;
     }
 
+    /// Omit the digest field from the next upload response.
+    ///
+    /// Real uploads answer with a digest, so the fixture returns one by
+    /// default; this models a response that leaves it out, which the staging
+    /// core must still reject at its final inventory check.
+    pub fn omit_digest_next(&self) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.upload_omit_digest_next = true;
+    }
+
     /// Number of release creations.
     pub fn create_calls(&self) -> u32 {
         self.inner.lock().unwrap().create_calls
@@ -2782,7 +2857,10 @@ impl FixtureGithub {
     }
 }
 
-/// Build a fixture release record.
+/// Build a fixture release record for [`FixtureGithub`].
+///
+/// Test-double helper: see that type's documentation.
+#[doc(hidden)]
 pub fn fixture_release(
     id: u64,
     tag: &str,
@@ -2804,7 +2882,10 @@ pub fn fixture_release(
     }
 }
 
-/// Build a fixture asset record.
+/// Build a fixture asset record for [`FixtureGithub`].
+///
+/// Test-double helper: see that type's documentation.
+#[doc(hidden)]
 pub fn fixture_asset(
     id: u64,
     name: &str,
@@ -2860,15 +2941,17 @@ impl GithubApi for FixtureGithub {
         _repo: &str,
         page: u32,
     ) -> Result<Vec<RemoteRelease>, GithubError> {
-        if page != 1 {
-            return Ok(Vec::new());
-        }
         let inner = self.inner.lock().unwrap();
-        Ok(inner
+        // Paged like the real endpoint rather than returning everything on
+        // page 1: a listing that can never fill a page cannot exercise the
+        // bound-exhaustion path at all.
+        let all: Vec<RemoteRelease> = inner
             .releases
             .iter()
             .map(|state| state.release.clone())
-            .collect())
+            .collect();
+        let start = (page.saturating_sub(1) as usize).saturating_mul(LIST_PAGE_SIZE);
+        Ok(all.into_iter().skip(start).take(LIST_PAGE_SIZE).collect())
     }
 
     async fn create_release(
@@ -2882,6 +2965,19 @@ impl GithubApi for FixtureGithub {
     ) -> Result<RemoteRelease, GithubError> {
         let mut inner = self.inner.lock().unwrap();
         inner.create_calls += 1;
+        // GitHub answers `422 already_exists` for a tag that already has a
+        // release. Accepting it here would let a caller create a second
+        // release for one tag and report success, which is exactly what the
+        // staging core must never do.
+        if inner
+            .releases
+            .iter()
+            .any(|state| state.release.tag_name == tag)
+        {
+            return Err(fail(
+                "http_422_already_exists: github rejected duplicate release tag",
+            ));
+        }
         let id = inner.next_release_id;
         inner.next_release_id += 1;
         let release = RemoteRelease {
@@ -2915,8 +3011,8 @@ impl GithubApi for FixtureGithub {
             return Ok(page_assets.clone());
         }
         let all = inner.assets.get(&release_id).cloned().unwrap_or_default();
-        let start = (page.saturating_sub(1) as usize).saturating_mul(ASSET_PAGE_SIZE);
-        Ok(all.into_iter().skip(start).take(ASSET_PAGE_SIZE).collect())
+        let start = (page.saturating_sub(1) as usize).saturating_mul(LIST_PAGE_SIZE);
+        Ok(all.into_iter().skip(start).take(LIST_PAGE_SIZE).collect())
     }
 
     async fn upload_asset(
@@ -2985,6 +3081,9 @@ impl GithubApi for FixtureGithub {
         let digest_value = if inner.upload_digest_mismatch_next {
             inner.upload_digest_mismatch_next = false;
             Some("sha256:".to_owned() + &"0".repeat(64))
+        } else if inner.upload_omit_digest_next {
+            inner.upload_omit_digest_next = false;
+            None
         } else {
             Some(format!("sha256:{digest}"))
         };
