@@ -2,6 +2,8 @@
 
 Status: **closed**
 
+> **Subsequent state (2026-10-07).** This record's body describes Ecosystem M003b as *conditionally closed* with publication outstanding. That was true when M002 closed and is left unrewritten, because history is not revised. M003b has since been **closed**: provenance run `37561960304` attested the staged bytes and eggsearch `v0.4.2` was published, discharging the condition M002 recorded. **Publication is no longer outstanding.** For current state read `plans/closure/ecosystem-adoption/003b-status.md` §16, not the M003b statements below.
+
 Source plan: `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md`
 
 Roadmap: `plans/subsystems/planning-hygiene-roadmap.md`

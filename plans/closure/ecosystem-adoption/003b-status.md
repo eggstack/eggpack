@@ -1,6 +1,8 @@
 # Ecosystem Adoption Milestone 003b — Eggsearch Seven-Target Eggpack Producer Cutover
 
-Status: **conditionally closed** — one named operational condition remains: publication of the staged draft is a manual maintainer action.
+Status: **closed** — the named condition (publication of the staged draft) was discharged on 2026-10-07 after provenance attested the staged bytes; see §16.
+
+Closure promoted from *conditionally closed* once `eggsearch v0.4.2` was published. Two Medium findings (E-6, E-7) and two Low findings (E-3, E-4) remain recorded as open work; none is a producer regression and none blocks this closure.
 
 Source plan: `plans/implementation/ecosystem-adoption/003b-eggsearch-seven-target-eggpack-producer-cutover.md`
 
@@ -198,6 +200,10 @@ All 19 assets were downloaded from the draft and checked: exact set equality, pe
 | release run | `37531104901` attempt 1, `workflow_dispatch`, `release_tag=v0.4.2`, **27/27 jobs success** |
 | staging receipt | draft `405157598`, `draft: true`, `immutable: false`, **19 assets** |
 | rerun | `37531104901` attempt 2, same tag/source, **failed closed** — see §9a |
+| provenance, first dispatch | run `37561320408` on `65e660a`, **failed closed** at its first guard with `release not found` — see §9b |
+| provenance fix | `eggstack/eggsearch@a033938`, no product/contract/workflow-render change |
+| provenance, second dispatch | run `37561960304` on `a033938`, **8/8 steps success**; verifier reported `ok (v0.4.2, 19 assets, draft-only, digests/sizes/sidecars/manifest/wrappers verified)` |
+| publication | `gh release edit v0.4.2 --draft=false` at `2026-10-07T02:27:11Z`; `isDraft: false`, `isPrerelease: false`, **19 assets**, now `Latest`; unauthenticated `GET .../releases/download/v0.4.2/install.sh` → HTTP 200 |
 
 Live per-job outcome: 7 build + 7 qualify + 7 consumer-validate all success; `required_gate` success; `aggregate` success; `stage` success.
 
@@ -232,6 +238,26 @@ Two consequences for future plans:
 
 **The staged draft needs no recovery.** Attempt 1's draft is complete, internally consistent, and built from the tagged source with every per-target validation green. It is the artifact a maintainer should publish. The refusal is the reason that artifact is still intact.
 
+## 9b. The provenance workflow had never actually run — an overclaim, corrected
+
+The first dispatch of `Release provenance` against `v0.4.2` — run `37561320408`, the step immediately before publication — **failed closed at its very first guard**:
+
+```text
+release not found
+```
+
+Cause: GitHub answers `GET /releases/tags/{tag}` with **404 for a draft release unless the token carries push access**. The `attest` job requested `contents: read`, so it could not observe the very draft it existed to attest. The guard was unsatisfiable in *both* directions: no draft could pass it, and by its own text no published release could pass it either. **No release state, past or future, could ever have satisfied that workflow.**
+
+The fix (`eggstack/eggsearch@a033938`) grants the job `contents: write` while leaving the workflow-level `contents: read` in place, so any future job in that file still defaults to least privilege. The job body issues only GET requests; the write scope is consumed solely by token read-access level, never by mutation.
+
+The same commit corrected the guard that had been asserting the wrong property. `packaging/check-contract.sh` required that the provenance workflow *not contain the string* `contents: write`. That forbids a **scope** rather than asserting a **behaviour**, and it forbade the only credential shape that can satisfy draft visibility. It is replaced by the behavioural property that actually matters — provenance must not mutate release state, its write scope must stay job-scoped rather than workflow-wide, and it must still request `attestations: write` — with comment lines stripped first so prose explaining the scope can neither satisfy nor trip the structural checks. The replacement was negative-tested: it accepts the real workflow and rejects `gh release create|edit|upload|delete`, `--clobber`, and a workflow-level `contents: write`.
+
+Second dispatch, run `37561960304` on `a033938`: **8/8 steps success**, including in-workflow `gh attestation verify` on every attested subject.
+
+**What this says about process.** An earlier draft of this record described the provenance seam as *established*. That claim rested on the design being sound and on the file passing static assertions — **not** on the workflow ever having been executed. `gh run list` for that workflow returned zero runs. It was not a lie so much as a design assertion promoted to an evidence claim, which is precisely the failure mode this milestone's own evidence discipline forbids. **A seam asserted from design is not evidence; only execution is.** Every other seam in this milestone was exercised against a live artifact, and every one of those held.
+
+No Eggpack primitive, contract, or generated workflow was involved or changed. This was a consumer-owned workflow defect, found only because the closure discipline required the step to actually run before publication rather than after.
+
 ## 10. Deviation from the plan's stated ordering — recorded, not hidden
 
 The plan (§16) sequences the work as: qualify the exact candidate through Eggpack, *then* retire the old writer. That ordering is **unsatisfiable** for this consumer and was not followed literally.
@@ -264,12 +290,12 @@ A second local-only obstruction is worth recording: this sandbox replaces `rm` w
 | 10 | generated installers and manifest staged as additive producer evidence | met — 19-asset receipt |
 | 11 | staging draft-only, no-clobber, exact-reuse, exact tag/source | **partial** — draft-only, no-clobber, and exact tag/source are met (receipt `draft: true`; zero `--clobber`; rerun resolved the same tag/source). Exact **reuse** on rerun is not met: attempt 2 refused with `same-name remote asset digest mismatch` because the rebuild is not byte-reproducible across attempts. See §9a |
 | 12 | generated jobs request no OIDC write permission | met — 0 occurrences, asserted by guard |
-| 13 | provenance subject parity recorded, or closure conditional on a named read gap | met — parity **established** from the `v0.4.1` attestation |
-| 14 | provenance workflow mutates no release/tag/asset state | met — asserted by guard; workflow is read-only |
+| 13 | provenance subject parity recorded, or closure conditional on a named read gap | met — parity **established** from the `v0.4.1` attestation, and now exercised live: run `37561960304` attested and verified 11 subjects (7 binaries, 2 wrappers, 2 exact installers) |
+| 14 | provenance workflow mutates no release/tag/asset state | met — asserted by guard and now **executed**, not merely designed: run `37561960304` issued only reads. The guard was corrected in `a033938` from a scope check to a behavioural check; see §9b |
 | 15 | local gates and required hosted qualification green | met — `CHECK_EXIT=0`, `RELEASE_EXIT=0`, 27/27 jobs |
-| 16 | no medium-or-higher regression remains | met — one Low finding recorded in §13 |
+| 16 | no medium-or-higher regression remains | met — one Low finding recorded in §13; the two Medium findings (E-6, E-2) are unchanged and neither is a producer regression |
 | 17 | old hand-maintained release workflow no longer owns build/stage authority | met — deleted in the cutover commit |
-| 18 | publication remains human-controlled | met — no workflow publishes; the draft is unpublished |
+| 18 | publication remains human-controlled | met — no workflow publishes anything. Publication was performed by an explicit, separately-confirmed maintainer action (`gh release edit v0.4.2 --draft=false`), not by CI |
 | 19 | closure records exact commits/run IDs/release evidence | met — this record |
 
 ## 13. Findings
@@ -282,6 +308,7 @@ A second local-only obstruction is worth recording: this sandbox replaces `rm` w
 | E-3 | Low (found here) | The plan's §3 ARMv7 floor treatment in M003a scratch (`none`) would have rendered a build that does not hold the documented 2.17 floor, making the mandated ARMv7 ceiling proof vacuous | Corrected in implementation to `glibc 2.17`; recorded in §4. |
 | E-4 | Low (found here) | `packaging/test-install.sh` deletes a file that may not exist; under an environment whose `rm` wrapper exits non-zero for a missing path, the script aborts under `set -euo pipefail` | Environment artifact, confirmed on a clean tree before any change. Not a repository defect; recorded so a future reader does not mistake it for a regression. |
 | E-5 | Low (found here) | `src/core/error_query.rs` `.filter(..).next_back()` is denied by current clippy, blocking the local gate | Corrected in a separate commit (`28a0060`). |
+| E-7 | Medium (found here) | The consumer's `Release provenance` workflow had **never been executed**, and on first dispatch failed closed with `release not found`: GitHub 404s `GET /releases/tags/{tag}` for a draft unless the token has push access, so a `contents: read` job could not see the draft it exists to attest. The guard was unsatisfiable in both directions | Fixed in `eggstack/eggsearch@a033938` (job `contents: write`, workflow level unchanged at `read`); run `37561960304` then passed 8/8. Consumer-owned, no Eggpack primitive involved. The deeper finding is procedural: this milestone's earlier draft asserted the seam was "established" on design and static assertions alone, with zero prior runs | §9b |
 
 ## 14. Stop conditions
 
@@ -299,22 +326,26 @@ None of the §18 stop conditions fired. Specifically:
 
 ## 15. Not performed, and therefore not claimed
 
-- The staged `v0.4.2` draft is **not published**. Publication is a separate maintainer action and was not authorized here.
-- No external Unix/Windows installer smoke was run against the *published* `v0.4.2`, because it is not published.
-- The plan's §17.13 subject-parity readback was performed against the `v0.4.1` attestation; the `v0.4.2` attestation set is asserted by design and verified by the provenance workflow when it is dispatched, which requires a staged draft. No `v0.4.2` attestation has been created, so none is claimed.
+- **No external Unix/Windows installer smoke has been run against the published `v0.4.2`.** The release is now public, but the external installer/updater smoke is a separate step that was not performed here and is not claimed.
 - No Eggpack production source, Cargo metadata, generated workflow, or published crate changed in this milestone.
+- The rerun byte-reproducibility gap (E-6) is **still open**. Publication does not close it; the staged bytes came from attempt 1 and are unaffected by attempt 2's refusal.
 
-## 16. Named remaining condition
+## 16. Named remaining condition — discharged
 
-**Publication of eggsearch `v0.4.2` (draft `405157598`) is a manual maintainer action.** Until a maintainer publishes it:
+The condition recorded at conditional closure was: **publication of eggsearch `v0.4.2` (draft `405157598`) is a manual maintainer action.** It has been discharged:
 
-- the seven public binaries, their sidecars, and the two public wrappers for `v0.4.2` are not downloadable from GitHub Releases;
-- `releases/latest/download/install.sh` still resolves the `v0.4.1` asset, which is correct and unchanged — the wrappers are byte-identical;
-- the `Release provenance` workflow has not been dispatched against `v0.4.2`, because it requires a staged draft and is the last step before publication.
+| Fact | Evidence |
+|---|---|
+| provenance attested **before** publication | run `37561960304`, 8/8 steps, `verify-staged-release: ok (v0.4.2, 19 assets, draft-only, digests/sizes/sidecars/manifest/wrappers verified)` |
+| publication is human-controlled | `gh release edit v0.4.2 --draft=false`, executed directly after explicit confirmation of repo, tag, asset count, and public reachability; no workflow published anything |
+| published state | `isDraft: false`, `isPrerelease: false`, `publishedAt: 2026-10-07T02:27:11Z`, **19 assets**, now the `Latest` release |
+| publicly reachable | unauthenticated `GET https://github.com/eggstack/eggsearch/releases/download/v0.4.2/install.sh` → HTTP 200 |
+| ordering was respected | provenance was dispatched and succeeded while the release was **still a draft**, which is the only state its guard accepts |
 
-Discharging the condition is a maintainer action in `eggstack/eggsearch`, not Eggpack work. Once published, this closure can be promoted from *conditionally closed* to *closed* by appending the release evidence.
+Publishing did not mutate the attested bytes: the 19 assets are the same ones verified and attested in run `37561960304`.
 
 ## 17. Next handoff
 
-- **Eggpack**: no open work. The ecosystem-adoption subsystem's third open line is closed or conditionally closed; `plans/registry.md` is the control surface.
-- **Eggsearch**: publish `v0.4.2`, then dispatch `Release provenance` for `v0.4.2`, then verify public installers/updater against the published assets.
+- **Eggpack**: no open work. The ecosystem-adoption subsystem's third open line is closed; `plans/registry.md` is the control surface. The next Eggpack action, when one exists, is plan authoring.
+- **Eggsearch**: run the external Unix and Windows installer smoke against the **published** `v0.4.2` assets. That is the last unexercised step in the release sequence.
+- **Open, unowned by this milestone**: E-6 (non-reproducible rebuild across attempts) and the Eggpack no-clobber evidence gap (§9a, consequence 1) remain candidate correctives.
