@@ -1,6 +1,6 @@
 # CI M003i — Explicit Git Source Tag and Manifest Release Identity Corrective
 
-Status: **blocked** on Bootstrap M002b strict closure; then next Eggpack capability handoff.
+Status: **ready** — Bootstrap M002b strict closure is recorded at `plans/closure/bootstrap-installers/002b-status.md` (implementation `88ddf2e796ac3674b306b51726c65ed7cc9bd29a`, hosted run `37806244313`, all four lanes green).
 Repository baseline: `eggstack/eggpack@3ef806fedc9d7683948e5678ec0d3c7b78c06f0e`.
 External consumer baseline: `dbowm91/wg-basic@125a6a7975a36c65f9b380d8a00cda3604a9241e`.
 External blockage: `dbowm91/wg-basic/plans/closure/distribution/003-status.md` and `plans/implementation/distribution/003-eggpack-identity-seam-corrective.md`.

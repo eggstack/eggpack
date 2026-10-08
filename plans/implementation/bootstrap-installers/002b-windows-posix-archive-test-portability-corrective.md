@@ -1,6 +1,6 @@
 # Bootstrap M002b — Windows POSIX Archive Test Portability Corrective
 
-Status: **ready** — execute before CI M003i.
+Status: **closed** — `plans/closure/bootstrap-installers/002b-status.md`.
 Repository baseline: `eggstack/eggpack@3ef806fedc9d7683948e5678ec0d3c7b78c06f0e`.
 Source roadmap: `plans/subsystems/bootstrap-installers-roadmap.md`.
 Historical closure records: `plans/closure/bootstrap-installers/002-status.md` and `002a-status.md` (do not rewrite).

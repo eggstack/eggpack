@@ -98,7 +98,7 @@ M003g live-qualification corrective plan: `plans/implementation/ci-release-orche
 
 M003h status-reconciliation/main-integration corrective plan: `plans/implementation/ci-release-orchestration/003h-live-qualification-status-reconciliation-and-main-integration.md`.
 
-M003i identity-separation corrective: `plans/implementation/ci-release-orchestration/003i-explicit-tag-and-manifest-release-identity-corrective.md` (**blocked** until Bootstrap M002b strict closure).
+M003i identity-separation corrective: `plans/implementation/ci-release-orchestration/003i-explicit-tag-and-manifest-release-identity-corrective.md` (**ready** after Bootstrap M002b strict closure; no implementation has started).
 
 ## 8. Cross-cutting requirements
 
@@ -142,4 +142,4 @@ Build/Qualification M001-M006 and CI M001/M002/M002a/M003c-M003g are closed on t
 
 ## 13. 2026-10-08 corrective addendum — M003i
 
-**M003i blocked on Bootstrap M002b strict closure.** `plans/implementation/ci-release-orchestration/003i-explicit-tag-and-manifest-release-identity-corrective.md` addresses `dbowm91/wg-basic@125a6a7975a36c65f9b380d8a00cda3604a9241e` Phase 10 M003: Eggpack currently requires runtime `ReleasePlan.release_id == exact source tag`, while wg-basic's closed signed-consumer contract requires tag `vX.Y.Z` and manifest identity `X.Y.Z`. Add a checked-in **opt-in** finite mapping and cross-job identity binding without changing default exact-tag behavior or the published ReleaseManifest v1 schema. Preserve draft-only, immutable-tag and no-clobber semantics; no signing authority or Eggup transaction work is included. After green Bootstrap M002b closure, M003i is the next ready producer milestone. Its strict closure yields an immutable producer SHA for a **separate** wg-basic M003 re-pin and qualification. Earlier CI M003a–M003h historical closures are unaffected.
+**M003i ready after Bootstrap M002b strict closure** (`plans/closure/bootstrap-installers/002b-status.md`, hosted run `37806244313`, all four lanes green). The plan addresses `dbowm91/wg-basic@125a6a7975a36c65f9b380d8a00cda3604a9241e` Phase 10 M003: Eggpack currently requires runtime `ReleasePlan.release_id == exact source tag`, while wg-basic's closed signed-consumer contract requires tag `vX.Y.Z` and manifest identity `X.Y.Z`. Add a checked-in **opt-in** finite mapping and cross-job identity binding without changing default exact-tag behavior or the published ReleaseManifest v1 schema. Preserve draft-only, immutable-tag and no-clobber semantics; no signing authority or Eggup transaction work is included. Its strict closure yields an immutable producer SHA for a **separate** wg-basic M003 re-pin and qualification. Earlier CI M003a–M003h historical closures are unaffected.
