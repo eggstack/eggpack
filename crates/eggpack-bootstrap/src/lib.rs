@@ -2573,6 +2573,7 @@ sidecar = "{asset}.sha256"
         assert!(!script.contains("member_set_sha256"), "{script}");
     }
 
+    #[cfg(unix)]
     #[test]
     #[allow(clippy::type_complexity)]
     fn m002_archive_posix_runtime_matrix() {
