@@ -98,6 +98,8 @@ M003g live-qualification corrective plan: `plans/implementation/ci-release-orche
 
 M003h status-reconciliation/main-integration corrective plan: `plans/implementation/ci-release-orchestration/003h-live-qualification-status-reconciliation-and-main-integration.md`.
 
+M003i identity-separation corrective: `plans/implementation/ci-release-orchestration/003i-explicit-tag-and-manifest-release-identity-corrective.md` (**blocked** until Bootstrap M002b strict closure).
+
 ## 8. Cross-cutting requirements
 
 Least privilege, pinned actions, explicit timeouts, concurrency controls, artifact provenance, no secret leakage in generated summaries.
@@ -137,3 +139,7 @@ Build/Qualification M001-M006 and CI M001/M002/M002a/M003c-M003g are closed on t
 
 | M003g live qualification failures corrective | closed | `plans/implementation/ci-release-orchestration/003g-live-qualification-corrective.md` | `plans/closure/ci-release-orchestration/003g-status.md`; implementations `5acda73`/`4b28820`/`5ac5b83`/`e5c81f2`; hosted runs 36638321253, 36642184204, 36646814734, 36652203168 all lanes | cross-tool PATH, invalid zigbuild check, artifact exec-bit stripping, consumer validation against failed evidence, stage arity, swallowed staging error, and boolean `make_latest` all corrected; live run 36652731202 staged a complete 15-asset draft for eggsact `v1.2.7`, which the maintainer then published |
 | M003h live qualification status reconciliation + main integration | closed | `plans/implementation/ci-release-orchestration/003h-live-qualification-status-reconciliation-and-main-integration.md` | `plans/closure/ci-release-orchestration/003h-status.md` | current `main@404f63ec` was merged by `609d5fb`; status reconciled, full verification passed, and `main` fast-forwarded without force |
+
+## 13. 2026-10-08 corrective addendum — M003i
+
+**M003i blocked on Bootstrap M002b strict closure.** `plans/implementation/ci-release-orchestration/003i-explicit-tag-and-manifest-release-identity-corrective.md` addresses `dbowm91/wg-basic@125a6a7975a36c65f9b380d8a00cda3604a9241e` Phase 10 M003: Eggpack currently requires runtime `ReleasePlan.release_id == exact source tag`, while wg-basic's closed signed-consumer contract requires tag `vX.Y.Z` and manifest identity `X.Y.Z`. Add a checked-in **opt-in** finite mapping and cross-job identity binding without changing default exact-tag behavior or the published ReleaseManifest v1 schema. Preserve draft-only, immutable-tag and no-clobber semantics; no signing authority or Eggup transaction work is included. After green Bootstrap M002b closure, M003i is the next ready producer milestone. Its strict closure yields an immutable producer SHA for a **separate** wg-basic M003 re-pin and qualification. Earlier CI M003a–M003h historical closures are unaffected.
