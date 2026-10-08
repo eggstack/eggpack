@@ -323,9 +323,10 @@ CI M003i adds one checked-in opt-in mode,
 components, no leading zeros, and `u64`-bounded values maps to
 `MAJOR.MINOR.PATCH`. The renderer rejects a mismatched tag-source/trigger pair
 and passes the selected mode as a literal; dispatch has no identity-mode input.
-The runtime draft policy carries optional `release_identity_mode`, `release_id`,
-and `source_revision` fields only for this mapped mode. Omitting the mode keeps
-legacy v1 draft-policy JSON byte-compatible.
+The runtime draft policy carries optional `release_identity_schema_version`,
+`release_identity_mode`, `release_id`, and `source_revision` fields only for
+this mapped mode. The identity envelope currently accepts version `1` only.
+Omitting the mode keeps legacy v1 draft-policy JSON byte-compatible.
 
 Each mapped-mode job verifies the downloaded draft policy against the exact
 event-selected tag, release-plan ID, checkout HEAD, and local tag peel. The same

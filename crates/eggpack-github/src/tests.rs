@@ -34,6 +34,7 @@ fn test_policy() -> GitHubDraftPolicyV1 {
         owner: "acme".to_owned(),
         repository: "widget".to_owned(),
         tag: "v1.2.3".to_owned(),
+        release_identity_schema_version: None,
         release_identity_mode: None,
         release_id: None,
         source_revision: None,
@@ -1955,7 +1956,14 @@ fn m003i_stable_semver_identity_mapping_is_finite_and_strict() {
     let encoded = policy.to_json().unwrap();
     let decoded = GitHubDraftPolicyV1::from_json(&encoded).unwrap();
     assert_eq!(decoded, policy);
+    assert_eq!(decoded.release_identity_schema_version, Some(1));
     assert_eq!(policy.source_revision.as_deref().unwrap().len(), 40);
+    let mut missing_envelope_version = policy.clone();
+    missing_envelope_version.release_identity_schema_version = None;
+    assert!(missing_envelope_version.validate().is_err());
+    let mut unknown_envelope_version = policy.clone();
+    unknown_envelope_version.release_identity_schema_version = Some(2);
+    assert!(unknown_envelope_version.validate().is_err());
     for invalid in [
         "1.2.3",
         "vv1.2.3",

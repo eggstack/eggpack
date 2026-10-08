@@ -43,7 +43,7 @@ draft to published.
 | Item | Line | Description |
 | --- | --- | --- |
 | `GithubError` | `40` | Newtype over a bounded, redacted message; `Display` `42-46`, `fail()` `50-52`. No response body is ever embedded. |
-| `GitHubDraftPolicyV1` | `95` | Strict per-run policy: `schema_version`, `owner`, `repository`, `tag`, `title`, `body`, `prerelease`, `token_env`, and transport bounds; mapped runtime identity optionally adds `release_identity_mode`, `release_id`, and `source_revision`. These fields are omitted for legacy exact-tag serialization; `deny_unknown_fields` remains enforced. |
+| `GitHubDraftPolicyV1` | `95` | Strict per-run policy: `schema_version`, `owner`, `repository`, `tag`, `title`, `body`, `prerelease`, `token_env`, and transport bounds; mapped runtime identity optionally adds the explicitly versioned tuple `release_identity_schema_version`, `release_identity_mode`, `release_id`, and `source_revision`. These fields are omitted for legacy exact-tag serialization; `deny_unknown_fields` remains enforced. |
 | `.from_json` / `.to_json` | `153` / `164` | Parses within `MAX_POLICY_JSON` (256 KiB, `26`) and validates; serialization validates first. |
 | `.validate` | `170` | `schema_version == 1`; owner/repo/tag/title/body bounds; `token_env` must be `GITHUB_TOKEN` (`179`); timeout 5–120 s; metadata ≤ 8 MB; pages 1–32. |
 | `.download_origin` | `195` | `https://github.com/<owner>/<repo>/releases/download/<tag>` — the exact-tag installer origin. |

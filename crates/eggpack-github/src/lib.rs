@@ -24,6 +24,7 @@ const API_VERSION: &str = "2026-03-10";
 const USER_AGENT: &str = "eggpack-github/0.1.0";
 const MAX_TAG_PEEL_DEPTH: usize = 8;
 const MAX_POLICY_JSON: usize = 256 * 1024;
+const RELEASE_IDENTITY_SCHEMA_VERSION: u32 = 1;
 const MAX_PAYLOAD_JSON: usize = 1_048_576;
 const MAX_BODY_NOTES: usize = 65_536;
 const MAX_TITLE: usize = 256;
@@ -101,6 +102,9 @@ pub struct GitHubDraftPolicyV1 {
     pub repository: String,
     /// Exact existing tag to stage.
     pub tag: String,
+    /// Version of the optional mapped-identity tuple; absent in legacy mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_identity_schema_version: Option<u32>,
     /// Opt-in identity mode. Absent preserves historical exact-tag JSON.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub release_identity_mode: Option<ReleaseIdentityMode>,
@@ -175,16 +179,25 @@ impl GitHubDraftPolicyV1 {
         validate_repo(&self.repository)?;
         validate_tag(&self.tag)?;
         match (
+            self.release_identity_schema_version,
             self.release_identity_mode,
             self.release_id.as_deref(),
             self.source_revision.as_deref(),
         ) {
-            (None, None, None) => {}
-            (Some(mode), Some(release_id), Some(_revision))
-                if mode
-                    .release_id(&self.tag)
-                    .is_ok_and(|expected| expected == release_id) => {}
-            _ => return Err(fail("draft identity mapping is incomplete or inconsistent")),
+            (None, None, None, None) => {}
+            (
+                Some(RELEASE_IDENTITY_SCHEMA_VERSION),
+                Some(mode),
+                Some(release_id),
+                Some(_revision),
+            ) if mode
+                .release_id(&self.tag)
+                .is_ok_and(|expected| expected == release_id) => {}
+            _ => {
+                return Err(fail(
+                    "draft identity envelope is incomplete or inconsistent",
+                ))
+            }
         }
         if let Some(revision) = self.source_revision.as_deref() {
             if revision.len() != 40
@@ -1309,6 +1322,7 @@ impl GitHubDraftTemplateV1 {
             owner: self.owner.clone(),
             repository: self.repository.clone(),
             tag: tag.to_owned(),
+            release_identity_schema_version: None,
             release_identity_mode: None,
             release_id: None,
             source_revision: None,
@@ -1332,6 +1346,7 @@ impl GitHubDraftTemplateV1 {
         let release_id = mode.release_id(tag)?;
         let mut policy = self.resolve(tag)?;
         if mode != ReleaseIdentityMode::ExactTag {
+            policy.release_identity_schema_version = Some(RELEASE_IDENTITY_SCHEMA_VERSION);
             policy.release_identity_mode = Some(mode);
             policy.release_id = Some(release_id);
             policy.source_revision = Some(source_revision.to_owned());

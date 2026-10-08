@@ -34,7 +34,8 @@ For `v1.2.3`, Eggpack keeps three facts distinct:
 - source revision: the exact 40-character commit peeled from that tag;
 - manifest `release_id`: `1.2.3` (contract expansion and final artifact names).
 
-Mapped runtime policy carries all three facts. Each mapped-mode job checks the
+Mapped runtime policy carries all three facts in an explicitly versioned
+identity envelope (`release_identity_schema_version: 1`). Each mapped-mode job checks the
 event-selected tag against the downloaded policy, checks the policy-derived ID
 against the release plan, and verifies both `HEAD` and the local tag peel to the
 same revision. Finalization and staging retain the manifest ID while draft
