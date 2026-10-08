@@ -722,6 +722,42 @@ pub enum WorkflowTrigger {
     WorkflowDispatch,
 }
 
+/// Finite checked-in policy for mapping an exact source tag to manifest ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseIdentityMode {
+    /// Historical opaque exact tag behavior.
+    ExactTag,
+    /// Map exactly `vMAJOR.MINOR.PATCH` to `MAJOR.MINOR.PATCH`.
+    VPrefixedStableSemver,
+}
+
+impl ReleaseIdentityMode {
+    fn release_id(self, tag: &str) -> Result<String, CiError> {
+        validate_exact_tag(tag)?;
+        match self {
+            Self::ExactTag => Ok(tag.to_owned()),
+            Self::VPrefixedStableSemver => {
+                let version = tag
+                    .strip_prefix('v')
+                    .ok_or_else(|| fail("stable semantic tag must start with v"))?;
+                let parts: Vec<&str> = version.split('.').collect();
+                if parts.len() != 3
+                    || parts.iter().any(|part| {
+                        part.is_empty()
+                            || !part.bytes().all(|byte| byte.is_ascii_digit())
+                            || (part.len() > 1 && part.starts_with('0'))
+                            || part.parse::<u64>().is_err()
+                    })
+                {
+                    return Err(fail("tag is not v-prefixed stable semantic version"));
+                }
+                Ok(version.to_owned())
+            }
+        }
+    }
+}
+
 /// Bounded GitHub Actions policy supplied separately from CIPlan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -773,6 +809,10 @@ pub struct GitHubPolicy {
     /// this field remain parseable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cross_tools: Option<CrossToolProvisioningV1>,
+    /// Optional finite source-tag to manifest-id mapping for reusable release
+    /// workflows. Absence preserves exact-tag identity and historical output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_identity_mode: Option<ReleaseIdentityMode>,
 }
 
 /// Finite Eggpack runtime tool provisioning for generated qualify/aggregate jobs.
@@ -974,6 +1014,12 @@ pub enum RunnerCommand {
     VerifySource {
         /// Repository-relative ReleasePlan JSON path.
         release_plan: String,
+        /// Runtime draft policy for mapped mode, omitted in legacy exact mode.
+        github_policy: Option<String>,
+        /// Event-selected exact source tag for mapped mode.
+        expected_tag: Option<String>,
+        /// Explicit checked-out repository root for mapped mode.
+        source_root: Option<String>,
     },
     /// Invoke `_capture-build` for one target.
     CaptureBuild {
@@ -1112,6 +1158,8 @@ pub enum RunnerCommand {
         output_ci_plan: String,
         /// Invocation-local GitHubDraftPolicyV1 path to write.
         output_github_policy: String,
+        /// Checked-in finite identity mapping; absent preserves exact-tag bytes.
+        identity_mode: Option<ReleaseIdentityMode>,
     },
 }
 
@@ -1119,13 +1167,32 @@ impl RunnerCommand {
     /// Shell tokens (`eggpack`, `ci`, subcommand, flags) for YAML rendering.
     pub fn argv(&self) -> Vec<String> {
         match self {
-            RunnerCommand::VerifySource { release_plan } => vec![
-                "eggpack".into(),
-                "ci".into(),
-                "_verify-source".into(),
-                "--release-plan".into(),
-                release_plan.clone(),
-            ],
+            RunnerCommand::VerifySource {
+                release_plan,
+                github_policy,
+                expected_tag,
+                source_root,
+            } => {
+                let mut args = vec![
+                    "eggpack".into(),
+                    "ci".into(),
+                    "_verify-source".into(),
+                    "--release-plan".into(),
+                    release_plan.clone(),
+                ];
+                if let (Some(policy), Some(tag)) = (github_policy, expected_tag) {
+                    args.extend([
+                        "--github-policy".into(),
+                        policy.clone(),
+                        "--expected-tag".into(),
+                        tag.clone(),
+                    ]);
+                    if let Some(root) = source_root {
+                        args.extend(["--source-root".into(), root.clone()]);
+                    }
+                }
+                args
+            }
             RunnerCommand::CaptureBuild {
                 contract: _,
                 release_plan,
@@ -1326,6 +1393,7 @@ impl RunnerCommand {
                 output_plan,
                 output_ci_plan,
                 output_github_policy,
+                identity_mode,
             } => {
                 let mut args = vec![
                     "eggpack".into(),
@@ -1356,6 +1424,15 @@ impl RunnerCommand {
                     "--output-github-policy".into(),
                     output_github_policy.clone(),
                 ];
+                if let Some(mode) = identity_mode {
+                    args.extend([
+                        "--identity-mode".into(),
+                        serde_json::to_value(mode)
+                            .ok()
+                            .and_then(|value| value.as_str().map(str::to_owned))
+                            .unwrap_or_else(|| "invalid".to_owned()),
+                    ]);
+                }
                 if let Some(map) = consumer_validators {
                     // Insert the optional map path in flag order (after
                     // qualification bindings, before selected).
@@ -1385,6 +1462,8 @@ impl RunnerCommand {
             .map(|arg| {
                 if arg == "$head_sha" {
                     "\"$head_sha\"".to_owned()
+                } else if arg == "$release_tag" {
+                    "\"$EGGPACK_RELEASE_TAG\"".to_owned()
                 } else {
                     shell_quote(arg)
                 }
@@ -2883,16 +2962,38 @@ fn checkout_snippet(out: &mut String, policy: &GitHubPolicy, staging: bool) {
     out.push('\n');
 }
 
-fn source_verify_snippet(out: &mut String, inputs: &GitHubReleaseInputsV1, staging: bool) {
+fn source_verify_snippet(
+    out: &mut String,
+    inputs: &GitHubReleaseInputsV1,
+    staging: bool,
+    policy: &GitHubPolicy,
+) {
     if !staging {
         return;
     }
+    let mapped = policy.release_identity_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver);
+    let mapped_staging = if mapped {
+        policy.staging.as_ref()
+    } else {
+        None
+    };
     let command = RunnerCommand::VerifySource {
         release_plan: inputs.release_plan.clone(),
+        github_policy: mapped_staging.map(|staging| staging.inputs.github_policy.clone()),
+        expected_tag: mapped_staging.map(|_| "$release_tag".to_owned()),
+        source_root: mapped_staging.map(|_| "${{ github.workspace }}".to_owned()),
     };
-    out.push_str(
-        "      - name: Verify checked-out release source\n        shell: bash\n        run: ",
-    );
+    out.push_str("      - name: Verify checked-out release source\n        shell: bash\n");
+    if let Some(staging) = mapped_staging {
+        let expression = match staging.tag_source {
+            StagingTagSource::RefName => "${{ github.ref_name }}",
+            StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
+        };
+        out.push_str("        env:\n          EGGPACK_RELEASE_TAG: ");
+        out.push_str(&yaml_scalar(expression));
+        out.push('\n');
+    }
+    out.push_str("        run: ");
     out.push_str(&yaml_scalar(&command.to_shell()));
     out.push('\n');
 }
@@ -3023,6 +3124,7 @@ pub fn render_reusable_release_github(
         StagingTagSource::RefName => "${{ github.ref_name }}".to_owned(),
         StagingTagSource::DispatchInput => "${{ inputs.release_tag }}".to_owned(),
     };
+    let mapped_mode = policy.release_identity_mode;
     let resolve = RunnerCommand::ResolveRelease {
         contract: static_inputs.contract.clone(),
         pack_config: pack_config_path,
@@ -3030,13 +3132,18 @@ pub fn render_reusable_release_github(
         qualification_bindings: static_inputs.qualification_bindings.clone(),
         consumer_validators: static_inputs.consumer_validators.clone(),
         selected: shape.selected_aliases.join(","),
-        tag: tag_expr,
+        tag: if mapped_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver) {
+            "$release_tag".to_owned()
+        } else {
+            tag_expr
+        },
         source_revision: "$head_sha".to_owned(),
         template: template_path,
         source_root: "${{ github.workspace }}".to_owned(),
         output_plan: format!("./{RUNTIME_RELEASE_PLAN}"),
         output_ci_plan: format!("./{RUNTIME_CI_PLAN}"),
         output_github_policy: format!("./{RUNTIME_GITHUB_POLICY}"),
+        identity_mode: policy.release_identity_mode,
     };
     let rendered =
         render_release_github_inner(&graph, &runtime_policy, Some(&RuntimeRender { resolve }))?;
@@ -3086,6 +3193,31 @@ fn render_release_github_inner(
 ) -> Result<String, CiError> {
     graph.validate()?;
     policy.validate(&graph.ci_plan)?;
+    if policy.release_identity_mode.is_some() && runtime.is_none() {
+        return Err(fail(
+            "release identity mapping requires reusable workflow rendering",
+        ));
+    }
+    if let Some(mode) = policy.release_identity_mode {
+        if mode != ReleaseIdentityMode::VPrefixedStableSemver {
+            return Err(fail("explicit exact-tag mode must be omitted"));
+        }
+        let staging = policy
+            .staging
+            .as_ref()
+            .ok_or_else(|| fail("release identity mapping requires staging"))?;
+        let has_push = policy.triggers.contains(&WorkflowTrigger::Push);
+        let has_dispatch = policy.triggers.contains(&WorkflowTrigger::WorkflowDispatch);
+        match staging.tag_source {
+            StagingTagSource::RefName if has_push && !has_dispatch => {}
+            StagingTagSource::DispatchInput if has_dispatch && !has_push => {}
+            _ => {
+                return Err(fail(
+                    "release identity tag source does not match workflow triggers",
+                ))
+            }
+        }
+    }
     let tool = policy
         .eggpack_tool
         .as_ref()
@@ -3189,10 +3321,10 @@ fn render_release_github_inner(
     if staging_enabled {
         if runtime.is_none() {
             out.push_str(&tool_install_snippet(tool));
-            source_verify_snippet(&mut out, inputs, staging_enabled);
+            source_verify_snippet(&mut out, inputs, staging_enabled, policy);
         }
     } else {
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
     }
     out.push_str("      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
 
@@ -3226,7 +3358,17 @@ fn render_release_github_inner(
             "Create runtime identity directory",
             &format!("./{RUNTIME_IDENTITY_DIR}"),
         );
-        out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
+        out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n");
+        if policy.release_identity_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver) {
+            let expression = match staging_policy.tag_source {
+                StagingTagSource::RefName => "${{ github.ref_name }}",
+                StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
+            };
+            out.push_str("        env:\n          EGGPACK_RELEASE_TAG: ");
+            out.push_str(&yaml_scalar(expression));
+            out.push('\n');
+        }
+        out.push_str("        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
         out.push_str(&runtime.resolve.to_shell());
         out.push('\n');
         out.push_str("      - name: Upload runtime release identity\n        uses: ");
@@ -3309,7 +3451,7 @@ fn render_release_github_inner(
         // Source verification runs here — after the toolchain the install
         // relies on, before any release work — instead of ahead of the tool.
         out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
         let provisioned = policy.cross_tools.is_some()
             && job.planned.policy.strategy == BuildStrategy::CargoZigbuild;
         for output in &job.outputs {
@@ -3407,7 +3549,7 @@ fn render_release_github_inner(
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
         out.push_str("      - name: Download build handoff\n        uses: ");
         out.push_str(&yaml_scalar(&download_pin.reference));
         out.push_str("\n        with:\n          name: ");
@@ -3485,7 +3627,7 @@ fn render_release_github_inner(
             runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
             // M003e: install before any Eggpack invocation; verify right after.
             out.push_str(&tool_install_snippet(tool));
-            source_verify_snippet(&mut out, inputs, staging_enabled);
+            source_verify_snippet(&mut out, inputs, staging_enabled, policy);
             out.push_str("      - name: Download qualification handoff\n        uses: ");
             out.push_str(&yaml_scalar(&download_pin.reference));
             out.push_str("\n        with:\n          name: ");
@@ -3556,7 +3698,7 @@ fn render_release_github_inner(
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
         for qual in &graph.qualifications {
             out.push_str("      - name: Download qualification ");
             out.push_str(&yaml_scalar(&qual.target));
@@ -3618,7 +3760,7 @@ fn render_release_github_inner(
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
         // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled);
+        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
         for qual in &graph.qualifications {
             out.push_str("      - name: Download qualification ");
             out.push_str(&yaml_scalar(&qual.target));
@@ -3739,7 +3881,7 @@ fn render_release_github_inner(
         out.push('\n');
         // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, true);
+        source_verify_snippet(&mut out, inputs, true, policy);
         out.push_str("      - name: Download finalized release\n        uses: ");
         out.push_str(&yaml_scalar(&download_pin.reference));
         out.push_str("\n        with:\n          name: ");
@@ -4643,8 +4785,28 @@ pub fn resolve_runtime_release_plan(
     tag: &str,
     source_revision: &str,
 ) -> Result<ReleasePlan, CiError> {
+    resolve_runtime_release_plan_with_mode(
+        contract,
+        pack_config,
+        selected,
+        tag,
+        source_revision,
+        ReleaseIdentityMode::ExactTag,
+    )
+}
+
+/// Resolve a release plan using an explicit checked-in source-tag mapping.
+pub fn resolve_runtime_release_plan_with_mode(
+    contract: &DistributionContract,
+    pack_config: &PackConfig,
+    selected: &[String],
+    tag: &str,
+    source_revision: &str,
+    mode: ReleaseIdentityMode,
+) -> Result<ReleasePlan, CiError> {
     validate_exact_tag(tag)?;
     validate_source_revision(source_revision)?;
+    let release_id = mode.release_id(tag)?;
     if selected.is_empty() || selected.len() > 256 {
         return Err(fail("selected target count out of bounds"));
     }
@@ -4657,11 +4819,11 @@ pub fn resolve_runtime_release_plan(
         return Err(fail("unsupported PackConfig version"));
     }
     let plan = pack_config
-        .resolve(contract, tag, source_revision, selected)
-        .map_err(|_| fail("PackConfig does not resolve for the exact tag and source"))?;
-    if plan.release_id != tag || plan.source_revision != source_revision {
+        .resolve(contract, &release_id, source_revision, selected)
+        .map_err(|_| fail("PackConfig does not resolve for the selected identity and source"))?;
+    if plan.release_id != release_id || plan.source_revision != source_revision {
         return Err(fail(
-            "resolved ReleasePlan differs from the exact tag and source",
+            "resolved ReleasePlan differs from the selected identity and source",
         ));
     }
     Ok(plan)
@@ -4870,6 +5032,7 @@ mod tests {
             emulated_sysroots: None,
             staging: None,
             cross_tools: None,
+            release_identity_mode: None,
         }
     }
     fn graph(strategy: BuildStrategy, support: SupportTier) -> CIPlan {
@@ -6045,6 +6208,7 @@ mod tests {
             emulated_sysroots: None,
             staging: None,
             cross_tools: None,
+            release_identity_mode: None,
         }
     }
 
@@ -7260,6 +7424,9 @@ mod tests {
             owner: "acme".into(),
             repository: "widget".into(),
             tag: "v1.2.6".into(),
+            release_identity_mode: None,
+            release_id: None,
+            source_revision: None,
             title: "widget 1.2.6".into(),
             body: "notes".into(),
             prerelease: false,
@@ -7419,6 +7586,9 @@ mod tests {
                 owner: "acme".into(),
                 repository: "widget".into(),
                 tag: "v2.4.0".into(),
+                release_identity_mode: None,
+                release_id: None,
+                source_revision: None,
                 title: "widget 2.4.0".into(),
                 body: "notes".into(),
                 prerelease: false,
@@ -7547,6 +7717,9 @@ mod tests {
                 owner: "acme".into(),
                 repository: "widget".into(),
                 tag: "v3.1.0".into(),
+                release_identity_mode: None,
+                release_id: None,
+                source_revision: None,
                 title: "widget 3.1.0".into(),
                 body: "notes".into(),
                 prerelease: false,
@@ -8387,6 +8560,7 @@ mod tests {
             output_plan: "./eggpack-runtime/release-plan.json".into(),
             output_ci_plan: "./eggpack-runtime/release-ci-plan.json".into(),
             output_github_policy: "./eggpack-runtime/github-draft.json".into(),
+            identity_mode: None,
         };
         let argv = resolve.argv();
         assert_eq!(&argv[0..3], &["eggpack", "ci", "_resolve-release"]);
@@ -8423,6 +8597,7 @@ mod tests {
             output_plan: "./eggpack-runtime/release-plan.json".into(),
             output_ci_plan: "./eggpack-runtime/release-ci-plan.json".into(),
             output_github_policy: "./eggpack-runtime/github-draft.json".into(),
+            identity_mode: None,
         };
         assert!(!bare.argv().contains(&"--consumer-validators".to_string()));
     }
@@ -8545,6 +8720,41 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tagged.release_id, "eggsact-v2.0.0");
+        let mapped = resolve_runtime_release_plan_with_mode(
+            &contract,
+            &pack,
+            &shape.selected_aliases,
+            "v1.2.3",
+            &source,
+            ReleaseIdentityMode::VPrefixedStableSemver,
+        )
+        .unwrap();
+        assert_eq!(mapped.release_id, "1.2.3");
+        assert_eq!(mapped.source_revision, source);
+        for malformed in [
+            "1.2.3",
+            "vv1.2.3",
+            "v01.2.3",
+            "v1.2.3-rc1",
+            "v1.2.3+meta",
+            "v18446744073709551616.2.3",
+            "v1.2.3.4",
+            "v１.2.3",
+            "v1.2.3'\nmalicious",
+        ] {
+            assert!(
+                resolve_runtime_release_plan_with_mode(
+                    &contract,
+                    &pack,
+                    &shape.selected_aliases,
+                    malformed,
+                    &source,
+                    ReleaseIdentityMode::VPrefixedStableSemver,
+                )
+                .is_err(),
+                "malformed tag {malformed:?} must reject"
+            );
+        }
         // Injection and shape violations reject.
         for bad_tag in [
             "",
@@ -8672,6 +8882,39 @@ mod tests {
             render_reusable_release_github(&contract, &shape_ref, &policy_ref).unwrap(),
             render_reusable_release_github(&contract, &shape_dispatch, &policy_dispatch).unwrap()
         );
+    }
+
+    #[test]
+    fn m003i_mapped_workflow_binds_tag_safely_and_preserves_event_mapping() {
+        for (tag_source, triggers, expression) in [
+            (
+                StagingTagSource::RefName,
+                vec![WorkflowTrigger::Push],
+                "${{ github.ref_name }}",
+            ),
+            (
+                StagingTagSource::DispatchInput,
+                vec![WorkflowTrigger::WorkflowDispatch],
+                "${{ inputs.release_tag }}",
+            ),
+        ] {
+            let (contract, shape, mut policy) = m003d_shape_and_policy(tag_source);
+            policy.triggers = triggers;
+            policy.release_identity_mode = Some(ReleaseIdentityMode::VPrefixedStableSemver);
+            let workflow = render_reusable_release_github(&contract, &shape, &policy).unwrap();
+            assert!(!workflow.contains("release_identity_mode"));
+            assert!(workflow.contains("EGGPACK_RELEASE_TAG: "));
+            assert!(workflow.contains(expression));
+            assert!(workflow.contains("--identity-mode"), "{workflow}");
+            assert!(workflow.contains("--tag' \"$EGGPACK_RELEASE_TAG\""));
+            assert!(workflow.contains("--expected-tag"));
+            let parsed: serde_yaml::Value = serde_yaml::from_str(&workflow).unwrap();
+            assert!(parsed.get("on").is_some());
+        }
+
+        let (contract, shape, mut invalid) = m003d_shape_and_policy(StagingTagSource::RefName);
+        invalid.release_identity_mode = Some(ReleaseIdentityMode::VPrefixedStableSemver);
+        assert!(render_reusable_release_github(&contract, &shape, &invalid).is_err());
     }
 
     #[test]

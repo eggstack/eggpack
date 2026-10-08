@@ -9,6 +9,8 @@ and contributors in [../AGENTS.md](../AGENTS.md).
 - [quickstart.md](quickstart.md) — resolve a one-target release and render its
   GitHub Actions workflow with the `eggpack` CLI (verified end-to-end, no
   network, ~5 minutes).
+- [release-identity-policy.md](release-identity-policy.md) — opt-in mapping of
+  `vMAJOR.MINOR.PATCH` source tags to unprefixed manifest IDs.
 
 ## Workspace layout
 

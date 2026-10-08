@@ -79,6 +79,8 @@ scripts/check-local.sh   # fmt, check, clippy, tests, doc, package, MSRV
 ## Docs
 
 - [docs/quickstart.md](docs/quickstart.md) — the runnable walkthrough, in full
+- [docs/release-identity-policy.md](docs/release-identity-policy.md) — opt-in
+  source-tag and manifest-ID mapping policy
 - [docs/](docs/) — user guides and the workspace layout
 - [crates/eggpack-cli/README.md](crates/eggpack-cli/README.md) — command reference
 - [architecture/overview.md](architecture/overview.md) — pipeline, crate boundaries, invariants

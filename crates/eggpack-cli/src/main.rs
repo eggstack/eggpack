@@ -323,6 +323,33 @@ fn ci_verify_source(args: &[String]) -> Result<(), String> {
     let text = read_bounded(&plan_path, 1_000_000, "release plan")?;
     let plan: eggpack_core::ReleasePlan =
         serde_json::from_str(&text).map_err(|_| "invalid release plan".to_owned())?;
+    let policy_path = get_flag_optional(args, "github-policy").map(PathBuf::from);
+    let expected_tag = get_flag_optional(args, "expected-tag");
+    let source_root = get_flag_optional(args, "source-root").map(PathBuf::from);
+    if policy_path.is_some() != expected_tag.is_some()
+        || policy_path.is_some() != source_root.is_some()
+    {
+        return Err("mapped source verification requires policy and expected tag".to_owned());
+    }
+    if let (Some(policy_path), Some(expected_tag)) = (policy_path, expected_tag) {
+        let policy_text = read_bounded(&policy_path, 256 * 1024, "github draft policy")?;
+        let policy = eggpack_github::GitHubDraftPolicyV1::from_json(&policy_text)
+            .map_err(|_| "invalid github draft policy".to_owned())?;
+        if policy.tag != expected_tag
+            || policy.release_identity_mode
+                != Some(eggpack_github::ReleaseIdentityMode::VPrefixedStableSemver)
+            || policy.resolved_release_id() != plan.release_id
+            || policy.source_revision.as_deref() != Some(plan.source_revision.as_str())
+        {
+            return Err("runtime release identity does not match selected tag".to_owned());
+        }
+        verify_source_revision(&plan.source_revision, source_root.as_deref())?;
+        verify_source_tag(&policy.tag, &plan.source_revision, source_root.as_deref())?;
+        return Ok(());
+    }
+    if args.len() > 4 {
+        return Err("too many arguments for ci _verify-source".to_owned());
+    }
     let expected = plan.source_revision.as_str();
     if expected.len() != 40
         || !expected
@@ -332,6 +359,15 @@ fn ci_verify_source(args: &[String]) -> Result<(), String> {
         return Err("release plan source revision is invalid".to_owned());
     }
     verify_source_revision(expected, None)
+}
+
+fn verify_source_tag(tag: &str, revision: &str, cwd: Option<&Path>) -> Result<(), String> {
+    let evidence = eggpack_core::run_git_tag_bounded(tag, revision, cwd)
+        .map_err(|_| "source tag verification failed".to_owned())?;
+    if evidence.outcome != eggpack_core::CommandOutcome::Success {
+        return Err("source tag does not resolve to release plan revision".to_owned());
+    }
+    Ok(())
 }
 
 fn verify_source_revision(expected: &str, cwd: Option<&Path>) -> Result<(), String> {
@@ -358,8 +394,8 @@ fn verify_source_revision(expected: &str, cwd: Option<&Path>) -> Result<(), Stri
 ///
 /// Validates the exact event-selected tag, verifies checked-out HEAD equals
 /// the given source revision, resolves PackConfig through
-/// `PackConfig::resolve` using the exact tag as release_id, resolves the
-/// static draft template for the same tag, and writes the three
+/// `PackConfig::resolve` using the renderer-selected identity mode, resolves
+/// the static draft template for the exact source tag, and writes the three
 /// invocation-local documents into workflow-private storage only.
 #[allow(clippy::too_many_lines)]
 fn ci_resolve_release(args: &[String]) -> Result<(), String> {
@@ -376,13 +412,14 @@ fn ci_resolve_release(args: &[String]) -> Result<(), String> {
     let output_plan = PathBuf::from(get_flag(args, "output-plan")?);
     let output_ci_plan = PathBuf::from(get_flag(args, "output-ci-plan")?);
     let output_github_policy = PathBuf::from(get_flag(args, "output-github-policy")?);
-    if args.len() > 28 {
+    if args.len() > 30 {
         return Err("too many arguments for ci _resolve-release".to_owned());
     }
     // Checked-out HEAD is consumed as the source revision: the given
     // revision must equal HEAD in the explicit source root or resolution
     // fails closed.
     verify_source_revision(&source_revision, Some(&source_root))?;
+    verify_source_tag(&tag, &source_revision, Some(&source_root))?;
     let contract_text = read_bounded(&contract_path, 1_000_000, "contract")?;
     let contract = eggpack_contract::DistributionContract::parse_toml_str(&contract_text)
         .map_err(|_| "invalid contract".to_owned())?;
@@ -396,12 +433,18 @@ fn ci_resolve_release(args: &[String]) -> Result<(), String> {
     if selected.is_empty() {
         return Err("selected targets must not be empty".to_owned());
     }
-    let plan = eggpack_ci::resolve_runtime_release_plan(
+    let mode = match get_flag_optional(args, "identity-mode").as_deref() {
+        None | Some("exact_tag") => eggpack_ci::ReleaseIdentityMode::ExactTag,
+        Some("v_prefixed_stable_semver") => eggpack_ci::ReleaseIdentityMode::VPrefixedStableSemver,
+        _ => return Err("unknown release identity mode".to_owned()),
+    };
+    let plan = eggpack_ci::resolve_runtime_release_plan_with_mode(
         &contract,
         &pack_config,
         &selected,
         &tag,
         &source_revision,
+        mode,
     )
     .map_err(|_| "runtime release resolution failed".to_owned())?;
     let template_text = read_bounded(&template_path, 64 * 1024, "draft template")?;
@@ -411,10 +454,19 @@ fn ci_resolve_release(args: &[String]) -> Result<(), String> {
             eggpack_github::GitHubDraftTemplateV1::from_json(&template_text)
                 .map_err(|_| "invalid draft template".to_owned())
         })?;
+    let github_mode = match mode {
+        eggpack_ci::ReleaseIdentityMode::ExactTag => eggpack_github::ReleaseIdentityMode::ExactTag,
+        eggpack_ci::ReleaseIdentityMode::VPrefixedStableSemver => {
+            eggpack_github::ReleaseIdentityMode::VPrefixedStableSemver
+        }
+    };
     let draft_policy = template
-        .resolve(&tag)
+        .resolve_with_identity(&tag, github_mode, &source_revision)
         .map_err(|_| "draft template resolution failed".to_owned())?;
-    if draft_policy.tag != plan.release_id || draft_policy.title.is_empty() {
+    if draft_policy.tag != tag
+        || draft_policy.resolved_release_id() != plan.release_id
+        || draft_policy.title.is_empty()
+    {
         return Err("resolved draft policy differs from release identity".to_owned());
     }
     let bindings_text = read_bounded(&build_bindings_path, 1_000_000, "build bindings")?;
@@ -1569,7 +1621,7 @@ mod tests {
         };
         run(&["init", "-q"]);
         std::fs::write(root.join("source.txt"), "A").unwrap();
-        run(&["add", "source.txt"]);
+        run(&["add", "-A"]);
         run(&["commit", "-q", "-m", "A"]);
         std::fs::write(root.join("source.txt"), "B").unwrap();
         run(&["commit", "-q", "-am", "B"]);
@@ -1699,6 +1751,7 @@ mod tests {
             emulated_sysroots: None,
             staging: None,
             cross_tools: None,
+            release_identity_mode: None,
         };
         (
             graph.to_json().unwrap(),
@@ -1816,11 +1869,15 @@ mod tests {
     }
 
     fn fixture_elf() -> Vec<u8> {
+        fixture_elf_for_machine(62)
+    }
+
+    fn fixture_elf_for_machine(machine: u16) -> Vec<u8> {
         let mut bytes = vec![0; 64];
         bytes[..4].copy_from_slice(b"\x7fELF");
         bytes[4] = 2;
         bytes[5] = 1;
-        bytes[18..20].copy_from_slice(&62u16.to_le_bytes());
+        bytes[18..20].copy_from_slice(&machine.to_le_bytes());
         bytes
     }
 
@@ -2132,6 +2189,9 @@ mod tests {
             owner: "acme".to_owned(),
             repository: "widget".to_owned(),
             tag: "v1.2.6".to_owned(),
+            release_identity_mode: None,
+            release_id: None,
+            source_revision: None,
             title: "widget 1.2.6".to_owned(),
             body: "notes".to_owned(),
             prerelease: false,
@@ -2299,6 +2359,7 @@ mod tests {
                 .join(format!("{out}-github.json"))
                 .to_string_lossy()
                 .into_owned(),
+            identity_mode: None,
         };
         let argv = command.argv();
         assert_eq!(&argv[..3], &["eggpack", "ci", "_resolve-release"]);
@@ -2309,10 +2370,69 @@ mod tests {
     fn resolve_release_emits_distinct_runtime_identity_per_tag() {
         let root = temp_root("resolve-release");
         let revision = init_git_repo(&root);
+        for tag in ["v1.2.3", "v1.2.4", "v1.2.5"] {
+            assert!(std::process::Command::new("git")
+                .args(["tag", tag])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success());
+        }
         // Two runtime tags resolve distinct ReleasePlan/GitHubDraftPolicy
         // documents from identical checked-in files.
         ci_resolve_release(&resolve_argv(&root, "v1.2.4", &revision, "first")).unwrap();
         ci_resolve_release(&resolve_argv(&root, "v1.2.5", &revision, "second")).unwrap();
+        let mut mapped_argv = resolve_argv(&root, "v1.2.3", &revision, "mapped");
+        mapped_argv.extend(["--identity-mode".into(), "v_prefixed_stable_semver".into()]);
+        ci_resolve_release(&mapped_argv).unwrap();
+        let mapped_plan: eggpack_core::ReleasePlan =
+            serde_json::from_str(&std::fs::read_to_string(root.join("mapped-plan.json")).unwrap())
+                .unwrap();
+        assert_eq!(mapped_plan.release_id, "1.2.3");
+        assert_eq!(mapped_plan.source_revision, revision);
+        let mapped_policy_text = std::fs::read_to_string(root.join("mapped-github.json")).unwrap();
+        let mapped_policy =
+            eggpack_github::GitHubDraftPolicyV1::from_json(&mapped_policy_text).unwrap();
+        assert_eq!(mapped_policy.tag, "v1.2.3");
+        assert_eq!(mapped_policy.release_id.as_deref(), Some("1.2.3"));
+        assert_eq!(
+            mapped_policy.release_identity_mode,
+            Some(eggpack_github::ReleaseIdentityMode::VPrefixedStableSemver)
+        );
+        ci_verify_source(&[
+            "--release-plan".into(),
+            root.join("mapped-plan.json").to_string_lossy().into_owned(),
+            "--github-policy".into(),
+            root.join("mapped-github.json")
+                .to_string_lossy()
+                .into_owned(),
+            "--expected-tag".into(),
+            "v1.2.3".into(),
+            "--source-root".into(),
+            root.to_string_lossy().into_owned(),
+        ])
+        .unwrap();
+        let mut changed_identity = mapped_policy.clone();
+        changed_identity.tag = "v1.2.4".into();
+        changed_identity.release_id = Some("1.2.4".into());
+        std::fs::write(
+            root.join("mapped-github.json"),
+            changed_identity.to_json().unwrap(),
+        )
+        .unwrap();
+        assert!(ci_verify_source(&[
+            "--release-plan".into(),
+            root.join("mapped-plan.json").to_string_lossy().into_owned(),
+            "--github-policy".into(),
+            root.join("mapped-github.json")
+                .to_string_lossy()
+                .into_owned(),
+            "--expected-tag".into(),
+            "v1.2.3".into(),
+            "--source-root".into(),
+            root.to_string_lossy().into_owned(),
+        ])
+        .is_err());
         let first_plan = std::fs::read_to_string(root.join("first-plan.json")).unwrap();
         let second_plan = std::fs::read_to_string(root.join("second-plan.json")).unwrap();
         assert_ne!(first_plan, second_plan);
@@ -2333,6 +2453,324 @@ mod tests {
         // Injection tags fail before any output is written.
         assert!(ci_resolve_release(&resolve_argv(&root, "v?x", &revision, "evil")).is_err());
         assert!(!root.join("evil-plan.json").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn m003i_mapped_identity_survives_two_target_capture_qualification_finalize_and_stage() {
+        let root = temp_root("m003i-pipeline");
+        let contract_text = r#"
+schema_version = 1
+[product]
+id = "widget"
+display_name = "widget"
+[[targets]]
+triple = "x86_64-unknown-linux-gnu"
+aliases = ["linux-gnu"]
+[targets.asset]
+kind = "direct"
+asset = "{product}-{version}-{target}"
+install = "{product}"
+[targets.checksum]
+sidecar = "{asset}.sha256"
+[[targets]]
+triple = "aarch64-unknown-linux-gnu"
+aliases = ["linux-arm64"]
+[targets.asset]
+kind = "direct"
+asset = "{product}-{version}-{target}"
+install = "{product}"
+[targets.checksum]
+sidecar = "{asset}.sha256"
+"#;
+        let pack = eggpack_core::PackConfig {
+            schema_version: 1,
+            targets: ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+                .into_iter()
+                .map(|target| eggpack_core::TargetPolicy {
+                    target: target.into(),
+                    strategy: eggpack_core::BuildStrategy::NativeCargo,
+                    host_os: eggpack_core::HostOs::Linux,
+                    host_arch: eggpack_core::HostArch::X86_64,
+                    qualification_host: None,
+                    toolchain: eggpack_core::ToolchainRequirement {
+                        rust: "1.89.0".into(),
+                        cargo_zigbuild: None,
+                        zig: None,
+                    },
+                    floor: eggpack_core::CompatibilityFloor::None,
+                    qualification: eggpack_core::Qualification::Structural,
+                    support: eggpack_core::SupportTier::Required,
+                })
+                .collect(),
+        };
+        let build_bindings = eggpack_core::BuildBindingsV1 {
+            schema_version: 1,
+            targets: ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+                .into_iter()
+                .map(|target| {
+                    (
+                        target.into(),
+                        vec![eggpack_core::BuildBinding {
+                            selector: eggpack_core::LogicalOutputSelector::Direct,
+                            package: "widget".into(),
+                            binary: "widget".into(),
+                        }],
+                    )
+                })
+                .collect(),
+        };
+        let qualification_bindings = eggpack_core::QualificationBindingsV1 {
+            schema_version: 1,
+            targets: ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+                .into_iter()
+                .map(|target| {
+                    (
+                        target.into(),
+                        eggpack_core::TargetQualificationBinding { smoke: None },
+                    )
+                })
+                .collect(),
+        };
+        let template = eggpack_github::GitHubDraftTemplateV1 {
+            schema_version: 1,
+            owner: "acme".into(),
+            repository: "widget".into(),
+            title_prefix: "widget ".into(),
+            body: "notes".into(),
+            prerelease: false,
+            token_env: "GITHUB_TOKEN".into(),
+            request_timeout_secs: 30,
+            max_metadata_bytes: 1_000_000,
+            max_list_pages: 5,
+        };
+        let contract_path = root.join("contracts/release.toml");
+        let pack_path = root.join("configs/pack.toml");
+        let build_path = root.join("bindings/build.toml");
+        let qualification_path = root.join("bindings/qualification.toml");
+        let template_path = root.join("policies/github-template.json");
+        write_text(&contract_path, contract_text);
+        write_text(&pack_path, &toml::to_string(&pack).unwrap());
+        write_text(&build_path, &toml::to_string(&build_bindings).unwrap());
+        write_text(
+            &qualification_path,
+            &toml::to_string(&qualification_bindings).unwrap(),
+        );
+        write_text(&template_path, &template.to_json().unwrap());
+
+        let revision = init_git_repo(&root);
+        assert!(std::process::Command::new("git")
+            .args(["tag", "v1.2.3"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success());
+        let runtime_dir = root.join("runtime");
+        std::fs::create_dir_all(&runtime_dir).unwrap();
+        let plan_path = runtime_dir.join("release-plan.json");
+        let graph_path = runtime_dir.join("release-ci-plan.json");
+        let github_policy_path = runtime_dir.join("github-draft.json");
+        let resolve = eggpack_ci::RunnerCommand::ResolveRelease {
+            contract: contract_path.to_string_lossy().into_owned(),
+            pack_config: pack_path.to_string_lossy().into_owned(),
+            build_bindings: build_path.to_string_lossy().into_owned(),
+            qualification_bindings: qualification_path.to_string_lossy().into_owned(),
+            consumer_validators: None,
+            selected: "linux-gnu,linux-arm64".into(),
+            tag: "v1.2.3".into(),
+            source_revision: revision.clone(),
+            template: template_path.to_string_lossy().into_owned(),
+            source_root: root.to_string_lossy().into_owned(),
+            output_plan: plan_path.to_string_lossy().into_owned(),
+            output_ci_plan: graph_path.to_string_lossy().into_owned(),
+            output_github_policy: github_policy_path.to_string_lossy().into_owned(),
+            identity_mode: Some(eggpack_ci::ReleaseIdentityMode::VPrefixedStableSemver),
+        };
+        ci_resolve_release(&resolve.argv()[3..]).unwrap();
+        let plan: eggpack_core::ReleasePlan =
+            serde_json::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
+        assert_eq!(plan.release_id, "1.2.3");
+        assert_eq!(plan.source_revision, revision);
+        let draft_policy = eggpack_github::GitHubDraftPolicyV1::from_json(
+            &std::fs::read_to_string(&github_policy_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(draft_policy.tag, "v1.2.3");
+        assert_eq!(draft_policy.resolved_release_id(), "1.2.3");
+        assert_eq!(
+            draft_policy.source_revision.as_deref(),
+            Some(revision.as_str())
+        );
+        ci_verify_source(
+            &eggpack_ci::RunnerCommand::VerifySource {
+                release_plan: plan_path.to_string_lossy().into_owned(),
+                github_policy: Some(github_policy_path.to_string_lossy().into_owned()),
+                expected_tag: Some("v1.2.3".into()),
+                source_root: Some(root.to_string_lossy().into_owned()),
+            }
+            .argv()[3..],
+        )
+        .unwrap();
+
+        let cargo_root = root.join("cargo-target");
+        for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
+            let release_dir = cargo_root.join(target).join("release");
+            std::fs::create_dir_all(&release_dir).unwrap();
+            let machine = if target.starts_with("aarch64-") {
+                183
+            } else {
+                62
+            };
+            std::fs::write(release_dir.join("widget"), fixture_elf_for_machine(machine)).unwrap();
+            let build_dir = root.join("artifacts/build").join(target);
+            let capture = eggpack_ci::RunnerCommand::CaptureBuild {
+                contract: contract_path.to_string_lossy().into_owned(),
+                release_plan: plan_path.to_string_lossy().into_owned(),
+                build_bindings: build_path.to_string_lossy().into_owned(),
+                target: target.into(),
+                cargo_target_dir: cargo_root.to_string_lossy().into_owned(),
+                output_dir: build_dir.to_string_lossy().into_owned(),
+            };
+            ci_capture_build(&capture.argv()[3..]).unwrap();
+            let qualify = eggpack_ci::RunnerCommand::QualifyTarget {
+                contract: contract_path.to_string_lossy().into_owned(),
+                release_plan: plan_path.to_string_lossy().into_owned(),
+                build_bindings: build_path.to_string_lossy().into_owned(),
+                qualification_bindings: qualification_path.to_string_lossy().into_owned(),
+                target: target.into(),
+                candidate_dir: build_dir.join("candidates").to_string_lossy().into_owned(),
+                build_handoff: build_dir
+                    .join("build-handoff.json")
+                    .to_string_lossy()
+                    .into_owned(),
+                output_dir: root
+                    .join("artifacts/qualification")
+                    .join(target)
+                    .to_string_lossy()
+                    .into_owned(),
+                qemu_sysroot: None,
+            };
+            ci_qualify_target(&qualify.argv()[3..]).unwrap();
+        }
+
+        let inputs_dir = root.join("eggpack-inputs");
+        for target in ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] {
+            let input = inputs_dir.join(target);
+            std::fs::create_dir_all(input.join("candidates")).unwrap();
+            let qualified = root.join("artifacts/qualification").join(target);
+            for name in ["build-handoff.json", "evidence.json"] {
+                std::fs::copy(qualified.join(name), input.join(name)).unwrap();
+            }
+            for entry in std::fs::read_dir(qualified.join("candidates")).unwrap() {
+                let entry = entry.unwrap();
+                std::fs::copy(
+                    entry.path(),
+                    input.join("candidates").join(entry.file_name()),
+                )
+                .unwrap();
+            }
+        }
+        let graph: eggpack_ci::ReleaseCIPlanV1 =
+            eggpack_ci::ReleaseCIPlanV1::from_json(&std::fs::read_to_string(&graph_path).unwrap())
+                .unwrap();
+        assert_eq!(graph.ci_plan.release_id, "1.2.3");
+        let gate_path = root.join("gate.json");
+        ci_evaluate_gate(
+            &eggpack_ci::RunnerCommand::EvaluateGate {
+                ci_plan: graph_path.to_string_lossy().into_owned(),
+                inputs_dir: inputs_dir.to_string_lossy().into_owned(),
+                output: gate_path.to_string_lossy().into_owned(),
+            }
+            .argv()[3..],
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::from_str::<eggpack_ci::AggregateOutcome>(
+                &std::fs::read_to_string(&gate_path).unwrap()
+            )
+            .unwrap(),
+            eggpack_ci::AggregateOutcome::Complete
+        );
+        let finalized = root.join("finalized");
+        ci_aggregate(
+            &eggpack_ci::RunnerCommand::Aggregate {
+                contract: contract_path.to_string_lossy().into_owned(),
+                release_plan: plan_path.to_string_lossy().into_owned(),
+                ci_plan: graph_path.to_string_lossy().into_owned(),
+                inputs_dir: inputs_dir.to_string_lossy().into_owned(),
+                output_root: finalized.to_string_lossy().into_owned(),
+                output: root.join("summary.json").to_string_lossy().into_owned(),
+            }
+            .argv()[3..],
+        )
+        .unwrap();
+        let manifest_path = root.join("release-manifest.json");
+        let manifest = eggpack_manifest::ReleaseManifest::from_json(
+            &std::fs::read_to_string(&manifest_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest.release_id, "1.2.3");
+        assert_eq!(manifest.source_revision, revision);
+        assert_eq!(manifest.targets.len(), 2);
+
+        let install_policy_path = root.join("install-policy.json");
+        let install_policy = eggpack_bootstrap::BootstrapInstallPolicyV1::empty();
+        write_text(
+            &install_policy_path,
+            &serde_json::to_string(&install_policy).unwrap(),
+        );
+        let staging_dir = root.join("staging");
+        let payload_path = root.join("staging-payload.json");
+        ci_prepare_stage(
+            &eggpack_ci::RunnerCommand::PrepareStage {
+                contract: contract_path.to_string_lossy().into_owned(),
+                release_manifest: manifest_path.to_string_lossy().into_owned(),
+                finalized_root: finalized.to_string_lossy().into_owned(),
+                github_policy: github_policy_path.to_string_lossy().into_owned(),
+                install_policy: install_policy_path.to_string_lossy().into_owned(),
+                output_dir: staging_dir.to_string_lossy().into_owned(),
+                output_payload: payload_path.to_string_lossy().into_owned(),
+                installer_presentation: None,
+                source_root: None,
+            }
+            .argv()[3..],
+        )
+        .unwrap();
+        let payload = eggpack_github::StagingPayloadV1::from_json(
+            &std::fs::read_to_string(&payload_path).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(payload.tag, "v1.2.3");
+        assert_eq!(payload.release_id, "1.2.3");
+        assert_eq!(payload.source_revision, revision);
+        let github = eggpack_github::FixtureGithub::with_tag(&revision);
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let first = runtime
+            .block_on(eggpack_github::stage_with_dir(
+                &payload,
+                &draft_policy,
+                &github,
+                "fixture-token",
+                &staging_dir,
+            ))
+            .unwrap();
+        assert_eq!(first.tag, "v1.2.3");
+        assert_eq!(first.release_id, "1.2.3");
+        assert_eq!(first.source_revision, revision);
+        let second = runtime
+            .block_on(eggpack_github::stage_with_dir(
+                &payload,
+                &draft_policy,
+                &github,
+                "fixture-token",
+                &staging_dir,
+            ))
+            .unwrap();
+        assert!(!second.created);
+        assert_eq!(second.reused as usize, payload.assets.len());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -2717,6 +3155,9 @@ mod tests {
             owner: "acme".into(),
             repository: "widget".into(),
             tag: "v1.2.6".into(),
+            release_identity_mode: None,
+            release_id: None,
+            source_revision: None,
             title: "widget 1.2.6".into(),
             body: "notes".into(),
             prerelease: false,
@@ -2926,6 +3367,7 @@ mod tests {
                 receipt_retention_days: 7,
             }),
             cross_tools: None,
+            release_identity_mode: None,
         };
         let policy_path = root.join("policy.json");
         std::fs::write(&policy_path, serde_json::to_string(&policy).unwrap()).unwrap();
@@ -3208,6 +3650,7 @@ mod tests {
                         "f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b".into(),
                 },
             }),
+            release_identity_mode: None,
         };
         let shape_path = root.join("shape.json");
         std::fs::write(&shape_path, shape.to_json().unwrap()).unwrap();

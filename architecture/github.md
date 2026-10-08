@@ -43,16 +43,16 @@ draft to published.
 | Item | Line | Description |
 | --- | --- | --- |
 | `GithubError` | `40` | Newtype over a bounded, redacted message; `Display` `42-46`, `fail()` `50-52`. No response body is ever embedded. |
-| `GitHubDraftPolicyV1` | `57` | Strict per-run policy: `schema_version`, `owner`, `repository`, `tag`, `title`, `body`, `prerelease`, `token_env`, `request_timeout_secs`, `max_metadata_bytes`, `max_list_pages`; `deny_unknown_fields` at `56`. |
-| `.from_json` / `.to_json` | `106` / `117` | Parses within `MAX_POLICY_JSON` (256 KiB, `26`) and validates; serialization validates first. |
-| `.validate` | `123` | `schema_version == 1`; owner/repo/tag/title/body bounds; `token_env` must be `GITHUB_TOKEN` (`132`); timeout 5–120 s; metadata ≤ 8 MB; pages 1–32. |
-| `.download_origin` | `148` | `https://github.com/<owner>/<repo>/releases/download/<tag>` — the exact-tag installer origin. |
-| `StagingAssetKind` | `166` | `FinalizedArtifact`, `ChecksumSidecar`, `ReleaseManifest`, `PosixInstaller`, `PowershellInstaller`, `ProductPosixWrapper`, `ProductPowershellWrapper`. The payload schema stays v1; a v1 reader that does not know the wrapper variants rejects such a payload (fail-closed) rather than misreading it — `158-163`. |
-| `StagingAsset` | `188` | `name`, `path` (must equal `name`), non-zero `size`, lowercase `sha256`, `media_type`, `kind`. |
-| `StagingPayloadV1` | `206` | The materialized plan: identity, owner/repo/tag, title, prerelease, body, and 1–1024 assets sorted by name. |
-| `.from_json` / `.to_json` / `.validate` | `233` / `244` / `252` | Bounded at 1 MiB; validates identity bounds, flat names, `path == name`, non-zero size, digest shape, media-type bound, and case-insensitive uniqueness (`287`). |
-| `GitHubDraftReceiptV1` | `298` | Producer evidence of the staged draft: `github_release_id`, `draft`, `immutable`, ordered assets, `created`, `uploaded`, `reused`. |
-| `.from_json` / `.to_json` / `.validate` | `329` / `340` / `346` | Requires `draft && !immutable` and `uploaded + reused == assets.len()` (`359-365`). |
+| `GitHubDraftPolicyV1` | `95` | Strict per-run policy: `schema_version`, `owner`, `repository`, `tag`, `title`, `body`, `prerelease`, `token_env`, and transport bounds; mapped runtime identity optionally adds `release_identity_mode`, `release_id`, and `source_revision`. These fields are omitted for legacy exact-tag serialization; `deny_unknown_fields` remains enforced. |
+| `.from_json` / `.to_json` | `153` / `164` | Parses within `MAX_POLICY_JSON` (256 KiB, `26`) and validates; serialization validates first. |
+| `.validate` | `170` | `schema_version == 1`; owner/repo/tag/title/body bounds; `token_env` must be `GITHUB_TOKEN` (`179`); timeout 5–120 s; metadata ≤ 8 MB; pages 1–32. |
+| `.download_origin` | `195` | `https://github.com/<owner>/<repo>/releases/download/<tag>` — the exact-tag installer origin. |
+| `StagingAssetKind` | `213` | `FinalizedArtifact`, `ChecksumSidecar`, `ReleaseManifest`, `PosixInstaller`, `PowershellInstaller`, `ProductPosixWrapper`, `ProductPowershellWrapper`. The payload schema stays v1; a v1 reader that does not know the wrapper variants rejects such a payload (fail-closed) rather than misreading it — `205-210`. |
+| `StagingAsset` | `261` | `name`, `path` (must equal `name`), non-zero `size`, lowercase `sha256`, `media_type`, `kind`. |
+| `StagingPayloadV1` | `279` | The materialized plan: identity, owner/repo/tag, title, prerelease, body, and 1–1024 assets sorted by name. |
+| `.from_json` / `.to_json` / `.validate` | `306` / `317` / `325` | Bounded at 1 MiB; validates identity bounds, flat names, `path == name`, non-zero size, digest shape, media-type bound, and case-insensitive uniqueness (`360`). |
+| `GitHubDraftReceiptV1` | `371` | Producer evidence of the staged draft: `github_release_id`, `draft`, `immutable`, ordered assets, `created`, `uploaded`, `reused`. |
+| `.from_json` / `.to_json` / `.validate` | `402` / `413` / `419` | Requires `draft && !immutable` and `uploaded + reused == assets.len()` (`432-438`). |
 | `FIXED_MANIFEST_NAME` | `31` | `release-manifest.json` — a **private** constant, not public API. Companion privates: `FIXED_POSIX_NAME` `32`, `FIXED_POWERSHELL_NAME` `33`. |
 
 ### Entry points, remote types, transport
@@ -60,19 +60,19 @@ draft to published.
 | Item | Line | Description |
 | --- | --- | --- |
 | `read_token` | `493` | Reads the credential from the environment; the env name must be exactly `GITHUB_TOKEN`. |
-| `prepare_staging_payload` | `559` | Materializes the default staging payload from contract + manifest + finalized root + policy. |
-| `prepare_staging_payload_with_presentation` | `910` | Same, with an explicit presentation; `GeneratedDefault` delegates byte-identically (`922-929`). |
+| `prepare_staging_payload` | `652` | Materializes the default staging payload from contract + manifest + finalized root + policy. |
+| `prepare_staging_payload_with_presentation` | `1018` | Same, with an explicit presentation; `GeneratedDefault` delegates to the default function. |
 | `MAX_WRAPPER_BYTES` | `950` | `1 MiB` per product wrapper source. |
-| `InstallerPresentationV1` | `966` | `schema_version` + `mode`; `generated_default()` `999`, `validate()` `1024`. |
+| `InstallerPresentationV1` | `966` | `schema_version` + `mode`; `generated_default()` and validation follow this type. |
 | `InstallerPresentationModeV1` | `976` | `GeneratedDefault` or `ProductWrappers(ProductWrapperSourcesV1)`. |
 | `ProductWrapperSourcesV1` | `986` | Wrapper source paths plus the staged names for the generated exact installers. |
-| `GitHubDraftTemplateV1` | `1113` | Identity-independent draft template; must not carry release id, revision, tag, GitHub id, or digests (`1103-1110`). |
-| `.resolve(tag)` | `1194` | Validates template and tag, appends the tag to the title prefix, returns a `GitHubDraftPolicyV1`. No templating language. |
-| `verify_tag_source` | `1778` | Bounded annotated-tag peel (≤ 8, `25`) down to the exact source revision. |
-| `stage_with_bytes` | `1949` | Public reconciliation entry point over in-memory bytes. |
-| `stage_with_dir` | `2214` | Public reconciliation entry point over a staging directory. |
-| `RefTarget` | `1617` | `{ sha, kind }` for `refs/tags/<tag>`. |
-| `TagObject` | `1626` | One annotated-tag peel step. |
+| `GitHubDraftTemplateV1` | `1244` | Identity-independent draft template; must not carry release id, revision, tag, GitHub id, or digests. |
+| `.resolve(tag)` / `.resolve_with_identity(...)` | `1302` / `1326` | Legacy resolver keeps exact-tag behavior; the identity resolver carries the finite checked-in mapped ID and source revision for opt-in mode. No templating language. |
+| `verify_tag_source` | `1922` | Bounded annotated-tag peel (≤ 8) down to the exact source revision. |
+| `stage_with_bytes` | `2127` | Public reconciliation entry point over in-memory bytes. |
+| `stage_with_dir` | `2389` | Public reconciliation entry point over a staging directory. |
+| `RefTarget` | `1761` | `{ sha, kind }` for `refs/tags/<tag>`. |
+| `TagObject` | `1770` | One annotated-tag peel step. |
 | `RemoteRelease` | `1635` | Release summary including `draft`, `immutable`, `upload_url`. |
 | `RemoteAsset` | `1656` | `{ id, name, size, state, digest }`; `digest` is `Option<String>` shaped `sha256:<hex>`. |
 | `trait GithubApi` | `1674` | The provider seam (`1669-1734`). |

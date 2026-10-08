@@ -21,9 +21,9 @@ The boundary is verifiable rather than aspirational. There are zero `pub` items
 in the file, so nothing here is a library API another crate can depend on. Every
 semantic question is asked of a library call and the answer used verbatim:
 `PackConfig::resolve` and `GitHubDraftTemplateV1::resolve` via
-`resolve_runtime_release_plan` (`394`, `409-411`), gate policy via
-`evaluate_gate` (`1109`, `1123`), qualification via `qualify_target` (`839`),
-finalization via `aggregate_finalize[_with_consumer]` (`1202`, `1220`).
+`resolve_runtime_release_plan_with_mode` (`441`, `449`), gate policy via
+`evaluate_gate` (`1188`, `1227`), qualification via `qualify_target` (`900`),
+finalization via `aggregate_finalize[_with_consumer]` (`1320`, `1338`).
 
 What the crate does keep are fail-closed preconditions checked *before*
 delegation, plus path adapters. Neither is a release rule:
@@ -90,9 +90,9 @@ past a cap:
 
 | Command | Cap | Line |
 |---|---|---|
-| `ci _resolve-release` | 28 | `374` |
-| `ci generate` (reusable / exact) | 8 / 6 | `569` / `592` |
-| `ci check` (reusable / exact) | 8 / 6 | `623` / `654` |
+| `ci _resolve-release` | 30 | `415` |
+| `ci generate` (reusable / exact) | 8 / 6 | `691` / `714` |
+| `ci check` (reusable / exact) | 8 / 6 | `745` / `776` |
 | `ci _validate-consumer` | 14 | `971` |
 | `ci _prepare-stage` | 18 | `1306` |
 | `ci _stage-github-draft` | 8 | `1367` |
@@ -199,7 +199,7 @@ shape. Each row can be traced end to end from a rendered step.
 | Command | Handler | Reads | Writes |
 |---|---|---|---|
 | `_verify-source` | `309` | `--release-plan` (`311`) | nothing; prints the pass line (`348`) |
-| `_resolve-release` | `360` | `--contract`, `--pack-config`, `--build-bindings`, `--qualification-bindings`, optional `--consumer-validators`, `--template` (`381-434`) | `--output-plan`, `--output-ci-plan`, `--output-github-policy` (`458-460`) |
+| `_resolve-release` | `401` | `--contract`, `--pack-config`, `--build-bindings`, `--qualification-bindings`, optional `--consumer-validators`, `--template`; optional fixed `--identity-mode` from checked-in renderer policy (`402-415`) | `--output-plan`, `--output-ci-plan`, `--output-github-policy` (`412-414`) |
 | `_capture-build` | `682` | `--release-plan`, `--build-bindings`, plus `--cargo-target-dir` **or** `--candidate-dir` (`696-729`) | `--output` (`776`) and/or `--output-dir`: `build-handoff.json` (`768`) + `candidates/<relative_path>` (`759-764`) |
 | `_qualify-target` | `782` | `--release-plan`, `--build-bindings`, `--qualification-bindings`, `--build-handoff`, `--contract`, optional `--qemu-sysroot` (`796-825`) | `--output-dir`: `evidence.json` (`853`), `build-handoff.json` (`858-861`), `candidates/` (`872-881`) |
 | `_validate-consumer` | `963` | `--consumer-validators`, `--build-handoff`, `--evidence`, `--source-root` (`974-1029`) | `--output` (consumer evidence, `1053`) |
@@ -366,9 +366,10 @@ for installer content, so the CLI only reads and bounds them.
 
 ## Process execution: the `git` site
 
-`verify_source_revision` (`325`) is the only production process spawn in this
-crate — and it no longer constructs a `Command` itself. It delegates to
-`eggpack_core::run_git_bounded` (`336-337`), so the bounded, process-grouped
+`verify_source_revision` (`373`) is the production HEAD verification spawn in
+this crate — and it no longer constructs a `Command` itself. It delegates to
+`eggpack_core::run_git_bounded` (`384-385`), while mapped identity also calls
+`run_git_tag_bounded` (`364-369`) for the exact local tag peel, so the bounded, process-grouped
 spawn lives in `builder.rs`, not here. `grep -n 'Command::new'` in this file now
 returns **only** test sites (`1482`, `1500`, `1507`, `2102`, `2117`); there
 is no production `Command::new` in `eggpack-cli` at all. The file likewise reads
@@ -379,27 +380,33 @@ no named environment variable: its only `std::env` uses are `args()` (`8`) and
 What it does: it validates that the expected revision is 40 lowercase hex
 characters (`326-332`), then delegates to `eggpack_core::run_git_bounded`
 (`336-337`), which owns the spawn. That helper builds a `CommandSpec` for
-`git rev-parse --verify HEAD^{commit}` (`crates/eggpack-core/src/builder.rs650`,
-`400-402`) and runs it through the same `run_bounded_inner` used for builds: a
-30 s deadline (`builder.rs20`), a 4 KiB retained-output cap (`builder.rs:22`),
-a `command-group` process group killed and waited on, and `env_clear()` with a
-7-var allowlist (`builder.rs727-739`).
+`git rev-parse --verify HEAD^{commit}` (`builder.rs409-420`) and, for mapped
+mode, `refs/tags/<tag>^{commit}` (`builder.rs422-479`); both use the same bounded
+runner with a 30 s deadline (`builder.rs20`), a 4 KiB retained-output cap
+(`builder.rs22`), a `command-group` process group, and a cleared environment
+(`builder.rs484-528`).
 
 Why it is load-bearing. A generated workflow renders concrete plans, paths, and
 policies. If the checkout has moved — a rebase, a tag force-update, a detached job
 at the wrong commit — the workflow would build and aggregate bytes for a commit
 other than the one the plan was derived from, so every downstream artifact would
 describe a release the plan does not describe. Two call sites pin the identity:
-`ci _verify-source` (`309-323`) requires the plan's `source_revision` to be 40
-lowercase hex then verifies it against the inherited working directory (`322`);
-`ci _resolve-release` (`353`) verifies the caller-supplied `--source-revision`
+`ci _verify-source` (`321-361`) requires the plan's `source_revision` to be 40
+lowercase hex then verifies it against the inherited working directory (`373-389`);
+`ci _resolve-release` (`401`) verifies the caller-supplied `--source-revision`
 against the explicit `--source-root` before resolving anything.
 
+Mapped reusable mode also peels the exact local tag to that revision and
+resolves the manifest ID under the fixed renderer-supplied identity mode.
+`_verify-source` receives the runtime draft policy and event-selected tag, then
+checks the tag, mapped ID, plan revision, HEAD, and tag peel as one tuple. These
+extra arguments are absent in legacy exact-tag mode.
+
 It fails closed. Anything other than `CommandOutcome::Success` is an error
-(`338-340`): spawn failure, deadline, output-cap breach, non-zero status, and
+(`384-388`): spawn failure, deadline, output-cap breach, non-zero status, and
 mismatch all collapse to one message that carries no git output. Only exact
 equality passes, and the pass path prints a fixed sentence carrying no revision
-text (`341`).
+text (`389`).
 
 The expected object name is matched *inside* the runner
 (`builder.rs850-856`) and never returned to this process, so the CLI cannot

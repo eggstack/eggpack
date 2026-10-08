@@ -307,21 +307,39 @@ placeholders `UNRESOLVED_RELEASE_ID` (`:4445`) and `UNRESOLVED_SOURCE_REVISION`
 (`:4447`), rewrites identity-carrying input paths to workflow-private storage
 (`:3004-3005`, `:3018`), renders, then asserts the rendered bytes contain neither
 placeholder (`:3041-3043`) — a direct proof that no release identity is embedded.
-`resolve_runtime_release_plan` (`:4594`) turns a runtime identity into a concrete
-plan: it validates the exact tag with `validate_exact_tag` (`:4559`: ≤128 chars, no
+`resolve_runtime_release_plan` (`:4781`) turns a runtime identity into a concrete
+plan through the `ExactTag` wrapper (`:4789-4790`); its explicit sibling
+`resolve_runtime_release_plan_with_mode` (`:4799`) uses the checked-in mode. It
+validates the exact tag with `validate_exact_tag` (`:4744`: ≤128 chars, no
 control characters, none of `? # @ space \ ' " $ \``, no `..`, no leading/trailing
 `/`), the revision with `validate_source_revision` (`:4575`: exactly 40 lowercase
 hex), 1..=256 aliases, and `schema_version == 1` on the `PackConfig`; then calls
-`PackConfig::resolve` (`:4614-4616`) and requires the result's `release_id` to equal
-the tag and `source_revision` to equal the given revision (`:4617-4621`). The tag is
-used as an opaque `release_id` with no product-specific transformation
-(`:4590-4591`).
+`PackConfig::resolve` (`:4820-4822`) with the mode-resolved release ID and checks
+the result's `release_id` and `source_revision` (`:4823-4828`). Exact mode keeps
+the tag as an opaque `release_id` with no product-specific transformation.
+
+CI M003i adds one checked-in opt-in mode,
+`v_prefixed_stable_semver`: only `vMAJOR.MINOR.PATCH` with ASCII decimal
+components, no leading zeros, and `u64`-bounded values maps to
+`MAJOR.MINOR.PATCH`. The renderer rejects a mismatched tag-source/trigger pair
+and passes the selected mode as a literal; dispatch has no identity-mode input.
+The runtime draft policy carries optional `release_identity_mode`, `release_id`,
+and `source_revision` fields only for this mapped mode. Omitting the mode keeps
+legacy v1 draft-policy JSON byte-compatible.
+
+Each mapped-mode job verifies the downloaded draft policy against the exact
+event-selected tag, release-plan ID, checkout HEAD, and local tag peel. The same
+runtime identity artifact is downloaded before build, qualification, consumer
+validation, gate, aggregate, and staging work. Staging checks the finalized
+manifest's release ID and revision against that policy; the payload and receipt
+retain `tag`, `release_id`, and `source_revision` separately. A different tag
+pointing at the same commit therefore fails the event-tag comparison.
 
 | Constant | Value | Written by |
 |---|---|---|
-| `RUNTIME_IDENTITY_DIR` (`:4430`) | `eggpack-runtime` | created by the resolve job (`mkdir_step`, `:3222-3226`) |
-| `RUNTIME_RELEASE_PLAN` (`:4432`), `RUNTIME_CI_PLAN` (`:4434`), `RUNTIME_GITHUB_POLICY` (`:4436`) | `eggpack-runtime/{release-plan,release-ci-plan,github-draft}.json` | `_resolve-release` (`--output-plan`, `:3035`; `:3036`; `:3037`) |
-| `RUNTIME_IDENTITY_ARTIFACT` (`:4438`) | `eggpack-runtime-identity` | uploaded (`:3230-3238`), downloaded by every later job (`runtime_identity_download_step`, `:2903-2913`) with `if-no-files-found: error` |
+| `RUNTIME_IDENTITY_DIR` (`:4615`) | `eggpack-runtime` | created by the resolve job |
+| `RUNTIME_RELEASE_PLAN` (`:4617`), `RUNTIME_CI_PLAN` (`:4619`), `RUNTIME_GITHUB_POLICY` (`:4621`) | `eggpack-runtime/{release-plan,release-ci-plan,github-draft}.json` | `_resolve-release` output flags (`:3143-3145`) |
+| `RUNTIME_IDENTITY_ARTIFACT` (`:4623`) | `eggpack-runtime-identity` | uploaded and downloaded by every later job with `if-no-files-found: error` |
 
 The resolve job checks out the event-selected exact tag, derives HEAD via
 `git rev-parse --verify HEAD^{commit}` (`:3227`), writes the three documents into

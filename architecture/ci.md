@@ -64,10 +64,20 @@ ReleaseCIPlanV1                  (:2309 executable release graph)
 release.yml                      (checked in, drift-checked)
 ```
 
-`ReleaseCIPlanV1::validate` (`:2352`) is the structural gate on this graph: exact
+Reusable workflow identity resolution defaults to exact-tag identity. An
+optional `GitHubPolicy.release_identity_mode = "v_prefixed_stable_semver"`
+selects the finite stable-version mapping described in
+[`docs/release-identity-policy.md`](../docs/release-identity-policy.md). The
+renderer emits this source-controlled mode as a fixed resolver argument. The
+runtime source tag still selects checkout, the source revision still identifies
+the checked-out commit, and only the manifest/artifact identity uses the
+unprefixed version. Exact-tag workflows retain their prior serialization and
+rendered bytes when the field is absent.
+
+`ReleaseCIPlanV1::validate` (`:2431`) is the structural gate on this graph: exact
 qualification/target count agreement, the fixed `required_gate` and `aggregate`
 job ids, handoff-name bounds, canonical ordering, and `schema_version == 1`.
-`from_json` (`:2341`) additionally bounds the document against
+`from_json` (`:2420`) additionally bounds the document against
 `MAX_RELEASE_PLAN_JSON` before parsing. A malformed or reordered graph is
 rejected rather than rendered.
 

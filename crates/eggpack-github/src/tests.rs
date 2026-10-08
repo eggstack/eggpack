@@ -34,6 +34,9 @@ fn test_policy() -> GitHubDraftPolicyV1 {
         owner: "acme".to_owned(),
         repository: "widget".to_owned(),
         tag: "v1.2.3".to_owned(),
+        release_identity_mode: None,
+        release_id: None,
+        source_revision: None,
         title: "widget 1.2.3".to_owned(),
         body: "notes".to_owned(),
         prerelease: false,
@@ -1935,4 +1938,114 @@ fn draft_template_resolves_distinct_tags_from_identical_bytes() {
         r#"{"schema_version":2,"owner":"a","repository":"b","title_prefix":"p "}"#
     )
     .is_err());
+}
+
+#[test]
+fn m003i_stable_semver_identity_mapping_is_finite_and_strict() {
+    let template = draft_template();
+    let policy = template
+        .resolve_with_identity(
+            "v1.2.3",
+            ReleaseIdentityMode::VPrefixedStableSemver,
+            &"a".repeat(40),
+        )
+        .unwrap();
+    assert_eq!(policy.tag, "v1.2.3");
+    assert_eq!(policy.resolved_release_id(), "1.2.3");
+    let encoded = policy.to_json().unwrap();
+    let decoded = GitHubDraftPolicyV1::from_json(&encoded).unwrap();
+    assert_eq!(decoded, policy);
+    assert_eq!(policy.source_revision.as_deref().unwrap().len(), 40);
+    for invalid in [
+        "1.2.3",
+        "vv1.2.3",
+        "v01.2.3",
+        "v1.2.3-rc1",
+        "v1.2.3+meta",
+        "v18446744073709551616.2.3",
+        "v1.2.3.4",
+        "v１.2.3",
+        "v1.2.3'\nmalicious",
+    ] {
+        assert!(
+            template
+                .resolve_with_identity(
+                    invalid,
+                    ReleaseIdentityMode::VPrefixedStableSemver,
+                    &"a".repeat(40),
+                )
+                .is_err(),
+            "invalid source tag {invalid:?} must reject"
+        );
+    }
+    // Legacy exact serialization remains byte-for-byte unchanged.
+    let legacy = template.resolve("v1.2.3").unwrap();
+    assert!(!legacy.to_json().unwrap().contains("release_identity_mode"));
+}
+
+#[test]
+fn m003i_mapped_manifest_stages_under_exact_tag_and_reuses_exact_assets() {
+    let contract = direct_contract();
+    let revision = "a".repeat(40);
+    let manifest = direct_manifest("1.2.6", &revision);
+    let policy = draft_template()
+        .resolve_with_identity(
+            "v1.2.6",
+            ReleaseIdentityMode::VPrefixedStableSemver,
+            &revision,
+        )
+        .unwrap();
+    let parent = temp_root("m003i-stage");
+    let finalized = parent.join("finalized");
+    write_finalized_root(&contract, &manifest, &finalized);
+    let staging = parent.join("staging");
+    let payload = prepare_staging_payload(
+        &contract,
+        &manifest,
+        &finalized,
+        &policy,
+        &BootstrapInstallPolicyV1::empty(),
+        &staging,
+    )
+    .unwrap();
+    assert_eq!(payload.tag, "v1.2.6");
+    assert_eq!(payload.release_id, "1.2.6");
+    assert_eq!(payload.source_revision, revision);
+    assert!(std::fs::read_to_string(staging.join("install.sh"))
+        .unwrap()
+        .contains("releases/download/v1.2.6"));
+
+    let api = FixtureGithub::with_tag(&revision);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let first = runtime
+        .block_on(stage_with_dir(
+            &payload,
+            &policy,
+            &api,
+            "fixture-token",
+            &staging,
+        ))
+        .unwrap();
+    assert_eq!(first.tag, "v1.2.6");
+    assert_eq!(first.release_id, "1.2.6");
+    assert_eq!(first.source_revision, revision);
+    assert_eq!(first.uploaded as usize, payload.assets.len());
+    let second = runtime
+        .block_on(stage_with_dir(
+            &payload,
+            &policy,
+            &api,
+            "fixture-token",
+            &staging,
+        ))
+        .unwrap();
+    assert!(!second.created);
+    assert_eq!(second.uploaded, 0);
+    assert_eq!(second.reused as usize, payload.assets.len());
+    assert_eq!(second.tag, "v1.2.6");
+    assert_eq!(second.release_id, "1.2.6");
+    std::fs::remove_dir_all(parent).unwrap();
 }

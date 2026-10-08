@@ -52,6 +52,43 @@ fn fail(message: impl Into<String>) -> GithubError {
     GithubError(message.into())
 }
 
+/// Finite producer mapping from an immutable source tag to manifest identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReleaseIdentityMode {
+    /// Preserve the historical opaque tag as the manifest release id.
+    ExactTag,
+    /// Map exactly `vMAJOR.MINOR.PATCH` to `MAJOR.MINOR.PATCH`.
+    VPrefixedStableSemver,
+}
+
+impl ReleaseIdentityMode {
+    /// Resolve the finite manifest identity for one validated source tag.
+    pub fn release_id(self, tag: &str) -> Result<String, GithubError> {
+        validate_tag(tag)?;
+        match self {
+            Self::ExactTag => Ok(tag.to_owned()),
+            Self::VPrefixedStableSemver => {
+                let version = tag
+                    .strip_prefix('v')
+                    .ok_or_else(|| fail("stable semantic tag must start with v"))?;
+                let parts: Vec<&str> = version.split('.').collect();
+                if parts.len() != 3
+                    || parts.iter().any(|part| {
+                        part.is_empty()
+                            || !part.bytes().all(|byte| byte.is_ascii_digit())
+                            || (part.len() > 1 && part.starts_with('0'))
+                            || part.parse::<u64>().is_err()
+                    })
+                {
+                    return Err(fail("tag is not v-prefixed stable semantic version"));
+                }
+                Ok(version.to_owned())
+            }
+        }
+    }
+}
+
 /// Strict draft staging policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +101,15 @@ pub struct GitHubDraftPolicyV1 {
     pub repository: String,
     /// Exact existing tag to stage.
     pub tag: String,
+    /// Opt-in identity mode. Absent preserves historical exact-tag JSON.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_identity_mode: Option<ReleaseIdentityMode>,
+    /// Mapped manifest identity. Present exactly when the opt-in mode is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_id: Option<String>,
+    /// Checked-out source revision bound by runtime identity resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_revision: Option<String>,
     /// Draft release title.
     pub title: String,
     /// Bounded release notes body.
@@ -128,6 +174,27 @@ impl GitHubDraftPolicyV1 {
         validate_owner(&self.owner)?;
         validate_repo(&self.repository)?;
         validate_tag(&self.tag)?;
+        match (
+            self.release_identity_mode,
+            self.release_id.as_deref(),
+            self.source_revision.as_deref(),
+        ) {
+            (None, None, None) => {}
+            (Some(mode), Some(release_id), Some(_revision))
+                if mode
+                    .release_id(&self.tag)
+                    .is_ok_and(|expected| expected == release_id) => {}
+            _ => return Err(fail("draft identity mapping is incomplete or inconsistent")),
+        }
+        if let Some(revision) = self.source_revision.as_deref() {
+            if revision.len() != 40
+                || !revision
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            {
+                return Err(fail("draft source revision is invalid"));
+            }
+        }
         validate_title(&self.title)?;
         validate_body(&self.body)?;
         if self.token_env != "GITHUB_TOKEN" {
@@ -151,6 +218,11 @@ impl GitHubDraftPolicyV1 {
             "https://github.com/{}/{}/releases/download/{}",
             self.owner, self.repository, self.tag
         )
+    }
+
+    /// Manifest id bound by this policy, preserving legacy exact-tag policy.
+    pub fn resolved_release_id(&self) -> &str {
+        self.release_id.as_deref().unwrap_or(&self.tag)
     }
 }
 
@@ -591,6 +663,21 @@ pub fn prepare_staging_payload(
         .map_err(|_| fail("invalid release manifest"))?;
     if contract.product.id != manifest.product_id {
         return Err(fail("contract and manifest product mismatch"));
+    }
+    if policy.release_identity_mode.is_some() && manifest.release_id != policy.resolved_release_id()
+    {
+        return Err(fail(
+            "manifest release id differs from draft identity policy",
+        ));
+    }
+    if policy
+        .source_revision
+        .as_deref()
+        .is_some_and(|revision| revision != manifest.source_revision)
+    {
+        return Err(fail(
+            "manifest source revision differs from draft identity policy",
+        ));
     }
     reject_symlink_dir(finalized_root, "finalized root")?;
 
@@ -1222,6 +1309,9 @@ impl GitHubDraftTemplateV1 {
             owner: self.owner.clone(),
             repository: self.repository.clone(),
             tag: tag.to_owned(),
+            release_identity_mode: None,
+            release_id: None,
+            source_revision: None,
             title,
             body: self.body.clone(),
             prerelease: self.prerelease,
@@ -1230,6 +1320,24 @@ impl GitHubDraftTemplateV1 {
             max_metadata_bytes: self.max_metadata_bytes,
             max_list_pages: self.max_list_pages,
         })
+    }
+
+    /// Resolve the static template with a checked-in finite identity mode.
+    pub fn resolve_with_identity(
+        &self,
+        tag: &str,
+        mode: ReleaseIdentityMode,
+        source_revision: &str,
+    ) -> Result<GitHubDraftPolicyV1, GithubError> {
+        let release_id = mode.release_id(tag)?;
+        let mut policy = self.resolve(tag)?;
+        if mode != ReleaseIdentityMode::ExactTag {
+            policy.release_identity_mode = Some(mode);
+            policy.release_id = Some(release_id);
+            policy.source_revision = Some(source_revision.to_owned());
+        }
+        policy.validate()?;
+        Ok(policy)
     }
 }
 
@@ -1258,6 +1366,21 @@ fn prepare_staging_payload_with_presentation_inner(
         .map_err(|_| fail("invalid release manifest"))?;
     if contract.product.id != manifest.product_id {
         return Err(fail("contract and manifest product mismatch"));
+    }
+    if policy.release_identity_mode.is_some() && manifest.release_id != policy.resolved_release_id()
+    {
+        return Err(fail(
+            "manifest release id differs from draft identity policy",
+        ));
+    }
+    if policy
+        .source_revision
+        .as_deref()
+        .is_some_and(|revision| revision != manifest.source_revision)
+    {
+        return Err(fail(
+            "manifest source revision differs from draft identity policy",
+        ));
     }
     reject_symlink_dir(finalized_root, "finalized root")?;
 
@@ -2035,6 +2158,12 @@ where
     if payload.owner != policy.owner
         || payload.repository != policy.repository
         || payload.tag != policy.tag
+        || (policy.release_identity_mode.is_some()
+            && payload.release_id != policy.resolved_release_id())
+        || policy
+            .source_revision
+            .as_deref()
+            .is_some_and(|revision| revision != payload.source_revision)
         || payload.title != policy.title
         || payload.prerelease != policy.prerelease
         || payload.body != policy.body

@@ -58,6 +58,14 @@ additionally version-gated. Output-only types (`ReleasePlan :456`,
 retains the whole `TargetPolicy` (`:472`), so a plan can be re-serialized and
 re-resolved without consulting the original config.
 
+Release identity mapping is owned by `eggpack-ci`, not by `PackConfig` or
+`ReleasePlan`. The default mode passes the exact tag as `release_id`. A checked-in
+CI policy may opt into the finite `vMAJOR.MINOR.PATCH` → `MAJOR.MINOR.PATCH`
+mapping while the exact source tag and 40-hex revision remain separate runtime
+facts. CI calls this same pure `PackConfig::resolve` with the mapped manifest ID
+and source revision. The core schema and ReleaseManifest v1 wire format do not
+change.
+
 ## `PackConfig` -> `ReleasePlan`
 
 `from_toml` (`:502-524`) is the **weak** gate: `toml::from_str` under

@@ -407,17 +407,61 @@ pub fn run_bounded_cancellable(
 /// process-group cleanup, and a cleared environment. stdout is matched
 /// internally and never returned, so the caller learns only pass or fail.
 pub fn run_git_bounded(expected: &str, cwd: Option<&Path>) -> Result<ProcessEvidence, BuildError> {
+    run_git_resolve_bounded(
+        vec![
+            "rev-parse".into(),
+            "--verify".into(),
+            "HEAD^{commit}".into(),
+        ],
+        expected,
+        cwd,
+    )
+}
+
+/// Verify an exact local tag peels to the expected commit using bounded git.
+pub fn run_git_tag_bounded(
+    tag: &str,
+    expected: &str,
+    cwd: Option<&Path>,
+) -> Result<ProcessEvidence, BuildError> {
+    if tag.is_empty()
+        || tag.len() > 128
+        || tag.chars().any(char::is_control)
+        || tag.starts_with('/')
+        || tag.ends_with('/')
+        || tag.ends_with('.')
+        || tag.contains("..")
+        || tag.contains("@{")
+        || tag.contains(['?', '\\', '^', ':', '*', '[', '~', ' '])
+        || tag.split('/').any(|component| {
+            component.is_empty() || component.starts_with('.') || component.ends_with(".lock")
+        })
+    {
+        return Err(build_err("invalid exact git tag"));
+    }
+    run_git_resolve_bounded(
+        vec![
+            "rev-parse".into(),
+            "--verify".into(),
+            format!("refs/tags/{tag}^{{commit}}"),
+        ],
+        expected,
+        cwd,
+    )
+}
+
+fn run_git_resolve_bounded(
+    args: Vec<String>,
+    expected: &str,
+    cwd: Option<&Path>,
+) -> Result<ProcessEvidence, BuildError> {
     let cwd = match cwd {
         Some(cwd) => cwd.to_path_buf(),
         None => std::env::current_dir().map_err(|_| build_err("working directory unavailable"))?,
     };
     let spec = CommandSpec {
         executable: "git".into(),
-        args: vec![
-            "rev-parse".into(),
-            "--verify".into(),
-            "HEAD^{commit}".into(),
-        ],
+        args,
         cwd,
         env: BTreeMap::new(),
         timeout: GIT_TIMEOUT,
@@ -1234,18 +1278,50 @@ mod tests {
             .trim()
             .to_owned();
         assert_eq!(head.len(), 40);
+        assert!(git(&["tag", "v1.2.3"]).is_ok_and(|o| o.status.success()));
         assert_eq!(
-            run_git_bounded(&head, Some(&root)).unwrap().outcome,
+            run_git_tag_bounded("v1.2.3", &head, Some(&root))
+                .unwrap()
+                .outcome,
+            CommandOutcome::Success
+        );
+        assert_ne!(
+            run_git_tag_bounded("v1.2.4", &head, Some(&root))
+                .unwrap()
+                .outcome,
+            CommandOutcome::Success
+        );
+        assert!(run_git_tag_bounded("v../evil", &head, Some(&root)).is_err());
+        assert!(run_git_tag_bounded("v1.2.3^{}", &head, Some(&root)).is_err());
+        fs::write(root.join("f"), b"second commit").unwrap();
+        assert!(git(&["add", "f"]).is_ok_and(|o| o.status.success()));
+        assert!(git(&["commit", "--quiet", "-m", "second"]).is_ok_and(|o| o.status.success()));
+        assert!(git(&["tag", "v1.2.9"]).is_ok_and(|o| o.status.success()));
+        let second_head = String::from_utf8(git(&["rev-parse", "HEAD"]).unwrap().stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        assert_ne!(
+            run_git_tag_bounded("v1.2.9", &head, Some(&root))
+                .unwrap()
+                .outcome,
+            CommandOutcome::Success,
+            "another tag pointing at a different commit must fail"
+        );
+        assert_eq!(
+            run_git_bounded(&second_head, Some(&root)).unwrap().outcome,
             CommandOutcome::Success
         );
         // The match is exact, not containment: surrounding noise fails closed.
-        let noisy = format!(" {head} ");
+        let noisy = format!(" {second_head} ");
         assert_ne!(
             run_git_bounded(&noisy, Some(&root)).unwrap().outcome,
             CommandOutcome::Success
         );
         assert_ne!(
-            run_git_bounded(&head[..39], Some(&root)).unwrap().outcome,
+            run_git_bounded(&second_head[..39], Some(&root))
+                .unwrap()
+                .outcome,
             CommandOutcome::Success
         );
         assert_ne!(
@@ -1257,7 +1333,9 @@ mod tests {
         // A non-repository working directory cannot resolve HEAD.
         let outside = crate::test_temp_dir("builder-git-outside");
         assert_ne!(
-            run_git_bounded(&head, Some(&outside)).unwrap().outcome,
+            run_git_bounded(&second_head, Some(&outside))
+                .unwrap()
+                .outcome,
             CommandOutcome::Success
         );
         fs::remove_dir_all(outside).unwrap();
