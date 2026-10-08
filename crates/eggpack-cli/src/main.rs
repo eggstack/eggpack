@@ -2462,15 +2462,15 @@ mod tests {
         let contract_text = r#"
 schema_version = 1
 [product]
-id = "widget"
-display_name = "widget"
+id = "wg-basic"
+display_name = "WireGuard Basic"
 [[targets]]
 triple = "x86_64-unknown-linux-gnu"
 aliases = ["linux-gnu"]
 [targets.asset]
 kind = "direct"
-asset = "{product}-{version}-{target}"
-install = "{product}"
+asset = "{product}-{target}"
+install = "wg-basic"
 [targets.checksum]
 sidecar = "{asset}.sha256"
 [[targets]]
@@ -2478,8 +2478,8 @@ triple = "aarch64-unknown-linux-gnu"
 aliases = ["linux-arm64"]
 [targets.asset]
 kind = "direct"
-asset = "{product}-{version}-{target}"
-install = "{product}"
+asset = "{product}-{target}"
+install = "wg-basic"
 [targets.checksum]
 sidecar = "{asset}.sha256"
 "#;
@@ -2513,8 +2513,8 @@ sidecar = "{asset}.sha256"
                         target.into(),
                         vec![eggpack_core::BuildBinding {
                             selector: eggpack_core::LogicalOutputSelector::Direct,
-                            package: "widget".into(),
-                            binary: "widget".into(),
+                            package: "wg-basic".into(),
+                            binary: "wg-basic".into(),
                         }],
                     )
                 })
@@ -2535,8 +2535,8 @@ sidecar = "{asset}.sha256"
         let template = eggpack_github::GitHubDraftTemplateV1 {
             schema_version: 1,
             owner: "acme".into(),
-            repository: "widget".into(),
-            title_prefix: "widget ".into(),
+            repository: "wg-basic".into(),
+            title_prefix: "wg-basic ".into(),
             body: "notes".into(),
             prerelease: false,
             token_env: "GITHUB_TOKEN".into(),
@@ -2621,7 +2621,11 @@ sidecar = "{asset}.sha256"
             } else {
                 62
             };
-            std::fs::write(release_dir.join("widget"), fixture_elf_for_machine(machine)).unwrap();
+            std::fs::write(
+                release_dir.join("wg-basic"),
+                fixture_elf_for_machine(machine),
+            )
+            .unwrap();
             let build_dir = root.join("artifacts/build").join(target);
             let capture = eggpack_ci::RunnerCommand::CaptureBuild {
                 contract: contract_path.to_string_lossy().into_owned(),
