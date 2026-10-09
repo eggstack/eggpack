@@ -1,6 +1,6 @@
 # CI/Release M003j — Dispatch-tag Shell Injection Corrective
 
-Status: ready for implementation.
+Status: **closed** — strict closure is recorded at `plans/closure/ci-release-orchestration/003j-status.md` (implementation `559d940af0fe6a2951eb17de1fcbecbf9e0bb6ce`, hosted run `37987890305`, all four lanes green).
 Repository baseline: `eggstack/eggpack@d61ca71fc0112be63e7e8ba31ba8fa2b1ce5a628` (2026-10-08).
 Source roadmap: `plans/subsystems/ci-release-orchestration-roadmap.md`.
 Primary class: invariant / security corrective.

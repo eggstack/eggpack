@@ -25,7 +25,7 @@ reading instead of the source. Keeping them true is a manual obligation, and it
 has been missed before, so record what is actually true rather than what was
 once true.
 
-The last code commit, `61b2c03`, changed five source files
+The prior code commit, `61b2c03`, changed five source files
 (`builder.rs`, `qualification.rs`, `ci/src/lib.rs`, `cli/src/main.rs`,
 `github/src/lib.rs`). It also edited most of the deep dives, but **did not
 re-base the line numbers** in six of them, so roughly ninety citations pointed at
@@ -72,6 +72,14 @@ well, so M003 carried them forward faithfully rather than inventing new numbers
 whose intent it could not confirm. Treat those as indicative until re-based by
 symbol name. The rule from the `61b2c03` pass holds: re-base by reading the line
 and confirming it holds what the sentence claims, never by arithmetic alone.
+
+CI M003j (`559d940`) modified `eggpack-ci/src/lib.rs` and increased its count to
+10772 lines. The dispatch-rendering anchors were rechecked by symbol for this
+change: workflow trigger/concurrency rendering (`3320-3350`), reusable resolve
+(`3388`), write-scoped stage (`3895-3999`), and post-render check (`4003`). The
+approximate `ci.md` renderer range and these relevant `ci-rendering.md` anchors
+were updated. Other pre-existing `ci-rendering.md` citations were not
+blanket-shifted; verify them by symbol before relying on them.
 
 ## How to read this document
 
