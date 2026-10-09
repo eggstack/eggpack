@@ -153,7 +153,7 @@ contract   manifest
 | `eggpack-manifest` | 1354 | [manifest.md](manifest.md) |
 | `eggpack-core` | 5998 (4 files) | [core.md](core.md) |
 | `eggpack-bootstrap` | 3436 | [bootstrap.md](bootstrap.md) |
-| `eggpack-ci` | 10256 | [ci.md](ci.md) |
+| `eggpack-ci` | 10772 | [ci.md](ci.md) |
 | `eggpack-github` | 4873 (3025 + 1848 tests) | [github.md](github.md) |
 | `eggpack-cli` | 3803 src + 381 integration tests | [cli.md](cli.md) |
 
@@ -221,7 +221,7 @@ authenticity or provenance claims.
 
 ### `eggpack-ci` — release CI planning and workflow rendering
 
-Single `src/lib.rs` at 10256 lines, the largest component in the workspace.
+Single `src/lib.rs` at 10772 lines, the largest component in the workspace.
 Depends on `contract` + `core`. Projects a release into a provider-neutral
 graph (`project_ci_plan` → `CIPlan` → `TargetJob`; `project_release_plan` →
 `ReleaseCIPlanV1` with qualification, gate, aggregate/finalize, and staging

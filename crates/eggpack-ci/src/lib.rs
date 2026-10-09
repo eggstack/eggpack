@@ -36,6 +36,60 @@ fn fail(message: &str) -> CiError {
     CiError(message.to_owned())
 }
 
+// Keep dispatch tags as data all the way through generated shell steps. This
+// finite grammar is stable SemVer without a prerelease/build suffix.
+const DISPATCH_TAG_VALIDATION_BASH: &str = r#"if [ "${#EGGPACK_RELEASE_TAG}" -gt 64 ] || [[ ! "$EGGPACK_RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+  echo 'release_tag must be a canonical vX.Y.Z stable tag' >&2
+  exit 1
+fi"#;
+
+fn dispatch_tag_validation_step(out: &mut String) {
+    out.push_str("      - name: Validate exact-tag source\n        shell: bash\n        env:\n          EGGPACK_RELEASE_TAG: ${{ inputs.release_tag }}\n        run: |\n");
+    for line in DISPATCH_TAG_VALIDATION_BASH.lines() {
+        out.push_str("          ");
+        out.push_str(line);
+        out.push('\n');
+    }
+}
+
+fn ref_name_validation_step(out: &mut String) {
+    out.push_str("      - name: Validate exact-tag source\n        shell: bash\n        run: ");
+    out.push_str(&yaml_scalar(
+        "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\"",
+    ));
+    out.push('\n');
+}
+
+fn contains_unsafe_dispatch_expression_in_run(workflow: &str) -> bool {
+    let lines: Vec<&str> = workflow.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        let indentation = line.len() - line.trim_start().len();
+        let Some(script) = line.trim_start().strip_prefix("run:") else {
+            continue;
+        };
+        let is_block = matches!(script.trim(), "|" | ">" | "|-" | ">-");
+        if script.contains("${{ inputs.release_tag }}")
+            || script.contains("${{ github.event.inputs.release_tag }}")
+        {
+            return true;
+        }
+        if is_block {
+            for body_line in lines.iter().skip(index + 1) {
+                let body_indentation = body_line.len() - body_line.trim_start().len();
+                if !body_line.trim().is_empty() && body_indentation <= indentation {
+                    break;
+                }
+                if body_line.contains("${{ inputs.release_tag }}")
+                    || body_line.contains("${{ github.event.inputs.release_tag }}")
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// Provider-neutral schema-v1 release workflow graph.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3120,11 +3174,6 @@ pub fn render_reusable_release_github(
         }
         runtime_staging.inputs.github_policy = RUNTIME_GITHUB_POLICY.to_owned();
     }
-    let tag_expr = match staging_intent.tag_source {
-        StagingTagSource::RefName => "${{ github.ref_name }}".to_owned(),
-        StagingTagSource::DispatchInput => "${{ inputs.release_tag }}".to_owned(),
-    };
-    let mapped_mode = policy.release_identity_mode;
     let resolve = RunnerCommand::ResolveRelease {
         contract: static_inputs.contract.clone(),
         pack_config: pack_config_path,
@@ -3132,11 +3181,9 @@ pub fn render_reusable_release_github(
         qualification_bindings: static_inputs.qualification_bindings.clone(),
         consumer_validators: static_inputs.consumer_validators.clone(),
         selected: shape.selected_aliases.join(","),
-        tag: if mapped_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver) {
-            "$release_tag".to_owned()
-        } else {
-            tag_expr
-        },
+        // Every workflow-selected ref stays in environment data. The
+        // renderer expands only the quoted variable reference in the shell.
+        tag: "$release_tag".to_owned(),
         source_revision: "$head_sha".to_owned(),
         template: template_path,
         source_root: "${{ github.workspace }}".to_owned(),
@@ -3343,13 +3390,13 @@ fn render_release_github_inner(
         out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
         out.push_str("\n    steps:\n");
+        if staging_policy.tag_source == StagingTagSource::DispatchInput {
+            dispatch_tag_validation_step(&mut out);
+        }
         checkout_snippet(&mut out, policy, true);
-        out.push_str("      - name: Validate exact-tag source\n        shell: bash\n        run: ");
-        out.push_str(&yaml_scalar(match staging_policy.tag_source {
-            StagingTagSource::RefName => "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\"",
-            StagingTagSource::DispatchInput => "test -n \"${{ inputs.release_tag }}\"",
-        }));
-        out.push('\n');
+        if staging_policy.tag_source == StagingTagSource::RefName {
+            ref_name_validation_step(&mut out);
+        }
         out.push_str(&tool_install_snippet(tool));
         // M003e: the runtime identity directory must exist before
         // `_resolve-release` writes the three invocation-local documents.
@@ -3359,15 +3406,13 @@ fn render_release_github_inner(
             &format!("./{RUNTIME_IDENTITY_DIR}"),
         );
         out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n");
-        if policy.release_identity_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver) {
-            let expression = match staging_policy.tag_source {
-                StagingTagSource::RefName => "${{ github.ref_name }}",
-                StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
-            };
-            out.push_str("        env:\n          EGGPACK_RELEASE_TAG: ");
-            out.push_str(&yaml_scalar(expression));
-            out.push('\n');
-        }
+        let expression = match staging_policy.tag_source {
+            StagingTagSource::RefName => "${{ github.ref_name }}",
+            StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
+        };
+        out.push_str("        env:\n          EGGPACK_RELEASE_TAG: ");
+        out.push_str(&yaml_scalar(expression));
+        out.push('\n');
         out.push_str("        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
         out.push_str(&runtime.resolve.to_shell());
         out.push('\n');
@@ -3867,18 +3912,19 @@ fn render_release_github_inner(
         out.push_str(&yaml_scalar(&staging_policy.runner));
         out.push_str("\n    permissions:\n      contents: write\n    timeout-minutes: ");
         out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n      - name: Check out source\n        uses: ");
+        out.push_str("\n    steps:\n");
+        if staging_policy.tag_source == StagingTagSource::DispatchInput {
+            dispatch_tag_validation_step(&mut out);
+        }
+        out.push_str("      - name: Check out source\n        uses: ");
         out.push_str(&yaml_scalar(&policy.checkout.reference));
         out.push_str("\n        with:\n          ref: ");
         out.push_str(&yaml_scalar(stage_ref));
         out.push('\n');
         runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        out.push_str("      - name: Validate exact-tag source\n        shell: bash\n        run: ");
-        out.push_str(&yaml_scalar(match staging_policy.tag_source {
-            StagingTagSource::RefName => "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\"",
-            StagingTagSource::DispatchInput => "test -n \"${{ inputs.release_tag }}\"",
-        }));
-        out.push('\n');
+        if staging_policy.tag_source == StagingTagSource::RefName {
+            ref_name_validation_step(&mut out);
+        }
         // M003e: install before any Eggpack invocation; verify right after.
         out.push_str(&tool_install_snippet(tool));
         source_verify_snippet(&mut out, inputs, true, policy);
@@ -3944,6 +3990,11 @@ fn render_release_github_inner(
     if out.contains("curl --proto '=https'") && !out.contains("https://ziglang.org/download/") {
         return Err(fail(
             "generated workflow bootstrap curl lacks the fixed Zig origin",
+        ));
+    }
+    if contains_unsafe_dispatch_expression_in_run(&out) {
+        return Err(fail(
+            "generated run script interpolates an untrusted dispatch tag",
         ));
     }
     Ok(out)
@@ -4921,6 +4972,7 @@ mod tests {
         ))
         .unwrap()
     }
+
     #[test]
     fn cargo_output_path_appends_exe_and_preserves_dotted_names() {
         let root = std::path::Path::new("/target");
@@ -7279,12 +7331,171 @@ mod tests {
             "github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref"
         ));
         assert!(!dispatch.contains("if: github.event_name == 'push' && github.ref_type == 'tag'"));
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&dispatch).unwrap();
+        assert!(!contains_unsafe_dispatch_expression_in_run(&dispatch));
+        let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+        {
+            let job_name = "stage";
+            let steps = jobs
+                .get(serde_yaml::Value::String(job_name.to_owned()))
+                .unwrap()
+                .get("steps")
+                .unwrap()
+                .as_sequence()
+                .unwrap();
+            let validation = steps
+                .iter()
+                .find(|step| {
+                    step.get("name").and_then(serde_yaml::Value::as_str)
+                        == Some("Validate exact-tag source")
+                })
+                .unwrap();
+            let script = validation
+                .get("run")
+                .and_then(serde_yaml::Value::as_str)
+                .unwrap();
+            assert!(!script.contains("${{"));
+            assert!(script.contains("EGGPACK_RELEASE_TAG"));
+            assert!(script.contains("canonical vX.Y.Z"));
+            assert_eq!(
+                validation
+                    .get("env")
+                    .unwrap()
+                    .get("EGGPACK_RELEASE_TAG")
+                    .and_then(serde_yaml::Value::as_str),
+                Some("${{ inputs.release_tag }}")
+            );
+            let checkout = steps
+                .iter()
+                .position(|step| {
+                    step.get("name").and_then(serde_yaml::Value::as_str) == Some("Check out source")
+                })
+                .unwrap();
+            let validate = steps
+                .iter()
+                .position(|step| {
+                    step.get("name").and_then(serde_yaml::Value::as_str)
+                        == Some("Validate exact-tag source")
+                })
+                .unwrap();
+            assert!(validate < checkout, "{job_name} validates before checkout");
+        }
         let mut missing_dispatch = policy.clone();
         missing_dispatch
             .triggers
             .retain(|trigger| *trigger != WorkflowTrigger::WorkflowDispatch);
         assert!(render_release_github(&graph, &missing_dispatch).is_err());
         assert_ne!(ref_name, dispatch);
+        let unsafe_workflow = dispatch.replacen(
+            "\"$EGGPACK_RELEASE_TAG\" =~",
+            "\"${{ inputs.release_tag }}\" =~",
+            1,
+        );
+        assert!(contains_unsafe_dispatch_expression_in_run(&unsafe_workflow));
+        assert!(
+            !check_release_github(&graph, &policy, unsafe_workflow.as_bytes())
+                .unwrap()
+                .matches
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn m003j_dispatch_tag_validation_treats_values_as_data() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::Command;
+
+        let (graph, mut policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        policy.staging.as_mut().unwrap().tag_source = StagingTagSource::DispatchInput;
+        let yaml = render_release_github(&graph, &policy).unwrap();
+        let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+        let steps = parsed["jobs"]["stage"]["steps"].as_sequence().unwrap();
+        let script = steps
+            .iter()
+            .find(|step| step["name"] == "Validate exact-tag source")
+            .unwrap()["run"]
+            .as_str()
+            .unwrap();
+
+        let (contract, shape, reusable_policy) =
+            m003d_shape_and_policy(StagingTagSource::DispatchInput);
+        let reusable = render_reusable_release_github(&contract, &shape, &reusable_policy).unwrap();
+        let reusable_yaml: serde_yaml::Value = serde_yaml::from_str(&reusable).unwrap();
+        assert!(!contains_unsafe_dispatch_expression_in_run(&reusable));
+        let resolve_steps = reusable_yaml["jobs"]["resolve"]["steps"]
+            .as_sequence()
+            .unwrap();
+        let resolve_validation = resolve_steps
+            .iter()
+            .find(|step| step["name"] == "Validate exact-tag source")
+            .unwrap();
+        assert!(!resolve_validation["run"].as_str().unwrap().contains("${{"));
+        assert!(
+            resolve_steps
+                .iter()
+                .position(|step| step["name"] == "Validate exact-tag source")
+                .unwrap()
+                < resolve_steps
+                    .iter()
+                    .position(|step| step["name"] == "Check out source")
+                    .unwrap()
+        );
+
+        let nonce = format!("eggpack-m003j-{}", std::process::id());
+        let marker = std::env::temp_dir().join(nonce);
+        let _ = std::fs::remove_file(&marker);
+        let malicious = format!("$(touch {})", marker.display());
+        // Reproduce the prior generated source interpolation: Bash executes
+        // the fixture command substitution, proving this is discriminating.
+        let old_script = format!("test -n \"{malicious}\"");
+        let old_status = Command::new("bash")
+            .arg("-c")
+            .arg(old_script)
+            .status()
+            .unwrap();
+        assert!(marker.exists());
+        assert!(!old_status.success());
+        std::fs::remove_file(&marker).unwrap();
+
+        for (tag, accepted) in [
+            ("v1.2.3", true),
+            ("", false),
+            ("1.2.3", false),
+            ("v01.2.3", false),
+            ("v1.2.3-rc.1", false),
+            ("v1.2.3+build", false),
+            ("v1.2.3\n", false),
+            (malicious.as_str(), false),
+            ("v1;touch /tmp/nope.2.3", false),
+            (
+                "v12345678901234567890123456789012345678901234567890123456789012345.2.3",
+                false,
+            ),
+        ] {
+            let result = Command::new("bash")
+                .arg("-c")
+                .arg(script)
+                .env("EGGPACK_RELEASE_TAG", tag)
+                .status()
+                .unwrap();
+            assert_eq!(result.success(), accepted, "tag {tag:?}");
+            assert!(result.code().is_some() || result.signal().is_some());
+        }
+        assert!(
+            !marker.exists(),
+            "corrected validation must not execute tag text"
+        );
     }
 
     #[test]

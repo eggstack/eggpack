@@ -129,24 +129,36 @@ and rendered behaviour cannot diverge.
 
 ## Job and step composition
 
-Triggers are emitted first (`:3140-3155`). `push:` and `workflow_dispatch:`
+Triggers are emitted first (`:3320-3333`). `push:` and `workflow_dispatch:`
 appear in the order the policy lists them. Dispatch gains a `release_tag` string
 input only when staging is enabled *and* the tag source is `DispatchInput`
-(`:3146-3152`); there is no branch or `latest` default. The top-level
-`permissions` block is `contents: read` (`:3156`, and `:1669` for build-only),
+(`:3323-3331`); there is no branch or `latest` default. The top-level
+`permissions` block is `contents: read` (`:3335`, and `:1850` for build-only),
 and every job restates it. Concurrency keys on workflow and ref, or on the
-resolved staging tag for dispatch-driven staging (`:3167-3170`).
+resolved staging tag for dispatch-driven staging (`:3340-3350`).
+
+Dispatch tags are workflow data throughout the renderer. The reusable
+`resolve` and write-scoped `stage` jobs bind `inputs.release_tag` to
+`EGGPACK_RELEASE_TAG`, validate a bounded canonical stable `vX.Y.Z` form in
+Bash, and do so before checkout. The resolver passes the tag to
+`_resolve-release` only through the quoted `"$EGGPACK_RELEASE_TAG"` argument.
+The renderer has a source-level guard that rejects either dispatch-tag
+expression in any emitted `run:` script; the check permits the same value in
+action inputs such as checkout `with.ref`, where it is data.
+`m003j_dispatch_tag_validation_treats_values_as_data` proves a command
+substitution marker executes in the old script template but not in the new
+validation script.
 
 | Order | Job | Line | `needs:` |
 |---|---|---|---|
-| 1 | `preflight` | `:3177` | — |
-| 2 | `resolve` (reusable only) | `:3209` | `preflight` |
+| 1 | `preflight` | `:3356` | — |
+| 2 | `resolve` (reusable only) | `:3388` | `preflight` |
 | 3 | one build job per `CIPlan` target | `:3246` | `resolve` if reusable, else `preflight` (`:3278-3282`) |
 | 4 | one qualification job per build job | `:3371` | that build job (`:3397-3398`) |
 | 5 | one consumer job per validated target | `:3441` | that qualification job (`:3475-3476`) |
 | 6 | gate, id fixed `required_gate` | `:3526` | inline list (`:3534-3549`) |
 | 7 | aggregate, id fixed `aggregate` | `:3599` | the gate (`:3610-3611`) |
-| 8 | `stage`, only when the graph has staging | `:3673` | the aggregate, plus an `if:` tag guard (`:3710-3723`) |
+| 8 | `stage`, only when the graph has staging | `:3895` | the aggregate, plus an `if:` tag guard (`:3900-3910`) |
 
 Job identifiers are not invented by the renderer. They come from the validated
 plan, and `ReleaseCIPlanV1::validate` pins them to exact strings: the gate must
@@ -165,9 +177,9 @@ per output (`:3315`), `_capture-build` (`:3352`), artifact upload (`:3357`). The
 install precedes the first `eggpack` invocation; source verification follows the
 toolchain the install depends on. Least privilege is structural: every job
 carries `permissions: contents: read` except `stage`, which carries
-`contents: write` (`:3726`); no job receives `id-token: write`, and the renderer
-fails closed if that string ever appears (`:3772-3774`). The staging token
-travels through `env` only (`:3751`). Artifact handoff names are derived, not
+`contents: write` (`:3913`); no job receives `id-token: write`, and the renderer
+fails closed if that string ever appears (`:3960-3962`). The staging token
+travels through `env` only (`:3939`). Artifact handoff names are derived, not
 literal: `handoff_name` (`:432`), `BUILD_HANDOFF_FILE` (`:941`),
 `QUALIFICATION_EVIDENCE_FILE` (`:943`), `CANDIDATES_DIR` (`:945`),
 `GATE_OUTCOME_FILE` (`:947`), `RUNTIME_IDENTITY_ARTIFACT` (`:4440`).

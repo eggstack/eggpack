@@ -32,6 +32,13 @@ checkouts, and authorizes staging only for dispatches. Each job verifies
 `HEAD^{commit}` against the checked-in `ReleasePlan.source_revision` before
 release work; `ci check` compares the complete deterministic workflow.
 
+Reusable resolver and write-scoped staging jobs validate dispatch tags as
+bounded canonical stable `vX.Y.Z` values before checkout. The input is bound to
+`EGGPACK_RELEASE_TAG` and passed to shell commands only through quoted variable
+references; generated `run:` scripts reject direct dispatch-tag expressions.
+The preflight checkout remains a data-only action invocation and runs no
+checked-out code.
+
 M003d adds the consumer release composition seam without absorbing
 product-owned release semantics. Static checked-in workflow shape
 (`ReleaseWorkflowShapeV1`: canonical targets, build/core-qualification
