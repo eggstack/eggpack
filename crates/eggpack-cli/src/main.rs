@@ -3364,6 +3364,7 @@ sidecar = "{asset}.sha256"
                 owner: "acme".into(),
                 repository: "widget".into(),
                 tag_source: eggpack_ci::StagingTagSource::DispatchInput,
+                environment: None,
                 inputs: eggpack_ci::GitHubStagingInputsV1 {
                     contract: "contracts/release.toml".into(),
                     install_policy: "policies/install.toml".into(),
@@ -3637,6 +3638,7 @@ sidecar = "{asset}.sha256"
                 owner: "eggstack".into(),
                 repository: "eggsact".into(),
                 tag_source: eggpack_ci::StagingTagSource::RefName,
+                environment: None,
                 inputs: eggpack_ci::GitHubStagingInputsV1 {
                     contract: "contracts/release.toml".into(),
                     install_policy: "policies/install.toml".into(),

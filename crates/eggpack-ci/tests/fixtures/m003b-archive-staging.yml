@@ -9,15 +9,31 @@ concurrency:
   cancel-in-progress: true
 jobs:
   preflight:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: "ubuntu-latest"
     permissions:
       contents: read
+    outputs:
+      source_sha: ${{ steps.resolve_tag.outputs.source_sha }}
     timeout-minutes: 60
     steps:
+      - name: Resolve and validate immutable release source
+        id: resolve_tag
+        shell: bash
+        env:
+          EGGPACK_RELEASE_TAG: "${{ github.ref_name }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: "set -euo pipefail\ntag=\"$EGGPACK_RELEASE_TAG\"\nif [ \"${#tag}\" -gt 255 ] || [ -z \"$tag\" ]; then\n  echo 'release tag is empty or oversized' >&2\n  exit 1\nfi\nref=\"refs/tags/$tag\"\ngit check-ref-format \"$ref\"\naskpass=\"$RUNNER_TEMP/eggpack-tag-askpass\"\ncat >\"$askpass\" <<'ASKPASS'\n#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' x-access-token ;;\n  *Password*) printf '%s\\n' \"$EGGPACK_GIT_TOKEN\" ;;\n  *) exit 1 ;;\nesac\nASKPASS\nchmod 700 \"$askpass\"\nrefs=\"$(GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 EGGPACK_GIT_TOKEN=\"$GITHUB_TOKEN\" git ls-remote --exit-code \"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git\" \"$ref\" \"$ref^{}\")\"\nrm -f -- \"$askpass\"\ndirect=\npeeled=\nwhile IFS=\"$(printf '\\t')\" read -r oid name; do\n  case \"$name\" in\n    \"$ref\") [ -z \"$direct\" ] || { echo 'duplicate tag ref result' >&2; exit 1; }; direct=\"$oid\" ;;\n    \"$ref^{}\") [ -z \"$peeled\" ] || { echo 'duplicate peeled tag result' >&2; exit 1; }; peeled=\"$oid\" ;;\n    *) echo 'unexpected tag resolution result' >&2; exit 1 ;;\n  esac\ndone <<< \"$refs\"\nsource_sha=\"${peeled:-$direct}\"\nif [[ ! \"$source_sha\" =~ ^[0-9a-f]{40}$ ]]; then\n  echo 'tag did not resolve to one full commit OID' >&2\n  exit 1\nfi\nprintf 'source_sha=%s\\n' \"$source_sha\" >> \"$GITHUB_OUTPUT\"\n"
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.ref }}"
+          ref: "${{ steps.resolve_tag.outputs.source_sha }}"
+      - name: Verify frozen source checkout
+        shell: bash
+        env:
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ steps.resolve_tag.outputs.source_sha }}"
+        run: test "$(git rev-parse --verify HEAD^{commit})" = "$EGGPACK_EXPECTED_SOURCE_SHA"
+
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -41,7 +57,13 @@ jobs:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.ref }}"
+          ref: "${{ needs.preflight.outputs.source_sha }}"
+      - name: Verify frozen source checkout
+        shell: bash
+        env:
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ needs.preflight.outputs.source_sha }}"
+        run: test "$(git rev-parse --verify HEAD^{commit})" = "$EGGPACK_EXPECTED_SOURCE_SHA"
+
       - name: Set up Rust toolchain
         uses: "dtolnay/rust-toolchain@0123456789abcdef0123456789abcdef01234567"
         with:
@@ -80,7 +102,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   qualify_build_x86_64_unknown_linux_gnu:
-    needs: build_x86_64_unknown_linux_gnu
+    needs: [ build_x86_64_unknown_linux_gnu, preflight ]
     runs-on: "ubuntu-latest"
     permissions:
       contents: read
@@ -90,7 +112,13 @@ jobs:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.ref }}"
+          ref: "${{ needs.preflight.outputs.source_sha }}"
+      - name: Verify frozen source checkout
+        shell: bash
+        env:
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ needs.preflight.outputs.source_sha }}"
+        run: test "$(git rev-parse --verify HEAD^{commit})" = "$EGGPACK_EXPECTED_SOURCE_SHA"
+
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -116,7 +144,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   required_gate:
-    needs: [qualify_build_x86_64_unknown_linux_gnu]
+    needs: [ qualify_build_x86_64_unknown_linux_gnu, preflight ]
     runs-on: "ubuntu-latest"
     permissions:
       contents: read
@@ -125,7 +153,13 @@ jobs:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.ref }}"
+          ref: "${{ needs.preflight.outputs.source_sha }}"
+      - name: Verify frozen source checkout
+        shell: bash
+        env:
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ needs.preflight.outputs.source_sha }}"
+        run: test "$(git rev-parse --verify HEAD^{commit})" = "$EGGPACK_EXPECTED_SOURCE_SHA"
+
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -147,7 +181,7 @@ jobs:
         shell: bash
         run: "'eggpack' 'ci' '_evaluate-gate' '--ci-plan' 'plans/release-ci-plan.json' '--inputs-dir' './eggpack-inputs' '--output' './eggpack-gate/gate-outcome.json'"
   aggregate:
-    needs: required_gate
+    needs: [ required_gate, preflight ]
     runs-on: "ubuntu-latest"
     permissions:
       contents: read
@@ -156,7 +190,13 @@ jobs:
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.ref }}"
+          ref: "${{ needs.preflight.outputs.source_sha }}"
+      - name: Verify frozen source checkout
+        shell: bash
+        env:
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ needs.preflight.outputs.source_sha }}"
+        run: test "$(git rev-parse --verify HEAD^{commit})" = "$EGGPACK_EXPECTED_SOURCE_SHA"
+
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10
@@ -185,20 +225,31 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   stage:
-    needs: aggregate
+    needs: [ aggregate, preflight ]
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: "ubuntu-latest"
     permissions:
       contents: write
     timeout-minutes: 60
     steps:
+      - name: Resolve and validate immutable release source
+        id: confirm_tag_source
+        shell: bash
+        env:
+          EGGPACK_RELEASE_TAG: "${{ github.ref_name }}"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ needs.preflight.outputs.source_sha }}"
+        run: "set -euo pipefail\ntag=\"$EGGPACK_RELEASE_TAG\"\nif [ \"${#tag}\" -gt 255 ] || [ -z \"$tag\" ]; then\n  echo 'release tag is empty or oversized' >&2\n  exit 1\nfi\nref=\"refs/tags/$tag\"\ngit check-ref-format \"$ref\"\naskpass=\"$RUNNER_TEMP/eggpack-tag-askpass\"\ncat >\"$askpass\" <<'ASKPASS'\n#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' x-access-token ;;\n  *Password*) printf '%s\\n' \"$EGGPACK_GIT_TOKEN\" ;;\n  *) exit 1 ;;\nesac\nASKPASS\nchmod 700 \"$askpass\"\nrefs=\"$(GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 EGGPACK_GIT_TOKEN=\"$GITHUB_TOKEN\" git ls-remote --exit-code \"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git\" \"$ref\" \"$ref^{}\")\"\nrm -f -- \"$askpass\"\ndirect=\npeeled=\nwhile IFS=\"$(printf '\\t')\" read -r oid name; do\n  case \"$name\" in\n    \"$ref\") [ -z \"$direct\" ] || { echo 'duplicate tag ref result' >&2; exit 1; }; direct=\"$oid\" ;;\n    \"$ref^{}\") [ -z \"$peeled\" ] || { echo 'duplicate peeled tag result' >&2; exit 1; }; peeled=\"$oid\" ;;\n    *) echo 'unexpected tag resolution result' >&2; exit 1 ;;\n  esac\ndone <<< \"$refs\"\nsource_sha=\"${peeled:-$direct}\"\nif [[ ! \"$source_sha\" =~ ^[0-9a-f]{40}$ ]]; then\n  echo 'tag did not resolve to one full commit OID' >&2\n  exit 1\nfi\nif [ \"$source_sha\" != \"$EGGPACK_EXPECTED_SOURCE_SHA\" ]; then\n  echo 'release tag moved after preflight resolution' >&2\n  exit 1\nfi\n"
       - name: Check out source
         uses: "actions/checkout@0123456789abcdef0123456789abcdef01234567"
         with:
-          ref: "${{ github.ref }}"
-      - name: Validate exact-tag source
+          ref: "${{ needs.preflight.outputs.source_sha }}"
+      - name: Verify frozen source checkout
         shell: bash
-        run: "test \"${{ github.event_name }}\" = \"push\" && test \"${{ github.ref_type }}\" = \"tag\""
+        env:
+          EGGPACK_EXPECTED_SOURCE_SHA: "${{ needs.preflight.outputs.source_sha }}"
+        run: test "$(git rev-parse --verify HEAD^{commit})" = "$EGGPACK_EXPECTED_SOURCE_SHA"
+
       - name: Install pinned Eggpack tool
         shell: bash
         timeout-minutes: 10

@@ -90,6 +90,16 @@ its release command. See
 [release-identity-policy.md](../docs/release-identity-policy.md) for the
 checked-in policy spelling and grammar.
 
+Staging renderers resolve the selected tag with `git ls-remote` in preflight,
+before the first source checkout. Lightweight tags use their direct object;
+annotated tags use the peeled object. The resolver requires one full commit OID
+and exports only that OID as a job output. All subsequent checkouts use the
+output, then compare `HEAD^{commit}` with it before invoking Eggpack. The stage
+job resolves the tag again and rejects movement since preflight. An optional
+`GitHubStagingPolicyV1.environment` renders `environment.name` on `stage` only;
+GitHub Environment creation and reviewer configuration remain repository-owner
+operations and are not inferred by the renderer.
+
 One correction worth recording: despite the name, no `workflow_call` trigger is
 emitted, and `workflow_call` does not appear anywhere in the workspace sources.
 The reusable renderer emits the same `WorkflowTrigger` set as the exact renderer
