@@ -36,7 +36,7 @@ Invalid tags, missing refs, resolution ambiguity/failure, invalid OIDs, or check
 
 ## Verification
 
-Run focused `eggpack-ci` tests; `cargo fmt --all -- --check`; `cargo test --workspace --all-targets --all-features --locked`; `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `scripts/check-local.sh`; and hosted Linux stable/MSRV/macOS/Windows CI. Regenerate wg-basic workflow at the new immutable producer revision and run its release-contract, native candidate, and systemd lifecycle lanes. Do not stage or publish any release. Local `scripts/check-local.sh` passed on 2026-10-10; hosted qualification and downstream evidence are pending.
+Run focused `eggpack-ci` tests; `cargo fmt --all -- --check`; `cargo test --workspace --all-targets --all-features --locked`; `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `scripts/check-local.sh`; and hosted Linux stable/MSRV/macOS/Windows CI. Regenerate wg-basic workflow at the new immutable producer revision and run its release-contract, native candidate, and systemd lifecycle lanes. Do not stage or publish any release. Local `scripts/check-local.sh` passed on 2026-10-10; hosted run `38027143275` passed all four lanes on the current producer head. Independent PR review/merge and downstream evidence are pending.
 
 ## Acceptance and closure
 

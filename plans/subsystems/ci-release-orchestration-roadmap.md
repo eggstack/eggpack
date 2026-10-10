@@ -102,7 +102,7 @@ M003i identity-separation corrective: `plans/implementation/ci-release-orchestra
 
 M003j dispatch-tag shell-injection corrective: `plans/implementation/ci-release-orchestration/003j-dispatch-tag-shell-injection-corrective.md` (**closed** at `plans/closure/ci-release-orchestration/003j-status.md`; implementation `559d940af0fe6a2951eb17de1fcbecbf9e0bb6ce`, hosted run `37987890305`, four platform lanes green). It removes executable interpolation and qualifies data-only tag validation. The separate pre-checkout ordering and stage-environment gaps are registered as M003k.
 
-M003k pre-checkout tag resolution and stage-environment support: `plans/implementation/ci-release-orchestration/003k-precheckout-tag-resolution-and-stage-environment.md` (**ready**; downstream wg-basic R001 at `bd7c085` requires source resolution before checkout and a reviewer-gated stage job).
+M003k pre-checkout tag resolution and stage-environment support: `plans/implementation/ci-release-orchestration/003k-precheckout-tag-resolution-and-stage-environment.md` (**in progress**; PR `eggstack/eggpack#1`, producer head `23d9f0347d89fd6ecd916692c145152e39de687f`, local gate and hosted run `38027143275` passed; independent review/merge and downstream qualification remain).
 
 ## 8. Cross-cutting requirements
 
@@ -145,7 +145,7 @@ Build/Qualification M001-M006 and CI M001/M002/M002a/M003c-M003g are closed on t
 | M003h live qualification status reconciliation + main integration | closed | `plans/implementation/ci-release-orchestration/003h-live-qualification-status-reconciliation-and-main-integration.md` | `plans/closure/ci-release-orchestration/003h-status.md` | current `main@404f63ec` was merged by `609d5fb`; status reconciled, full verification passed, and `main` fast-forwarded without force |
 | M003i explicit tag and manifest release identity corrective | closed | `plans/implementation/ci-release-orchestration/003i-explicit-tag-and-manifest-release-identity-corrective.md` | `plans/closure/ci-release-orchestration/003i-status.md`; implementation `3ddac9d84fc2e10b8451d38672f66b02e06724df`; hosted run `37813044035` passed all four lanes | Finite checked-in opt-in stable-tag mapping with explicitly versioned runtime envelope; legacy exact-tag workflow bytes and ReleaseManifest v1 remain unchanged; wg-basic M003 may resume against the immutable producer SHA |
 | M003j dispatch tag shell-injection corrective | closed | `plans/implementation/ci-release-orchestration/003j-dispatch-tag-shell-injection-corrective.md` | `plans/closure/ci-release-orchestration/003j-status.md`; implementation `559d940af0fe6a2951eb17de1fcbecbf9e0bb6ce`; hosted run `37987890305` all four lanes green | Injection is fixed; pre-checkout ordering and stage environment remain M003k requirements |
-| M003k pre-checkout tag resolution + stage approval gate | ready | `plans/implementation/ci-release-orchestration/003k-precheckout-tag-resolution-and-stage-environment.md` | downstream baseline `dbowm91/wg-basic@bd7c085d191ccf147e0f4dab72fde7cc8818f3fd`; producer baseline `eggstack/eggpack@559d940af0fe6a2951eb17de1fcbecbf9e0bb6ce` |
+| M003k pre-checkout tag resolution + stage approval gate | in progress | `plans/implementation/ci-release-orchestration/003k-precheckout-tag-resolution-and-stage-environment.md` | PR `eggstack/eggpack#1` at `23d9f0347d89fd6ecd916692c145152e39de687f`; run `38027143275` all four lanes green; independent review/merge and downstream `dbowm91/wg-basic` qualification pending |
 
 ## 13. 2026-10-08 corrective addendum — M003i
 
