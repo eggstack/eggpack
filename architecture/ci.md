@@ -1,7 +1,7 @@
 # `eggpack-ci` — Deep Dive
 
 Crate-level orientation for `eggpack-ci`: the largest component in the workspace
-at 10256 lines in a single `src/lib.rs`. This file explains how that file divides
+at 10772 lines in a single `src/lib.rs`. This file explains how that file divides
 and what flows through it. It does not restate per-area detail — three deep
 dives cover the parts.
 
@@ -18,7 +18,7 @@ Code baseline `fc072af`.
 
 | Deep dive | Owns | Approximate region of `src/lib.rs` |
 |---|---|---|
-| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:418-1843`, `:2926-3846` |
+| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:1066-2100`, `:3080-4005` |
 | [ci-consumer-seam.md](ci-consumer-seam.md) | the external consumer validator, runtime identity, artifact handoff formats | `:1844-2209`, `:3847-4432`, `:4432-4596` |
 | this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `:42-453`, `:2210-2742`, `:2743-2925` |
 

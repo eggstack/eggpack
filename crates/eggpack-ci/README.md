@@ -32,6 +32,16 @@ checkouts, and authorizes staging only for dispatches. Each job verifies
 `HEAD^{commit}` against the checked-in `ReleasePlan.source_revision` before
 release work; `ci check` compares the complete deterministic workflow.
 
+For staging workflows, the first job validates the selected tag and resolves it
+to a full commit OID with `git ls-remote` before checking out source. Annotated
+tags are peeled to their commit. Every later checkout uses that frozen OID and
+checks `HEAD^{commit}` before invoking Eggpack. Dispatch tags are bounded data
+in `EGGPACK_RELEASE_TAG`, never executable workflow text. An optional
+`GitHubStagingPolicyV1.environment` names a preconfigured GitHub Environment on
+the write-authorized `stage` job only; repository owners configure its required
+reviewers separately. Eggpack does not create the environment or grant its
+approval.
+
 M003d adds the consumer release composition seam without absorbing
 product-owned release semantics. Static checked-in workflow shape
 (`ReleaseWorkflowShapeV1`: canonical targets, build/core-qualification
