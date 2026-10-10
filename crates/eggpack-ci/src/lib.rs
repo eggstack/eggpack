@@ -3041,7 +3041,7 @@ fn release_tag_resolution_script(mapped_semver: bool, expected_sha: Option<&str>
         );
     }
     script.push_str(
-        "ref=\"refs/tags/$tag\"\ngit check-ref-format \"$ref\"\naskpass=\"$RUNNER_TEMP/eggpack-tag-askpass\"\ncat >\"$askpass\" <<'ASKPASS'\n#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' x-access-token ;;\n  *Password*) printf '%s\\n' \"$EGGPACK_GIT_TOKEN\" ;;\n  *) exit 1 ;;\nesac\nASKPASS\nchmod 700 \"$askpass\"\nrefs=\"$(GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 EGGPACK_GIT_TOKEN=\"$GITHUB_TOKEN\" git ls-remote --exit-code \"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git\" \"$ref\" \"$ref^{}\")\"\nrm -f -- \"$askpass\"\ndirect=\npeeled=\nwhile IFS=\"$(printf '\\t')\" read -r oid name; do\n  case \"$name\" in\n    \"$ref\") [ -z \"$direct\" ] || { echo 'duplicate tag ref result' >&2; exit 1; }; direct=\"$oid\" ;;\n    \"$ref^{}\") [ -z \"$peeled\" ] || { echo 'duplicate peeled tag result' >&2; exit 1; }; peeled=\"$oid\" ;;\n    *) echo 'unexpected tag resolution result' >&2; exit 1 ;;\n  esac\ndone <<< \"$refs\"\nsource_sha=\"${peeled:-$direct}\"\nif [[ ! \"$source_sha\" =~ ^[0-9a-f]{40}$ ]]; then\n  echo 'tag did not resolve to one full commit OID' >&2\n  exit 1\nfi\n",
+        "ref=\"refs/tags/$tag\"\ngit check-ref-format \"$ref\"\naskpass=\"$RUNNER_TEMP/eggpack-tag-askpass\"\nverify_repo=\"$RUNNER_TEMP/eggpack-tag-verify.git\"\ntrap 'rm -f -- \"$askpass\"' EXIT\ncat >\"$askpass\" <<'ASKPASS'\n#!/bin/sh\ncase \"$1\" in\n  *Username*) printf '%s\\n' x-access-token ;;\n  *Password*) printf '%s\\n' \"$EGGPACK_GIT_TOKEN\" ;;\n  *) exit 1 ;;\nesac\nASKPASS\nchmod 700 \"$askpass\"\nremote=\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git\"\nrefs=\"$(GIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 EGGPACK_GIT_TOKEN=\"$GITHUB_TOKEN\" git ls-remote --exit-code \"$remote\" \"$ref\" \"$ref^{}\")\"\ndirect=\npeeled=\nwhile IFS=\"$(printf '\\t')\" read -r oid name; do\n  case \"$name\" in\n    \"$ref\") [ -z \"$direct\" ] || { echo 'duplicate tag ref result' >&2; exit 1; }; direct=\"$oid\" ;;\n    \"$ref^{}\") [ -z \"$peeled\" ] || { echo 'duplicate peeled ref result' >&2; exit 1; }; peeled=\"$oid\" ;;\n    *) echo 'unexpected tag resolution result' >&2; exit 1 ;;\n  esac\ndone <<< \"$refs\"\nsource_sha=\"${peeled:-$direct}\"\nif [[ ! \"$source_sha\" =~ ^[0-9a-f]{40}$ ]]; then\n  echo 'tag did not resolve to one full object OID' >&2\n  exit 1\nfi\ngit init --bare \"$verify_repo\" >/dev/null\nGIT_ASKPASS=\"$askpass\" GIT_TERMINAL_PROMPT=0 EGGPACK_GIT_TOKEN=\"$GITHUB_TOKEN\" git --git-dir=\"$verify_repo\" fetch --no-tags --depth=1 \"$remote\" \"$ref\" >/dev/null\nfetched_commit=\"$(git --git-dir=\"$verify_repo\" rev-parse --verify 'FETCH_HEAD^{commit}')\"\nif [ \"$fetched_commit\" != \"$source_sha\" ]; then\n  echo 'tag did not resolve to the advertised commit object' >&2\n  exit 1\nfi\n"
     );
     if expected_sha.is_some() {
         script.push_str(
@@ -7661,7 +7661,7 @@ mod tests {
         let fake_git = bin.join("git");
         std::fs::write(
             &fake_git,
-            "#!/bin/sh\ncase \"$1\" in\n  check-ref-format) exit 0 ;;\n  ls-remote) shift; shift; shift; ref=\"$1\"; peeled=\"$2\"; printf '%s\\t%s\\n' \"$EGGPACK_FAKE_DIRECT\" \"$ref\"; if [ -n \"$EGGPACK_FAKE_PEELED\" ]; then printf '%s\\t%s\\n' \"$EGGPACK_FAKE_PEELED\" \"$peeled\"; fi ;;\n  *) exit 99 ;;\nesac\n",
+            "#!/bin/sh\ncase \"$1\" in\n  check-ref-format|init) exit 0 ;;\n  ls-remote) shift; shift; shift; ref=\"$1\"; peeled=\"$2\"; printf '%s\\t%s\\n' \"$EGGPACK_FAKE_DIRECT\" \"$ref\"; if [ -n \"$EGGPACK_FAKE_PEELED\" ]; then printf '%s\\t%s\\n' \"$EGGPACK_FAKE_PEELED\" \"$peeled\"; fi ;;\n  --git-dir=*) shift; case \"$1\" in fetch) exit 0 ;; rev-parse) printf '%s\\n' \"${EGGPACK_FAKE_COMMIT:-${EGGPACK_FAKE_PEELED:-$EGGPACK_FAKE_DIRECT}}\" ;; *) exit 99 ;; esac ;;\n  *) exit 99 ;;\nesac\n",
         )
         .unwrap();
         use std::os::unix::fs::PermissionsExt;
@@ -7727,6 +7727,23 @@ mod tests {
         assert!(std::fs::read_to_string(&output_path)
             .unwrap()
             .contains(&format!("source_sha={}\n", "c".repeat(40))));
+        std::fs::write(&output_path, "").unwrap();
+        let non_commit = Command::new("bash")
+            .arg("-c")
+            .arg(script)
+            .env("EGGPACK_RELEASE_TAG", "v1.2.3")
+            .env("GITHUB_TOKEN", "fixture-token")
+            .env("GITHUB_SERVER_URL", "https://github.com")
+            .env("GITHUB_REPOSITORY", "owner/repo")
+            .env("RUNNER_TEMP", &runner_temp)
+            .env("GITHUB_OUTPUT", &output_path)
+            .env("EGGPACK_FAKE_DIRECT", "c".repeat(40))
+            .env("EGGPACK_FAKE_PEELED", "")
+            .env("EGGPACK_FAKE_COMMIT", "d".repeat(40))
+            .env("PATH", &path)
+            .status()
+            .unwrap();
+        assert!(!non_commit.success(), "non-commit tag objects fail closed");
         assert!(
             !marker.exists(),
             "corrected validation must not execute tag text"
