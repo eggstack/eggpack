@@ -2996,8 +2996,34 @@ fn checkout_snippet(out: &mut String, policy: &GitHubPolicy, source_sha: Option<
         out.push_str("\n      - name: Verify frozen source checkout\n        shell: bash\n        env:\n          EGGPACK_EXPECTED_SOURCE_SHA: ");
         out.push_str(&yaml_scalar(reference));
         out.push_str("\n        run: test \"$(git rev-parse --verify HEAD^{commit})\" = \"$EGGPACK_EXPECTED_SOURCE_SHA\"\n");
+        // Frozen SHA checkouts never carry tags (`fetch --no-tags`), but the
+        // runtime identity and source-verification commands require the exact
+        // release tag locally. Fetch only that tag and bind it to the frozen
+        // revision; any peel mismatch fails the job before Eggpack runs.
+        if let Some(staging) = policy.staging.as_ref() {
+            let tag_expression = match staging.tag_source {
+                StagingTagSource::RefName => "${{ github.ref_name }}",
+                StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
+            };
+            out.push_str("      - name: Fetch release tag for local verification\n        shell: bash\n        env:\n          EGGPACK_RELEASE_TAG: ");
+            out.push_str(&yaml_scalar(tag_expression));
+            out.push_str("\n          EGGPACK_EXPECTED_SOURCE_SHA: ");
+            out.push_str(&yaml_scalar(reference));
+            out.push_str("\n        run: ");
+            out.push_str(&yaml_scalar(&release_tag_fetch_script()));
+            out.push('\n');
+        }
     }
     out.push('\n');
+}
+
+/// Validate the dispatch/push tag shape, fetch exactly that tag ref, and
+/// assert it peels to the frozen source revision. The tag value arrives only
+/// via `EGGPACK_RELEASE_TAG`; no workflow expression may appear in this body.
+fn release_tag_fetch_script() -> String {
+    String::from(
+        "set -euo pipefail\ntag=\"$EGGPACK_RELEASE_TAG\"\nif [ -z \"$tag\" ] || [ \"${#tag}\" -gt 128 ]; then\n  echo 'release tag is empty or oversized' >&2\n  exit 1\nfi\nref=\"refs/tags/$tag\"\ngit check-ref-format \"$ref\"\ngit fetch --no-tags --depth=1 origin \"$ref:$ref\"\npeeled=\"$(git rev-parse --verify \"$ref^{commit}\")\"\nif [ \"$peeled\" != \"$EGGPACK_EXPECTED_SOURCE_SHA\" ]; then\n  echo 'release tag does not peel to the frozen source revision' >&2\n  exit 1\nfi\n",
+    )
 }
 
 fn frozen_source_sha_expression(runtime: bool) -> &'static str {
@@ -7496,8 +7522,20 @@ mod tests {
             dispatch
                 .matches("EGGPACK_RELEASE_TAG: \"${{ inputs.release_tag }}\"")
                 .count(),
-            2
+            8
         );
+        // Every frozen SHA checkout (no tags fetched) is immediately followed
+        // by exactly one tag-fetch step bound to the same frozen revision, so
+        // the runtime tag check cannot pass without, or drift from, the
+        // checkout it verifies.
+        let frozen = dispatch
+            .matches("- name: Verify frozen source checkout")
+            .count();
+        let fetches = dispatch
+            .matches("- name: Fetch release tag for local verification")
+            .count();
+        assert_eq!(fetches, frozen);
+        assert!(frozen > 0);
         assert!(!dispatch.contains("if: github.event_name == 'push' && github.ref_type == 'tag'"));
         let parsed: serde_yaml::Value = serde_yaml::from_str(&dispatch).unwrap();
         assert!(!contains_unsafe_dispatch_expression_in_run(&dispatch));
