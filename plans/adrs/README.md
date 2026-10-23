@@ -37,7 +37,11 @@ Use an ADR when a decision establishes ownership, a public compatibility contrac
 
 ## Proposed records
 
-None.
+- ADR-0006 — release evidence digest acceptance set. Decides whether the
+  all-zeros SHA-256 sentinel is refused by every producer path and whether the
+  published `ReleaseManifest` acceptance set narrows, which is a compatibility
+  change to the published `eggpack-manifest` crate. Gates the
+  digest-acceptance work package of CI M003l only.
 
 ## Accepted records
 

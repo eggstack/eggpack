@@ -66,9 +66,23 @@ Closure record: `plans/closure/planning-hygiene/002-status.md`.
 
 Outcome: docs/evidence-only. It removed the stale post-closure M003/M003a/M003b control-surface text, collapsed the duplicated and self-contradicting `AGENTS.md` current-handoff paragraph into one statement sourced from the registry, and bound the handoff to the exact registered paired-plan paths. The production/package/workflow diff is empty.
 
+### M003 — Post-implementation-review baseline reconciliation
+
+Class: planning / documentation hygiene / architecture-citation reconciliation
+
+Implementation plan:
+
+`plans/implementation/planning-hygiene/003-post-implementation-review-baseline-reconciliation.md`
+
+Status: ready.
+
+Closure record: — (to be written at `plans/closure/planning-hygiene/003-status.md`).
+
+Outcome: docs/evidence-only. It re-bases the `architecture/` citation set and the per-crate line-count table **by symbol name**, against a measured baseline, closing the `ci-consumer-seam.md` stale anchors and the residual `cli.md` drift that `architecture/overview.md` already names as outstanding. It rewrites the `AGENTS.md` current-handoff paragraph so it names CI M003k as the in-progress milestone and the review chain registered alongside it, completes `crates/eggpack-cli/README.md` into the full command reference that `docs/README.md` and `docs/quickstart.md` already promise, and registers ADR-0006 and the seven review-chain milestones in the registry, the ADR index, and the affected subsystem roadmaps. It changes no file under `crates/**` and rewrites no closure record.
+
 ## 5. Completion definition
 
-The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition for its evidence set on 2026-10-04; M002 met it for the later Contract M003, Bootstrap M003, and Ecosystem M003a closures, so the planning-hygiene line has no open work.
+The planning-hygiene line is complete when active control surfaces no longer contradict reviewed evidence and each blocked/future line has an exact disposition without inventing implementation work. M001 met that condition for its evidence set on 2026-10-04; M002 met it for the later Contract M003, Bootstrap M003, and Ecosystem M003a closures. M003 reopens the line because the 2026-10-23 post-implementation review found that the architecture index, the `AGENTS.md` handoff, and the CLI command reference had all drifted from the code they describe, and because the review chain it registers must appear in the registry and the affected roadmaps.
 
 ## 6. Milestone status
 
@@ -76,3 +90,4 @@ The planning-hygiene line is complete when active control surfaces no longer con
 |---|---|---|---|---|
 | M001 current evidence baseline + blocker reconciliation | closed | `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md` | `plans/closure/planning-hygiene/001-status.md` | none; docs/evidence-only, zero production/package/workflow delta |
 | M002 post-M003a cross-repository handoff reconciliation | closed | `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md` | `plans/closure/planning-hygiene/002-status.md` | none; docs/evidence-only, empty production/package/workflow diff, handoff bound to exact paired-plan paths |
+| M003 post-implementation-review baseline reconciliation | ready | `plans/implementation/planning-hygiene/003-post-implementation-review-baseline-reconciliation.md` | — | none; docs/evidence-only. Re-bases `architecture/` citations by symbol name, rewrites the `AGENTS.md` handoff, completes the CLI command reference, and registers the review chain |
