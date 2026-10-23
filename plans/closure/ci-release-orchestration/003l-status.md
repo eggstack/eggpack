@@ -52,9 +52,9 @@ What remains in `eggpack-ci` are **thin delegations that keep the crate's own di
 
 | Location | Change |
 |---|---|
-| `crates/eggpack-ci/src/lib.rs:589` | `pub fn validate_sha256_hex` now applies `eggpack_core::validate_sha256_hex` and maps the refusal to the CI crate's own `"invalid SHA-256 digest"`. |
-| `crates/eggpack-ci/src/lib.rs:4639` | `fn hash_candidate_file` now returns `Result<(u64, String), eggpack_core::DigestError>` and delegates to `eggpack_core::file_digest`. **There is no longer a `(0, String::new())` sentinel success value and no empty digest on any path.** |
-| `crates/eggpack-ci/src/lib.rs:4886` | `fn validate_exact_tag` delegates to `eggpack_core::validate_exact_tag_safety` and maps each refusal class to the CI crate's existing message wording. |
+| `crates/eggpack-ci/src/policy.rs:161` | `pub fn validate_sha256_hex` now applies `eggpack_core::validate_sha256_hex` and maps the refusal to the CI crate's own `"invalid SHA-256 digest"`. |
+| `crates/eggpack-ci/src/consumer_validator.rs:477` | `fn hash_candidate_file` now returns `Result<(u64, String), eggpack_core::DigestError>` and delegates to `eggpack_core::file_digest`. **There is no longer a `(0, String::new())` sentinel success value and no empty digest on any path.** |
+| `crates/eggpack-ci/src/validate.rs:31` | `fn validate_exact_tag` delegates to `eggpack_core::validate_exact_tag_safety` and maps each refusal class to the CI crate's existing message wording. |
 | `crates/eggpack-ci/src/lib.rs` | `CIPlan::validate` applies the core policy validation instead of re-deriving the host match and the floor rules. |
 
 ### `eggpack-github` — two copies deleted

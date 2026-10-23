@@ -32,12 +32,12 @@ Nothing was weakened. The consumer validator's **contract** is unchanged — `Co
 
 | Location | Change |
 |---|---|
-| `crates/eggpack-ci/src/lib.rs` | **Deleted**: `read_limited`, `read_limited_stderr`, `drain_readers` (the unbounded `join()`), `take_finished_over`, and `validator_command`. |
-| `crates/eggpack-ci/src/lib.rs` | **Added**: `validator_spec`, which builds an `eggpack_core::InterpreterCommandSpec`. `run_interpreter_preflight` and `run_validator_process` now call `eggpack_core::run_interpreter_bounded`. The CI crate's local `Command` construction, `env_clear`, kill logic, and reader threads are gone entirely. |
+| `crates/eggpack-ci/src/consumer_validator.rs` | **Deleted**: `read_limited`, `read_limited_stderr`, `drain_readers` (the unbounded `join()`), `take_finished_over`, and `validator_command`. |
+| `crates/eggpack-ci/src/consumer_validator.rs` | **Added**: `validator_spec` (`:293`), which builds an `eggpack_core::InterpreterCommandSpec`. `run_interpreter_preflight` (`:488`) and `run_validator_process` (`:521`) now call `eggpack_core::run_interpreter_bounded`. The CI crate's local `Command` construction, `env_clear`, kill logic, and reader threads are gone entirely. |
 
 ### The grep evidence
 
-The CI crate's **production region** — everything before its `#[cfg(test)]` module, which begins at line 4929 — contains **zero** occurrences of `Command::new`, `.spawn()`, `group_spawn`, `.kill()`, `thread::spawn`, `JoinHandle`, `Stdio::`, or `env_clear`. The CI crate's only two process entry points are calls to `eggpack_core::run_interpreter_bounded` (at lines 4649 and 4906). The CI-local symbols (`read_limited`, `drain_readers`, `take_finished_over`, `validator_command`) return no matches at all.
+The CI crate's **production region** — every module outside `src/tests.rs`, which is declared out of line by `crates/eggpack-ci/src/lib.rs:18-19` — contains **zero** occurrences of `Command::new`, `.spawn()`, `group_spawn`, `.kill()`, `thread::spawn`, `JoinHandle`, `Stdio::`, or `env_clear`. The CI crate's only two process entry points are calls to `eggpack_core::run_interpreter_bounded` (at `crates/eggpack-ci/src/consumer_validator.rs:504` and `:535`). The CI-local symbols (`read_limited`, `drain_readers`, `take_finished_over`, `validator_command`) return no matches at all.
 
 ## The outcome mapping, asserted
 

@@ -17,7 +17,9 @@ Zig provisioning, path rules), `release_plan.rs` (orchestration graph),
 > **Citation state.** The anchors below were re-based by symbol name in the
 > 2026-10-23 post-implementation review pass and read against the tree at the
 > SHA pinned in [overview.md](overview.md) §Baseline. `crates/eggpack-ci/src/lib.rs`
-> is now the 59-line crate root; no anchor in this file points into it.
+> is now the 59-line crate root; the only anchor in this file that points into it
+> is the `mod tests;` declaration at `:18-19`. Every other anchor names a module
+> in the crate's module tree.
 
 ## Responsibility
 

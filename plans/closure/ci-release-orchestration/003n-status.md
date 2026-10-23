@@ -29,10 +29,10 @@ The CI crate had **three** check functions whose bodies were byte-identical afte
 
 | Location | Change |
 |---|---|
-| `crates/eggpack-ci/src/lib.rs:1860` | `fn compare_workflow_bytes(expected: &[u8], existing: &[u8]) -> Result<DriftReport, CiError>` — the one drift comparison. It takes the **already-rendered** expected bytes, and keeps, in this order and unchanged: the `MAX_WORKFLOW_BYTES` bound on the existing bytes; `normalize_newlines` applied to **both** the expected and the existing bytes (CRLF to LF only); the equality comparison; the first-difference byte offset computed over the normalized bytes, with the shorter length as the fallback; and the `DriftReport` construction with `expected_bytes`, `actual_bytes`, and `first_difference`. |
-| `crates/eggpack-ci/src/lib.rs:1887` | `pub fn check_github` — unchanged signature, now renders and delegates. |
-| `crates/eggpack-ci/src/lib.rs:3255` | `pub fn check_reusable_release_github` — unchanged signature, now renders and delegates. |
-| `crates/eggpack-ci/src/lib.rs:4296` | `pub fn check_release_github` — unchanged signature, now renders and delegates. |
+| `crates/eggpack-ci/src/drift.rs:33` | `fn compare_workflow_bytes(expected: &[u8], existing: &[u8]) -> Result<DriftReport, CiError>` — the one drift comparison. It takes the **already-rendered** expected bytes, and keeps, in this order and unchanged: the `MAX_WORKFLOW_BYTES` bound on the existing bytes; `normalize_newlines` applied to **both** the expected and the existing bytes (CRLF to LF only); the equality comparison; the first-difference byte offset computed over the normalized bytes, with the shorter length as the fallback; and the `DriftReport` construction with `expected_bytes`, `actual_bytes`, and `first_difference`. |
+| `crates/eggpack-ci/src/drift.rs:63` | `pub fn check_github` — unchanged signature, now renders and delegates. |
+| `crates/eggpack-ci/src/drift.rs:88` | `pub fn check_reusable_release_github` — unchanged signature, now renders and delegates. |
+| `crates/eggpack-ci/src/drift.rs:99` | `pub fn check_release_github` — unchanged signature, now renders and delegates. |
 
 All three are now two-line functions. Verified by reading the source: each contains exactly one call to `compare_workflow_bytes` and no duplicated comparison logic.
 
@@ -42,19 +42,19 @@ The 845-line function interleaved several concerns. It is now a sequence of name
 
 | Concern | Helper |
 |---|---|
-| render state | `ReleaseRenderContext` (`crates/eggpack-ci/src/render_release.rs:379`) |
-| policy and shape validation | `validate_release_render_policy` (`crates/eggpack-ci/src/render_release.rs:417`) |
-| release-identity mode resolution | `validate_release_identity_mode` (`crates/eggpack-ci/src/render_release.rs:430`) |
-| trigger and input cross-checks | `validate_staging_trigger_match` (`crates/eggpack-ci/src/render_release.rs:451`) |
-| tool-pin validation | `validate_release_tool_pins` (`crates/eggpack-ci/src/render_release.rs:474`) |
-| emulated-runtime policy | `validate_emulated_runtime_policy` (`crates/eggpack-ci/src/render_release.rs:497`) |
-| consumer-validator map | `resolve_consumer_validator_map` (`crates/eggpack-ci/src/render_release.rs:525`) |
+| render state | `ReleaseRenderContext` (`crates/eggpack-ci/src/render_release.rs:370`) |
+| policy and shape validation | `validate_release_render_policy` (`crates/eggpack-ci/src/render_release.rs:408`) |
+| release-identity mode resolution | `validate_release_identity_mode` (`crates/eggpack-ci/src/render_release.rs:421`) |
+| trigger and input cross-checks | `validate_staging_trigger_match` (`crates/eggpack-ci/src/render_release.rs:442`) |
+| tool-pin validation | `validate_release_tool_pins` (`crates/eggpack-ci/src/render_release.rs:465`) |
+| emulated-runtime policy | `validate_emulated_runtime_policy` (`crates/eggpack-ci/src/render_release.rs:488`) |
+| consumer-validator map | `resolve_consumer_validator_map` (`crates/eggpack-ci/src/render_release.rs:516`) |
 | step emission | `emit_source_checkout_step`, `emit_runtime_identity_download_step`, `emit_tool_install_and_verify_steps` |
-| header and permission emission | `emit_release_workflow_header` (`crates/eggpack-ci/src/render_release.rs:567`) |
+| header and permission emission | `emit_release_workflow_header` (`crates/eggpack-ci/src/render_release.rs:558`) |
 | job emission | `emit_preflight_job`, `emit_resolve_job`, `emit_build_jobs`, `emit_qualification_jobs`, `emit_consumer_validation_jobs`, `emit_gate_job`, `emit_aggregate_job`, `emit_stage_job` |
-| final shape validation | `validate_rendered_release_workflow` (`crates/eggpack-ci/src/render_release.rs:1316`) |
+| final shape validation | `validate_rendered_release_workflow` (`crates/eggpack-ci/src/render_release.rs:1307`) |
 
-`render_release_github_inner` (`crates/eggpack-ci/src/render_release.rs:1370`) remains the single entry point, and the public `render_release_github` and `render_reusable_release_github` signatures are unchanged.
+`render_release_github_inner` (`crates/eggpack-ci/src/render_release.rs:1361`) remains the single entry point, and the public `render_release_github` and `render_reusable_release_github` signatures are unchanged.
 
 ### One staging-payload builder
 
@@ -143,8 +143,8 @@ After the split, `diff -r` reports **no differences** and the SHA-256 digests ar
 
 | Plan requirement | Evidence and result |
 |---|---|
-| §5.1 — one drift comparison, with the order of the bound, the normalization, the comparison, the first-difference fallback, and the report unchanged | `compare_workflow_bytes` (`:1860`); the three check functions are two-line delegators. |
-| §5.2 — one staging-payload builder, with the presentation selecting only the presentation-specific work | `prepare_staging_payload_with_presentation_inner` (`:1012`); two thin entry points. |
+| §5.1 — one drift comparison, with the order of the bound, the normalization, the comparison, the first-difference fallback, and the report unchanged | `compare_workflow_bytes` (`crates/eggpack-ci/src/drift.rs:33`); the three check functions are two-line delegators. |
+| §5.2 — one staging-payload builder, with the presentation selecting only the presentation-specific work | `prepare_staging_payload_with_presentation_inner` (`crates/eggpack-github/src/lib.rs:1012`); two thin entry points. |
 | §5.3 — `render_release_github_inner` decomposed by concern, with unchanged public signatures | The helper table above; `render_release_github` and `render_reusable_release_github` unchanged. |
 | §5.4 — the CI crate becomes a module tree, with the public API re-exported identically so no consumer changes an import | Recorded in the module-split section below. |
 | §5.5 — no behaviour change | The byte-identity evidence above and below. |
@@ -200,7 +200,7 @@ git diff --check                                                            pass
 |---|---|---|
 | Resolved in this milestone (medium, maintenance) | Three byte-identical drift-check bodies, two staging-payload builders that were 85.5% identical, and an 845-line renderer that interleaved several concerns. | All consolidated, with byte-identical output proven by before/after comparison. |
 | Low (test coverage) | The reusable-workflow golden is pinned by SHA-256 and length rather than by a fixture file. | Deliberate: the milestone's stated file allow-list did not include a new fixture file, and a digest pins the same bytes. Recorded here rather than left implicit. |
-| Low (documentation debt, carried to Planning Hygiene M003) | `architecture/overview.md`, `architecture/cli.md`, `architecture/determinism.md`, `architecture/validation-model.md`, and `architecture/ci-consumer-seam.md` carry **pre-existing stale citations** — for example `determinism.md` cites `normalize_newlines` at `:1818-1831` where it now lives at `:1895-1908`, and `cli.md` cites `prepare_staging_payload` at `:1550` where it now lives at `:663`. | Out of this milestone's scope by design: the consolidation half re-based only the citations in the sections it moved. The full by-symbol-name re-base is Planning Hygiene M003's job, and it is the next milestone. |
+| Low (documentation debt, carried to Planning Hygiene M003) | `architecture/overview.md`, `architecture/cli.md`, `architecture/determinism.md`, `architecture/validation-model.md`, and `architecture/ci-consumer-seam.md` carried **pre-existing stale citations** at the time of this milestone. | Out of this milestone's scope by design: the consolidation half re-based only the citations in the sections it moved. The full by-symbol-name re-base is Planning Hygiene M003's job, and it is the next milestone. |
 | Operational boundary | Verification ran on Linux x86-64 only. The macOS and Windows lanes are covered by hosted CI only, and no hosted run was performed because nothing was pushed. | Accepted; the same boundary every prior milestone recorded. |
 | None | No unresolved medium-or-higher defect in the corrected producer structure. | M003n acceptance criteria satisfied. |
 
