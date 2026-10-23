@@ -211,12 +211,12 @@ goes through the same atomic writer the `ci` family uses.
 Three naming and placement details are worth stating plainly, because they are
 where a reader's expectation and the implementation differ:
 
-- **`--candidates-dir` is the per-target artifact root**, not the
+- **`--artifacts-dir` is the per-target artifact root**, not the
   `candidates/` directory inside it. `qualify` reads
-  `<candidates-dir>/<target>/build-handoff.json` (`operator.rs:534-539`) and
+  `<artifacts-dir>/<target>/build-handoff.json` (`operator.rs:534-539`) and
   `collect` reads the same layout through `collect_finalization_inputs`
-  (`operator.rs:617`, `main.rs:748-782`). The flag is named after what the directory
-  contains.
+  (`operator.rs:617`, `main.rs:748-782`). The flag is named after the
+  directory it points at, not after the `candidates/` subdirectory it holds.
 - **`collect` writes the manifest beside the finalized root**, in
   `--output-root`'s parent (`operator.rs:597-601`, `operator.rs:644-647`), while
   `ci _aggregate` writes it beside `--output` (`1456-1459`). The two are

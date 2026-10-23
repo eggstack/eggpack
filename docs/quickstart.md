@@ -274,7 +274,7 @@ $EGGPACK qualify \
   --release-plan out/release-plan.json \
   --build-bindings build-bindings.toml \
   --qualification-bindings qualification-bindings.toml \
-  --candidates-dir out/build \
+  --artifacts-dir out/build \
   --output-dir out/qualification
 ```
 
@@ -284,7 +284,7 @@ Expected output:
 qualify: ok
 ```
 
-`--candidates-dir` is the **per-target artifact root** written by `package` —
+`--artifacts-dir` is the **per-target artifact root** written by `package` —
 the directory that holds `<target>/build-handoff.json` and `<target>/candidates/`,
 not the `candidates/` directory itself. The output directory mirrors that
 layout:
@@ -314,7 +314,7 @@ $EGGPACK collect \
   --release-plan out/release-plan.json \
   --build-bindings build-bindings.toml \
   --qualification-bindings qualification-bindings.toml \
-  --candidates-dir out/qualification \
+  --artifacts-dir out/qualification \
   --output-root out/release/finalized
 ```
 
@@ -335,7 +335,7 @@ eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256
 
 The parent of `--output-root` must already exist — `out/release` is created
 here — because the finalizer writes one *new* release root under a
-caller-secured parent and never overwrites an existing one. `--candidates-dir`
+caller-secured parent and never overwrites an existing one. `--artifacts-dir`
 is again the per-target artifact root, this time the one `qualify` wrote.
 
 `release-manifest.json` lands **beside** the finalized root, never inside it.
@@ -368,7 +368,7 @@ $ diff out/release/release-manifest.json out/manifest/release-manifest.json
 ```
 
 `--output`'s parent directory must already exist, as for every command that
-writes a file. `--candidates-dir` is optional and is needed only for archive
+writes a file. `--artifacts-dir` is optional and is needed only for archive
 targets, whose member digests are facts about the member bytes the finalized
 tree does not retain.
 

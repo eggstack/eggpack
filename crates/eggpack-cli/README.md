@@ -63,14 +63,14 @@ statement that no command in this set stages or publishes. For example:
 ```text
 $ eggpack collect --help
 eggpack collect — release aggregation
-usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --candidates-dir <path> --output-root <path>
+usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path>
 class: release aggregation
 No command in this set stages or publishes.
 ```
 
 **Argument surface.** These six commands use a strict parser, not the loose
 helper the `ci` family uses. Every flag is required exactly once (except
-`manifest`'s optional `--candidates-dir`), may be written `--flag value` or
+`manifest`'s optional `--artifacts-dir`), may be written `--flag value` or
 `--flag=value`, and must have a non-empty value. A repeated flag, an unknown
 option, a positional argument, or a missing required flag is an error, and the
 missing flags are listed in sorted order:
@@ -168,7 +168,7 @@ Success prints `package: ok`.
 ### `eggpack qualify`
 
 ```text
-usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --candidates-dir <path> --output-dir <path>
+usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-dir <path>
 ```
 
 | Flag | Meaning |
@@ -177,15 +177,16 @@ usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings 
 | `--release-plan` | The `ReleasePlan` JSON. |
 | `--build-bindings` | Build bindings document. |
 | `--qualification-bindings` | Per-target qualification bindings. |
-| `--candidates-dir` | The **per-target artifact root** to qualify: the directory holding `<target>/build-handoff.json` and `<target>/candidates/`. |
+| `--artifacts-dir` | The **per-target artifact root** to qualify: the directory holding `<target>/build-handoff.json` and `<target>/candidates/`. |
 | `--output-dir` | Where the qualification artifact directories are written. |
 
-> `--candidates-dir` is named after what it contains, not after the directory
-> it points at. It is the root written by `eggpack package`, not the
-> `candidates/` directory inside it.
+> `--artifacts-dir` is the **per-target artifact root**: the directory that
+> holds one subdirectory per target, each with that target's
+> `build-handoff.json` and `candidates/`. It is the root `eggpack package`
+> writes — not the `candidates/` directory inside a target's directory.
 
 **Reads** the four documents plus the handoff and candidate bytes under
-`--candidates-dir`. **Writes**, under `--output-dir`, one directory per
+`--artifacts-dir`. **Writes**, under `--output-dir`, one directory per
 target holding `evidence.json`, `build-handoff.json`, and `candidates/`.
 
 The evidence records the planned and actual classification, the actual host
@@ -201,7 +202,7 @@ Success prints `qualify: ok`.
 ### `eggpack collect`
 
 ```text
-usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --candidates-dir <path> --output-root <path>
+usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path>
 ```
 
 | Flag | Meaning |
@@ -210,11 +211,11 @@ usage: eggpack collect --contract <path> --release-plan <path> --build-bindings 
 | `--release-plan` | The `ReleasePlan` JSON. |
 | `--build-bindings` | Build bindings document. |
 | `--qualification-bindings` | Per-target qualification bindings. |
-| `--candidates-dir` | The **per-target artifact root** to aggregate: the directory written by `eggpack qualify`. |
+| `--artifacts-dir` | The **per-target artifact root** to aggregate: the directory written by `eggpack qualify`. |
 | `--output-root` | The new release root to finalize into. |
 
 **Reads** the four documents plus the handoff, evidence, and candidate bytes
-under `--candidates-dir`. **Writes** the finalized release tree under
+under `--artifacts-dir`. **Writes** the finalized release tree under
 `--output-root`, and `release-manifest.json` **beside** that root — never
 inside it.
 
@@ -231,7 +232,7 @@ Success prints `collect: ok`.
 ### `eggpack manifest`
 
 ```text
-usage: eggpack manifest --contract <path> --release-plan <path> --finalized-root <path> --output <path> [--candidates-dir <path>]
+usage: eggpack manifest --contract <path> --release-plan <path> --finalized-root <path> --output <path> [--artifacts-dir <path>]
 ```
 
 | Flag | Meaning |
@@ -240,7 +241,7 @@ usage: eggpack manifest --contract <path> --release-plan <path> --finalized-root
 | `--release-plan` | The `ReleasePlan` JSON. |
 | `--finalized-root` | The finalized release tree to read the final bytes from. |
 | `--output` | Where the derived `release-manifest.json` is written. |
-| `--candidates-dir` | Optional. The per-target artifact root. Required only for archive targets. |
+| `--artifacts-dir` | Optional. The per-target artifact root. Required only for archive targets. |
 
 **Reads** the contract, the plan, and the finalized tree's bytes. **Writes**
 one file, `--output`; its parent directory must already exist.
@@ -249,7 +250,7 @@ The manifest is the *final-bytes evidence*: for each target it records the
 asset form, the artifact name, its size, and its SHA-256. Those are integrity
 facts about the bytes — not a signature and not a provenance claim.
 
-`--candidates-dir` is needed only for archive targets. An archive's member
+`--artifacts-dir` is needed only for archive targets. An archive's member
 digests are facts about the member bytes, which the finalized tree does not
 retain, so they are read from the qualified candidate bytes instead. A direct
 target needs no candidate bytes.

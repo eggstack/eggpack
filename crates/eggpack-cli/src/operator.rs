@@ -65,19 +65,19 @@ pub(crate) const COMMANDS: [OperatorCommand; 6] = [
         name: "qualify",
         class: "build",
         summary: "qualify built candidates and write qualification evidence",
-        usage: "usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --candidates-dir <path> --output-dir <path>",
+        usage: "usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-dir <path>",
     },
     OperatorCommand {
         name: "collect",
         class: "release aggregation",
         summary: "aggregate qualified candidates into a finalized release tree",
-        usage: "usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --candidates-dir <path> --output-root <path>",
+        usage: "usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path>",
     },
     OperatorCommand {
         name: "manifest",
         class: "final-bytes evidence",
         summary: "derive release-manifest.json from a finalized release tree",
-        usage: "usage: eggpack manifest --contract <path> --release-plan <path> --finalized-root <path> --output <path> [--candidates-dir <path>]",
+        usage: "usage: eggpack manifest --contract <path> --release-plan <path> --finalized-root <path> --output <path> [--artifacts-dir <path>]",
     },
 ];
 
@@ -118,7 +118,7 @@ const QUALIFY_FLAGS: [&str; 6] = [
     "release-plan",
     "build-bindings",
     "qualification-bindings",
-    "candidates-dir",
+    "artifacts-dir",
     "output-dir",
 ];
 
@@ -128,7 +128,7 @@ const COLLECT_FLAGS: [&str; 6] = [
     "release-plan",
     "build-bindings",
     "qualification-bindings",
-    "candidates-dir",
+    "artifacts-dir",
     "output-root",
 ];
 
@@ -520,7 +520,7 @@ fn qualify(args: &[String]) -> Result<(), String> {
     let bindings = read_build_bindings(&parsed.get("build-bindings"))?;
     let qualification_bindings =
         read_qualification_bindings(&parsed.get("qualification-bindings"))?;
-    let candidates_dir = PathBuf::from(parsed.get("candidates-dir"));
+    let artifacts_dir = PathBuf::from(parsed.get("artifacts-dir"));
     let output_dir = PathBuf::from(parsed.get("output-dir"));
     reject_symlink_dir(&output_dir, "output dir")?;
     let cwd = std::env::current_dir().map_err(|_| "working directory is unavailable".to_owned())?;
@@ -531,7 +531,7 @@ fn qualify(args: &[String]) -> Result<(), String> {
     // qualification leaves no half-written release behind.
     let mut qualified = Vec::with_capacity(plan.targets.len());
     for planned in &plan.targets {
-        let target_dir = candidates_dir.join(&planned.target);
+        let target_dir = artifacts_dir.join(&planned.target);
         let handoff_text = read_bounded(
             &target_dir.join("build-handoff.json"),
             MAX_INPUT_BYTES,
@@ -588,7 +588,7 @@ fn collect(args: &[String]) -> Result<(), String> {
     let bindings = read_build_bindings(&parsed.get("build-bindings"))?;
     let qualification_bindings =
         read_qualification_bindings(&parsed.get("qualification-bindings"))?;
-    let candidates_dir = PathBuf::from(parsed.get("candidates-dir"));
+    let artifacts_dir = PathBuf::from(parsed.get("artifacts-dir"));
     let cwd = std::env::current_dir().map_err(|_| "working directory is unavailable".to_owned())?;
     let output_root = absolutize_cli_path(Path::new(&parsed.get("output-root")), &cwd)?;
     reject_symlink_dir(&output_root, "output root")?;
@@ -614,11 +614,11 @@ fn collect(args: &[String]) -> Result<(), String> {
         .iter()
         .map(|qualification| qualification.target.clone())
         .collect();
-    let inputs = collect_finalization_inputs(&candidates_dir, &plan, &targets)?;
+    let inputs = collect_finalization_inputs(&artifacts_dir, &plan, &targets)?;
     // Stray consumer evidence without a configured validator fails closed so
     // validation can never be silently bypassed.
     for target in &targets {
-        if candidates_dir
+        if artifacts_dir
             .join(target)
             .join("consumer-evidence.json")
             .exists()
@@ -651,12 +651,12 @@ fn collect(args: &[String]) -> Result<(), String> {
 
 /// Derive the release manifest from a finalized release tree's bytes.
 fn manifest(args: &[String]) -> Result<(), String> {
-    let parsed = OperatorArgs::parse(args, &MANIFEST_FLAGS, &["candidates-dir"], "manifest")?;
+    let parsed = OperatorArgs::parse(args, &MANIFEST_FLAGS, &["artifacts-dir"], "manifest")?;
     let contract = read_contract(&parsed.get("contract"))?;
     let plan = read_release_plan(&parsed.get("release-plan"))?;
     let finalized_root = PathBuf::from(parsed.get("finalized-root"));
     let output = PathBuf::from(parsed.get("output"));
-    let candidates_dir = parsed.get_optional("candidates-dir").map(PathBuf::from);
+    let artifacts_dir = parsed.get_optional("artifacts-dir").map(PathBuf::from);
 
     let mut targets = Vec::with_capacity(plan.targets.len());
     for planned in &plan.targets {
@@ -680,10 +680,10 @@ fn manifest(args: &[String]) -> Result<(), String> {
             // An archive's member digests are facts about the member bytes,
             // which the finalized tree does not retain. They are read from the
             // qualified candidate bytes instead.
-            let candidates_dir = candidates_dir
+            let artifacts_dir = artifacts_dir
                 .as_ref()
-                .ok_or_else(|| "archive target requires --candidates-dir".to_owned())?;
-            let target_dir = candidates_dir.join(&planned.target);
+                .ok_or_else(|| "archive target requires --artifacts-dir".to_owned())?;
+            let target_dir = artifacts_dir.join(&planned.target);
             let handoff_text = read_bounded(
                 &target_dir.join("build-handoff.json"),
                 MAX_INPUT_BYTES,
