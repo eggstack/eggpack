@@ -813,11 +813,89 @@ fn stage_qualification_artifacts(
     for output in &handoff.outputs {
         let source = candidates_src.join(&output.relative_path);
         let dest = dest_candidates.join(&output.relative_path);
-        if std::fs::hard_link(&source, &dest).is_err() {
-            std::fs::copy(source, &dest).map_err(|_| "candidate staging failed".to_owned())?;
-        }
+        copy_candidate_bytes(&source, &dest)?;
     }
     Ok(())
+}
+
+/// Stage one candidate file onto its destination without ever truncating the
+/// source.
+///
+/// A hard link is preferred because it costs no bytes. The fallback copies the
+/// bytes into a fresh temporary sibling and renames that file over the
+/// destination, so the destination is never opened for writing in place: a
+/// destination that resolves to the source itself can never lose the source's
+/// bytes to a copy. The same-file case is refused before any byte is written.
+///
+/// Shared by every staging site: the `ci _capture-build` and
+/// `ci _qualify-target` runners and the operator family's `package` and
+/// `qualify` commands.
+fn copy_candidate_bytes(source: &Path, dest: &Path) -> Result<(), String> {
+    if same_location(source, dest) {
+        return Err("candidate staging source and destination are the same file".to_owned());
+    }
+    if std::fs::hard_link(source, dest).is_ok() {
+        return Ok(());
+    }
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (temp, handle) = claim_temp(&parent, "candidate")?;
+    drop(handle);
+    if std::fs::copy(source, &temp).is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return Err("candidate staging failed".to_owned());
+    }
+    match std::fs::rename(&temp, dest) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            // Windows rename does not replace an existing file. The
+            // destination is moved aside rather than deleted, so a failed
+            // retry restores it instead of returning an error with the
+            // caller's file already gone.
+            let backup = if dest.exists() {
+                let (path, handle) = claim_temp(&parent, "prev")?;
+                drop(handle);
+                if std::fs::rename(dest, &path).is_err() {
+                    let _ = std::fs::remove_file(&path);
+                    let _ = std::fs::remove_file(&temp);
+                    return Err("candidate staging failed".to_owned());
+                }
+                Some(path)
+            } else {
+                None
+            };
+            match std::fs::rename(&temp, dest) {
+                Ok(()) => {
+                    if let Some(backup) = backup {
+                        let _ = std::fs::remove_file(backup);
+                    }
+                    Ok(())
+                }
+                Err(_) => {
+                    if let Some(backup) = backup {
+                        let _ = std::fs::rename(&backup, dest);
+                    }
+                    let _ = std::fs::remove_file(&temp);
+                    Err("candidate staging failed".to_owned())
+                }
+            }
+        }
+    }
+}
+
+/// Whether two paths name the same location.
+///
+/// Both paths are canonicalized, so two spellings of one location — including
+/// a symlink that points at it — compare equal. A path that does not exist
+/// yet is never the same location as an existing one.
+pub(crate) fn same_location(left: &Path, right: &Path) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn ci_generate(args: &[String]) -> Result<(), String> {
@@ -1022,9 +1100,7 @@ fn ci_capture_build(args: &[String]) -> Result<(), String> {
             .map_err(|_| "output dir creation failed".to_owned())?;
         for (output, source) in handoff.outputs.iter().zip(staged_sources.iter()) {
             let dest = dest_candidates.join(&output.relative_path);
-            if std::fs::hard_link(source, &dest).is_err() {
-                std::fs::copy(source, &dest).map_err(|_| "candidate staging failed".to_owned())?;
-            }
+            copy_candidate_bytes(source, &dest)?;
         }
         let json = handoff
             .to_json()
@@ -1163,15 +1239,24 @@ fn absolute_path(path: &Path) -> Result<PathBuf, String> {
 /// into an absolute path without `.`/`..` components.
 ///
 /// Absolute inputs pass through unchanged. Parent-directory components are
-/// rejected: generated invocations never contain them, and direct CLI callers
-/// get a precise error instead of a later path-safety failure (M003e).
-/// Absolute-path requirements live in the core library (`inspect_candidate`,
-/// `finalize_release`); this adapter bridges the portable relative paths the
-/// renderer emits. The base is explicit so unit tests never touch the process
-/// working directory.
+/// rejected in absolute and relative paths alike: generated invocations never
+/// contain them, and direct CLI callers get a precise error instead of a
+/// later path-safety failure (M003e). Absolute-path requirements live in the
+/// core library (`inspect_candidate`, `finalize_release`); this adapter
+/// bridges the portable relative paths the renderer emits. The base is
+/// explicit so unit tests never touch the process working directory.
 fn absolutize_cli_path(raw: &Path, base: &Path) -> Result<PathBuf, String> {
     if raw.as_os_str().is_empty() {
         return Err("path must not be empty".to_owned());
+    }
+    // One rule for both forms: a path that names a parent directory is
+    // refused rather than resolved, so an absolute path cannot silently
+    // point somewhere else than the caller named.
+    if raw
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("path must not contain parent-directory components".to_owned());
     }
     if raw.is_absolute() {
         return Ok(raw.to_path_buf());
@@ -1183,9 +1268,6 @@ fn absolutize_cli_path(raw: &Path, base: &Path) -> Result<PathBuf, String> {
     for component in raw.components() {
         match component {
             std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                return Err("path must not contain parent-directory components".to_owned());
-            }
             std::path::Component::Normal(segment) => out.push(segment),
             _ => return Err("path has an unsupported component".to_owned()),
         }
@@ -1664,6 +1746,10 @@ mod tests {
         // Parent-directory components are rejected even when the base exists.
         assert!(absolutize_cli_path(Path::new("../escape"), &base).is_err());
         assert!(absolutize_cli_path(Path::new("a/../../escape"), &base).is_err());
+        // An absolute path is refused for the same reason: one rule for both
+        // forms, so an absolute path cannot name a location the caller did
+        // not name.
+        assert!(absolutize_cli_path(&base.join("../escape"), &base).is_err());
         assert!(absolutize_cli_path(Path::new(""), &base).is_err());
         assert!(absolutize_cli_path(Path::new("relative"), Path::new("also-relative")).is_err());
     }

@@ -205,6 +205,16 @@ check: ok
 be exact-tag safe; both are checked. `check` does not inspect the checkout —
 it never runs `git`.
 
+`--release-id` carries the exact tag. `--identity-mode v_prefixed_stable_semver`
+maps exactly `vMAJOR.MINOR.PATCH` to `MAJOR.MINOR.PATCH`, the same mapping the
+CI path applies; the default `exact_tag` mode keeps the opaque identity. A
+consumer-validated release adds `--consumer-validators <path>`, the same JSON
+validator map the CI path takes: every validator must name a planned target
+and one of that target's build outputs.
+
+The producer policy and both bindings documents are read as TOML or JSON, the
+same two encodings the CI path accepts.
+
 ## 3. Resolve the release plan
 
 `eggpack plan` takes the same inputs and writes the `ReleasePlan` — the
@@ -309,6 +319,15 @@ process outcomes. This run used `qualification = "native"`, so the evidence
 records the host it matched; a native run is host-matched proof and does not
 prove a declared glibc or macOS floor.
 
+`--output-dir` must not be the same directory as `--artifacts-dir`: the
+qualification is about those candidate bytes, so staging into the same
+directory is refused before anything is written and the candidate bytes stay
+exactly as they were.
+
+An `emulated` target is qualified with `--qemu-sysroot <dir>`, the same
+sysroot `ci _qualify-target` takes. The core refuses a sysroot for a
+qualification that is not `emulated`.
+
 ## 6. Aggregate the finalized release tree
 
 `eggpack collect` aggregates the qualified candidates into a finalized release
@@ -347,6 +366,13 @@ is again the per-target artifact root, this time the one `qualify` wrote.
 
 `release-manifest.json` lands **beside** the finalized root, never inside it.
 
+A consumer-validated release adds `--consumer-validators <path>`, the same JSON
+validator map `ci _resolve-release` takes. The consumer-aware release graph is
+then projected and the release aggregates with its consumer evidence, exactly as
+`ci _aggregate` does: each validator's target must present a
+`consumer-evidence.json` in the artifacts root. Without the flag, consumer
+evidence in the artifacts root is refused rather than ignored.
+
 ## 7. Derive the release manifest
 
 `eggpack manifest` derives the release manifest independently, from the
@@ -357,6 +383,8 @@ mkdir -p out/manifest
 $EGGPACK manifest \
   --contract contract.toml \
   --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml \
+  --qualification-bindings qualification-bindings.toml \
   --finalized-root out/release/finalized \
   --output out/manifest/release-manifest.json
 ```
@@ -375,9 +403,18 @@ $ diff out/release/release-manifest.json out/manifest/release-manifest.json
 ```
 
 `--output`'s parent directory must already exist, as for every command that
-writes a file. `--artifacts-dir` is optional and is needed only for archive
+writes a file. The bindings are required so the derived manifest projects the
+same release graph `collect` projects.
+
+The derived manifest is self-checking. When `release-manifest.json` is present
+beside the finalized root — where `collect` wrote it — the derived document
+must be that document, and a difference fails the command instead of writing a
+second, different manifest. `--artifacts-dir` is needed only for archive
 targets, whose member digests are facts about the member bytes the finalized
-tree does not retain.
+tree keeps only inside the archive: every member is read back out of the
+finalized `.tar.gz` and compared with the candidate bytes, so a stale or
+tampered artifacts directory fails the command instead of producing a manifest
+that describes bytes the release does not contain.
 
 The manifest carries the product, release, and source revision, and for each
 target the asset form, the artifact name, its size, and its SHA-256. Those

@@ -45,7 +45,11 @@ status.
 - **Success** prints its result on stdout. Nothing is written to stderr.
 - **Failure** prints exactly one line on stderr, prefixed `eggpack: `, and
   prints nothing at all on stdout. The message names a cause class; it never
-  echoes captured process output, credentials, or file contents.
+  echoes captured process output, credentials, or file contents. The one-line
+  rule holds for the operator commands and for the `ci` runners; the
+  *top-level dispatch* is the exception: `eggpack` with no arguments and
+  `eggpack <unknown-command>` print the usage block on stderr, so a caller
+  sees the command surface rather than a single diagnostic line.
 - `eggpack --version` / `-V` prints `eggpack <version>` and exits `0`.
 - `eggpack --help` / `-h` prints the top-level help above and exits `0`.
 
@@ -63,21 +67,34 @@ statement that no command in this set stages or publishes. For example:
 ```text
 $ eggpack collect --help
 eggpack collect — release aggregation
-usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path>
+usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path> [--consumer-validators <path>]
 class: release aggregation
 No command in this set stages or publishes.
 ```
 
 **Argument surface.** These six commands use a strict parser, not the loose
-helper the `ci` family uses. Every flag is required exactly once (except
-`manifest`'s optional `--artifacts-dir`), may be written `--flag value` or
-`--flag=value`, and must have a non-empty value. A repeated flag, an unknown
-option, a positional argument, or a missing required flag is an error, and the
-missing flags are listed in sorted order:
+helper the `ci` family uses. Every flag is required exactly once, may be
+written `--flag value` or `--flag=value`, and must have a non-empty value. A
+repeated flag, an unknown option, a positional argument, or a missing required
+flag is an error, and the missing flags are listed in sorted order:
 
 ```text
 eggpack: missing required --build-bindings, --contract, --pack-config, --qualification-bindings, --release-id, --selected, --source-revision
 ```
+
+The optional flags are named in each command's usage line: `--identity-mode`
+and `--consumer-validators` on `check` and `plan`, `--qemu-sysroot` on
+`qualify`, `--consumer-validators` on `collect`, and `--artifacts-dir` and
+`--consumer-validators` on `manifest`. An optional flag may be given at most
+once, like any other flag.
+
+**Input encodings.** The producer policy, the build bindings, and the
+qualification bindings are read as TOML or JSON, exactly as
+`ci _resolve-release` reads them: TOML first, then the same document decoded
+as JSON. Either encoding is normalized into the canonical document shape and
+validated by the same strict core parser, so one validator stays authoritative
+for both. The contract is TOML-only, and the release plan is JSON-only, on both
+surfaces.
 
 **Input bounds.** Every input document is read through the shared bounded
 reader at 1 MiB. A symlink, a non-regular file, or an oversized file is
@@ -86,7 +103,7 @@ refused before it is parsed.
 ### `eggpack check`
 
 ```text
-usage: eggpack check --contract <path> --pack-config <path> --build-bindings <path> --qualification-bindings <path> --selected <alias[,alias]> --release-id <id> --source-revision <revision>
+usage: eggpack check --contract <path> --pack-config <path> --build-bindings <path> --qualification-bindings <path> --selected <alias[,alias]> --release-id <id> --source-revision <revision> [--identity-mode <mode>] [--consumer-validators <path>]
 ```
 
 | Flag | Meaning |
@@ -98,11 +115,23 @@ usage: eggpack check --contract <path> --pack-config <path> --build-bindings <pa
 | `--selected` | Comma-separated contract target aliases or triples to plan. |
 | `--release-id` | The release identity. Must pass the exact-tag safety rules. |
 | `--source-revision` | The release's source revision: exactly 40 lowercase hex characters. |
+| `--identity-mode` | Optional. `exact_tag` (default) keeps the opaque identity; `v_prefixed_stable_semver` maps exactly `vMAJOR.MINOR.PATCH` to `MAJOR.MINOR.PATCH`. |
+| `--consumer-validators` | Optional. The consumer validator map: one JSON document keyed by target. |
 
 **Reads** the five documents above. **Writes** nothing. The command resolves
 the release plan, validates it against its own declared floor, and checks that
 the build bindings match the plan and that the qualification bindings match
 the plan and the build bindings.
+
+`--release-id` carries the exact tag; `--identity-mode` decides how that tag
+maps to the release identity, exactly as `ci _resolve-release` does. An
+unknown mode is refused.
+
+`--consumer-validators` is validated against the release it describes: every
+validator must name a planned target and one of that target's build outputs.
+When the flag is present the consumer-aware release graph is projected, so a
+map that does not fit the release is refused here rather than at aggregation
+time.
 
 `check` never runs `git`: `--source-revision` is an explicit value, checked for
 shape only. Use `ci _resolve-release` when the checkout itself must be
@@ -113,7 +142,7 @@ Success prints `check: ok`.
 ### `eggpack plan`
 
 ```text
-usage: eggpack plan --contract <path> --pack-config <path> --build-bindings <path> --qualification-bindings <path> --selected <alias[,alias]> --release-id <id> --source-revision <revision> --output <path>
+usage: eggpack plan --contract <path> --pack-config <path> --build-bindings <path> --qualification-bindings <path> --selected <alias[,alias]> --release-id <id> --source-revision <revision> --output <path> [--identity-mode <mode>] [--consumer-validators <path>]
 ```
 
 Takes every `eggpack check` flag plus:
@@ -143,7 +172,7 @@ usage: eggpack package --release-plan <path> --build-bindings <path> --source-ro
 | `--release-plan` | The `ReleasePlan` JSON written by `eggpack plan`. |
 | `--build-bindings` | Build bindings document. |
 | `--source-root` | The Cargo project root to build in. Absolute, or relative to the working directory; `..` components are rejected. |
-| `--output-root` | The directory the build artifacts are written under. |
+| `--output-root` | The directory the build artifacts are written under. Absolute, or relative to the working directory; `..` components are rejected. |
 
 **Reads** the plan and the bindings, and **builds** in `--source-root` with
 `cargo +<toolchain>` (the toolchain pinned in the plan's policy) and
@@ -168,7 +197,7 @@ Success prints `package: ok`.
 ### `eggpack qualify`
 
 ```text
-usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-dir <path>
+usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-dir <path> [--qemu-sysroot <path>]
 ```
 
 | Flag | Meaning |
@@ -179,6 +208,7 @@ usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings 
 | `--qualification-bindings` | Per-target qualification bindings. |
 | `--artifacts-dir` | The **per-target artifact root** to qualify: the directory holding `<target>/build-handoff.json` and `<target>/candidates/`. |
 | `--output-dir` | Where the qualification artifact directories are written. |
+| `--qemu-sysroot` | Optional. The sysroot for an `emulated` target, exactly as `ci _qualify-target` takes it. |
 
 > `--artifacts-dir` is the **per-target artifact root**: the directory that
 > holds one subdirectory per target, each with that target's
@@ -188,6 +218,16 @@ usage: eggpack qualify --contract <path> --release-plan <path> --build-bindings 
 **Reads** the four documents plus the handoff and candidate bytes under
 `--artifacts-dir`. **Writes**, under `--output-dir`, one directory per
 target holding `evidence.json`, `build-handoff.json`, and `candidates/`.
+
+`--output-dir` must not be the same directory as `--artifacts-dir`: the
+qualification is about those candidate bytes, so staging into the same
+directory is refused before anything is written, and the candidate bytes are
+left exactly as they were. Staging never truncates a candidate: a candidate is
+copied through a fresh temporary file and renamed into place.
+
+`--qemu-sysroot` must be a real directory, not a symlink. The core refuses a
+sysroot for a qualification that is not `emulated`, so the flag is only
+meaningful for an emulated target.
 
 The evidence records the planned and actual classification, the actual host
 the qualification ran on, the candidate digests and formats, and the bounded
@@ -202,7 +242,7 @@ Success prints `qualify: ok`.
 ### `eggpack collect`
 
 ```text
-usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path>
+usage: eggpack collect --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --artifacts-dir <path> --output-root <path> [--consumer-validators <path>]
 ```
 
 | Flag | Meaning |
@@ -213,6 +253,7 @@ usage: eggpack collect --contract <path> --release-plan <path> --build-bindings 
 | `--qualification-bindings` | Per-target qualification bindings. |
 | `--artifacts-dir` | The **per-target artifact root** to aggregate: the directory written by `eggpack qualify`. |
 | `--output-root` | The new release root to finalize into. |
+| `--consumer-validators` | Optional. The consumer validator map: one JSON document keyed by target. |
 
 **Reads** the four documents plus the handoff, evidence, and candidate bytes
 under `--artifacts-dir`. **Writes** the finalized release tree under
@@ -227,33 +268,58 @@ existing one. The manifest therefore lands in `--output-root`'s parent.
 path aggregates the same targets with the same finalization settings the
 generated workflow uses.
 
+With `--consumer-validators`, the consumer-aware graph is projected and the
+release aggregates with its consumer evidence, exactly as `ci _aggregate`
+does: each validator's target must present a `consumer-evidence.json` in the
+artifacts root, and the evidence must match the release identity, the target,
+the selector, and the interpreter. Without the flag, consumer evidence in the
+artifacts root is refused rather than ignored.
+
 Success prints `collect: ok`.
 
 ### `eggpack manifest`
 
 ```text
-usage: eggpack manifest --contract <path> --release-plan <path> --finalized-root <path> --output <path> [--artifacts-dir <path>]
+usage: eggpack manifest --contract <path> --release-plan <path> --build-bindings <path> --qualification-bindings <path> --finalized-root <path> --output <path> [--artifacts-dir <path>] [--consumer-validators <path>]
 ```
 
 | Flag | Meaning |
 |---|---|
 | `--contract` | Distribution contract (schema-v1 TOML). |
 | `--release-plan` | The `ReleasePlan` JSON. |
+| `--build-bindings` | Build bindings document. |
+| `--qualification-bindings` | Per-target qualification bindings. |
 | `--finalized-root` | The finalized release tree to read the final bytes from. |
 | `--output` | Where the derived `release-manifest.json` is written. |
 | `--artifacts-dir` | Optional. The per-target artifact root. Required only for archive targets. |
+| `--consumer-validators` | Optional. The consumer validator map, so the derived manifest projects the same graph `collect` projects. |
 
-**Reads** the contract, the plan, and the finalized tree's bytes. **Writes**
-one file, `--output`; its parent directory must already exist.
+**Reads** the contract, the plan, the bindings, and the finalized tree's
+bytes. **Writes** one file, `--output`; its parent directory must already
+exist.
 
 The manifest is the *final-bytes evidence*: for each target it records the
 asset form, the artifact name, its size, and its SHA-256. Those are integrity
 facts about the bytes — not a signature and not a provenance claim.
 
-`--artifacts-dir` is needed only for archive targets. An archive's member
-digests are facts about the member bytes, which the finalized tree does not
-retain, so they are read from the qualified candidate bytes instead. A direct
-target needs no candidate bytes.
+**The derived manifest is self-checking.** Two checks make it describe the
+finalized release rather than the caller's inputs:
+
+- An archive's member digests are facts about the member bytes, which the
+  finalized tree keeps only inside the archive. Every member is therefore read
+  back out of the finalized `.tar.gz` and compared with the candidate bytes
+  the digest is taken from. A member that is absent from the finalized
+  archive, or that differs from it, fails the command: a stale or tampered
+  `--artifacts-dir` never yields a manifest that describes bytes the release
+  does not contain. `--artifacts-dir` is therefore required for archive
+  targets; a direct or bundle target needs no candidate bytes.
+- When `release-manifest.json` is present beside the finalized root — where
+  `collect` writes it — the derived document must be that document. A
+  difference fails the command instead of writing a second, different
+  manifest.
+
+The bindings are required so the derived manifest projects the same release
+graph `collect` projects, including its evidence references.
 
 Success prints `manifest: ok`.
 
@@ -403,6 +469,10 @@ Prints `captured build handoff for <target>`.
 
 Writes `evidence.json`, `build-handoff.json`, and `candidates/` into
 `--output-dir`. Prints `qualified <target>: <status>`.
+
+Staging never truncates a candidate: a candidate is copied through a fresh
+temporary file and renamed into place, and a destination that resolves to the
+source itself is refused instead of being copied over.
 
 #### `ci _validate-consumer`
 
