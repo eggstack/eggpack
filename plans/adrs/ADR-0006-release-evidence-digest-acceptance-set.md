@@ -49,11 +49,17 @@ validators exist in the workspace, and they do not agree:
 | `validate_sha256` | `crates/eggpack-github/src/lib.rs:567-576` | exactly 64 lowercase hex characters |
 | `validate_sha256_hex` | `crates/eggpack-ci/src/lib.rs:632-642` | exactly 64 lowercase hex characters **and not the all-zeros digest** |
 
+The locations above and the behaviour below are as of this ADR's date
+(2026-10-23); the CI crate's validator has since moved with the M003n module
+split to `crates/eggpack-ci/src/policy.rs:161`, and `ByteEvidence::validate` to
+`crates/eggpack-manifest/src/lib.rs:365`, so the table records the divergence
+that motivated the decision rather than the current tree.
+
 The divergence is not cosmetic. The all-zeros string `"0" * 64` is a
 syntactically valid 64-character lowercase hex digest that no real file can
 produce, because SHA-256 of any byte sequence is astronomically unlikely to be
 the all-zero value. It is therefore a natural sentinel for "digest not computed",
-"digest placeholder", or "digest defaulted". Today:
+"digest placeholder", or "digest defaulted". At this ADR's date:
 
 - the CI crate **rejects** it;
 - the GitHub staging crate, which is the component that actually computes and

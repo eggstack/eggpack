@@ -22,18 +22,18 @@ version ordering, no digest computation. The only crate attributes are `#![forbi
 produces stay unambiguous across case-insensitive and case-preserving filesystems and across
 separator conventions:
 
-- Templates expand to flat names only; no `/` or `\` at any stage (`:693-697`, `:871-875`).
+- Templates expand to flat names only; no `/` or `\` at any stage (`:733-737`, `:911-915`).
 - Archive member sources are literal `/`-separated relative paths; absolute paths, `\`, drive
-  prefixes, empty components, and `.`/`..` are rejected (`:707-751`).
-- Uniqueness is keyed on ASCII-lowercased strings, so `App` and `app` collide (`:885`, `:1101`,
-  `:1223`).
+  prefixes, empty components, and `.`/`..` are rejected (`:747-791`).
+- Uniqueness is keyed on ASCII-lowercased strings, so `App` and `app` collide (`:925`, `:1141`,
+  `:1263`).
 
 It claims no glibc or macOS version floor; a declared floor is not something this crate can prove
 (see `core-qualification.md`).
 
 A downstream crate may reference `SCHEMA_V1`, hold a `DistributionContract`, and call `expand`. It
 may not create a second place where a release file name is defined: `expected_release_files`
-(`:1034`) and `validate_release_inventory` (`:1136`) compare exact strings, and the label vocabulary
+(`:1074`) and `validate_release_inventory` (`:1176`) compare exact strings, and the label vocabulary
 (`asset`, `sidecar`, `entries[0].asset`, `archive`) is part of the contract's diagnostic surface.
 Downstream code may not relax validation either — there is no unknown-key knob; `ExtrasPolicy`
 governs *unrelated* names, never *unknown* ones.
@@ -44,42 +44,42 @@ All paths are `crates/eggpack-contract/src/lib.rs` unless noted.
 
 | Item | Line | Description |
 | --- | --- | --- |
-| `SCHEMA_V1: u32 = 1` | `:15` | The only version understood; else `UnsupportedVersion` (`:375-379`). |
+| `SCHEMA_V1: u32 = 1` | `:15` | The only version understood; else `UnsupportedVersion` (`:400-404`). |
 | `MAX_OBSERVED_ENTRIES: usize = 256` | `:23` | Public cap on caller inventories and observations. |
 | `NameNamespace` | `:28` | `ReleaseFiles` (`:30`) / `InstallNames` (`:32`); `Display` `:35`. |
 | `DistError` | `:47` | Typed, `#[non_exhaustive]` (`:46`); see [Error surface](#error-surface). |
-| `ProductIdentity` | `:133` | `id` feeds `{product}`; `display_name` never expands (`:137`). |
-| `ChecksumSpec` | `:144` | `sidecar` template only; integrity, never authenticity (`:141`). |
-| `BundleEntry` | `:153` | One bundle row: `asset` + `install`. |
-| `ArchiveMember` | `:163` | `source` (literal path) + `install` (template). |
-| `AssetForm` | `:173` | `Direct{asset,install}` `:175`, `Bundle{entries}` `:182`, `Archive{asset,members}` `:187`. Not serde-derived. |
-| `TargetEntry` | `:197` | `triple`, `aliases`, `asset`, `checksum`. Not serde-derived. |
-| `DistributionContract` | `:210` | `schema_version`, `product`, `targets`. Not serde-derived; TOML only. |
-| `parse_toml_str` | `:261` | Parse plus structural validation via private `Raw*` shapes (`:219-251`). |
-| `to_toml_string` | `:271` | Deterministic render via private `to_raw` (`:437`). |
-| `resolve` | `:280` | Triple-or-alias to `&TargetEntry`. |
-| `expand` | `:300` | Resolved, expanded, collision-checked `ExpandedTarget`. |
-| `ExpandedDirect` | `:954` | `asset_file`, `install_name`, `sidecar_file`, all expanded. |
-| `ExpandedBundle` | `:965` | `entries: Vec<ExpandedDirect>`; one sidecar per entry. |
-| `ExpandedArchiveMember` | `:972` | `source` verbatim, `install_name` expanded. |
-| `ExpandedArchive` | `:981` | `archive_file`, `sidecar_file`, `members`. |
-| `ExpandedAssets` | `:992` | `Direct` / `Bundle` / `Archive`, mirroring `AssetForm`. |
-| `ExpandedTarget` | `:1003` | `triple` + `assets`; the single value `expand` returns. |
-| `ExtrasPolicy` | `:1012` | `AllowExtras` (default, `:1015`) / `Exact` (`:1017`). |
-| `ExpectedReleaseFile` | `:1022` | `label` + `file_name`; `Serialize` + `Ord`. |
-| `expected_release_files` | `:1034` | Required flat release names for one target/version. |
-| `ReleaseInventory` | `:1075` | Bounded, sorted release file names; `new` `:1085`, `files` `:1114`. |
-| `validate_release_inventory` | `:1136` | Expected files vs observed inventory to `ConformanceReport`. |
-| `ArchiveMemberInventory` | `:1197` | Same for member paths; `new` `:1206`, `members` `:1236`. |
-| `validate_archive_member_inventory` | `:1244` | Expanded archive vs members to `Result<ConformanceReport, DistError>`. |
-| `ObservedDirectMapping` | `:1298` | `asset_file` / `sidecar_file` / `install_name` as a consumer saw them. |
-| `ObservedArchiveMapping` | `:1310` | `source` + `install_name`. |
-| `ObservedTargetAssets` | `:1320` | Internally tagged `kind` (`:1319`). |
-| `ObservedTargetMapping` | `:1346` | `target`, `canonical_target`, `assets`. |
-| `FindingKind` | `:1358` | 10 stable kinds (`:1360-1378`), `Serialize` snake_case. |
-| `ConformanceFinding` | `:1383` | `kind`, `label`, `expected`, `observed`; derived `Ord` sorts reports. |
-| `ConformanceReport` | `:1407` | `findings` + `truncated`; `is_conformant` `:1426`, `into_result` `:1431`. |
-| `validate_observed_mapping` | `:1446` | One expansion vs one observation to `ConformanceReport`. |
+| `ProductIdentity` | `:155` | `id` feeds `{product}`; `display_name` never expands (`:159`). |
+| `ChecksumSpec` | `:166` | `sidecar` template only; integrity, never authenticity (`:163`). |
+| `BundleEntry` | `:175` | One bundle row: `asset` + `install`. |
+| `ArchiveMember` | `:185` | `source` (literal path) + `install` (template). |
+| `AssetForm` | `:195` | `Direct{asset,install}` `:197`, `Bundle{entries}` `:204`, `Archive{asset,members}` `:209`. Not serde-derived. |
+| `TargetEntry` | `:219` | `triple`, `aliases`, `asset`, `checksum`. Not serde-derived. |
+| `DistributionContract` | `:232` | `schema_version`, `product`, `targets`. Not serde-derived; TOML only. |
+| `parse_toml_str` | `:283` | Parse plus structural validation via private `Raw*` shapes (`:241-273`). |
+| `to_toml_string` | `:293` | Deterministic render via private `to_raw` (`:462`). |
+| `resolve` | `:302` | Triple-or-alias to `&TargetEntry`. |
+| `expand` | `:325` | Resolved, expanded, collision-checked `ExpandedTarget`. |
+| `ExpandedDirect` | `:994` | `asset_file`, `install_name`, `sidecar_file`, all expanded. |
+| `ExpandedBundle` | `:1005` | `entries: Vec<ExpandedDirect>`; one sidecar per entry. |
+| `ExpandedArchiveMember` | `:1012` | `source` verbatim, `install_name` expanded. |
+| `ExpandedArchive` | `:1021` | `archive_file`, `sidecar_file`, `members`. |
+| `ExpandedAssets` | `:1032` | `Direct` / `Bundle` / `Archive`, mirroring `AssetForm`. |
+| `ExpandedTarget` | `:1043` | `triple` + `assets`; the single value `expand` returns. |
+| `ExtrasPolicy` | `:1052` | `AllowExtras` (default, `:1055`) / `Exact` (`:1057`). |
+| `ExpectedReleaseFile` | `:1062` | `label` + `file_name`; `Serialize` + `Ord`. |
+| `expected_release_files` | `:1074` | Required flat release names for one target/version. |
+| `ReleaseInventory` | `:1115` | Bounded, sorted release file names; `new` `:1125`, `files` `:1154`. |
+| `validate_release_inventory` | `:1176` | Expected files vs observed inventory to `ConformanceReport`. |
+| `ArchiveMemberInventory` | `:1237` | Same for member paths; `new` `:1246`, `members` `:1276`. |
+| `validate_archive_member_inventory` | `:1284` | Expanded archive vs members to `Result<ConformanceReport, DistError>`. |
+| `ObservedDirectMapping` | `:1338` | `asset_file` / `sidecar_file` / `install_name` as a consumer saw them. |
+| `ObservedArchiveMapping` | `:1350` | `source` + `install_name`. |
+| `ObservedTargetAssets` | `:1360` | Internally tagged `kind` (`:1359`). |
+| `ObservedTargetMapping` | `:1386` | `target`, `canonical_target`, `assets`. |
+| `FindingKind` | `:1398` | 10 stable kinds (`:1400-1418`), `Serialize` snake_case. |
+| `ConformanceFinding` | `:1423` | `kind`, `label`, `expected`, `observed`; derived `Ord` sorts reports. |
+| `ConformanceReport` | `:1447` | `findings` + `truncated`; `is_conformant` `:1466`, `into_result` `:1471`. |
+| `validate_observed_mapping` | `:1486` | One expansion vs one observation to `ConformanceReport`. |
 
 Private bounds: `MAX_ID_LEN` 64 (`:18`), `MAX_NAME_LEN` 128 (`:19`), `MAX_TEMPLATE_LEN` 256
 (`:20`), `MAX_DETAIL_LEN` 512 (`:21`), `MAX_CONFORMANCE_FINDINGS =
@@ -87,11 +87,11 @@ MAX_OBSERVED_ENTRIES * 2` = 512 (`:24`).
 
 ## Schema-v1 essentials
 
-Documents decode into private `RawContract` (`:223`), `RawTarget` (`:231`), and `RawAsset` (`:241`).
-All three carry `#[serde(deny_unknown_fields)]` (`:222`, `:230`, `:240`), as do the four reused
-public serde types (`:132`, `:143`, `:152`, `:162`): a typo such as `typo_field` is a hard parse
-failure, not a silently ignored key (tested at `:2295-2301`). `schema_version` is compared to
-`SCHEMA_V1` before anything else is trusted (`:375-379`) and is required, not defaulted (`:224`).
+Documents decode into private `RawContract` (`:245`), `RawTarget` (`:253`), and `RawAsset` (`:263`).
+All three carry `#[serde(deny_unknown_fields)]` (`:244`, `:252`, `:262`), as do the four reused
+public serde types (`:154`, `:165`, `:174`, `:184`): a typo such as `typo_field` is a hard parse
+failure, not a silently ignored key (tested at `:2442-2448`). `schema_version` is compared to
+`SCHEMA_V1` before anything else is trusted (`:400-404`) and is required, not defaulted (`:246`).
 
 ```toml
 schema_version = 1                 # required, must be 1
@@ -113,28 +113,28 @@ install = "{product}"
 sidecar = "{asset}.sha256"         # may additionally use {asset}
 ```
 
-- **Triple** must contain `-` (`:640-644`) and use only `[A-Za-z0-9-_.]`, with no separator, space,
-  or `@?#:` (`:630-639`). An alias must be a bare token too but need not contain `-` (`:648-662`).
+- **Triple** must contain `-` (`:671-675`) and use only `[A-Za-z0-9-_.]`, with no separator, space,
+  or `@?#:` (`:661-670`). An alias must be a bare token too but need not contain `-` (`:679-693`).
 - **Asset form exclusivity**: `direct` requires `asset`+`install` and rejects `entries`/`members`
-  (`:491-506`); `bundle` requires non-empty `entries` and rejects
-  `asset`/`install`/`members` (`:507-541`); `archive` requires `asset`+`members` and rejects
-  `install`/`entries` (`:542-582`). Entry and member counts are bounded to 1..=64 (`:516-521`,
-  `:555-562`).
+  (`:516-531`); `bundle` requires non-empty `entries` and rejects
+  `asset`/`install`/`members` (`:532-566`); `archive` requires `asset`+`members` and rejects
+  `install`/`entries` (`:567-613`). Entry and member counts are bounded to 1..=64 (`:541-546`,
+  `:580-587`).
 - **Templates** accept only `{product}`, `{version}`, `{target}`, `{alias}`, plus `{asset}` when
-  `allow_asset` is set — checksum sidecars only (`:798-805`, `:703`). Braces are reserved: no
-  escaping, no nesting, no stray `}`, no deferred syntax (`:769-825`); literals are
-  `[A-Za-z0-9-_.]` (`:812-816`). Expansion is data substitution only, and the result is re-checked
-  for emptiness, length, leftover braces, and separators (`:865-875`).
+  `allow_asset` is set — checksum sidecars only (`:838-845`, `:743`). Braces are reserved: no
+  escaping, no nesting, no stray `}`, no deferred syntax (`:809-865`); literals are
+  `[A-Za-z0-9-_.]` (`:852-856`). Expansion is data substitution only, and the result is re-checked
+  for emptiness, length, leftover braces, and separators (`:905-915`).
 - **`version`** is opaque — no SemVer ordering, no prerelease semantics — but portable: non-empty,
   ≤128 bytes, and `[A-Za-z0-9-_.+]` only. It is interpolated into release file names, so the
   alphabet is the intersection of what `eggpack-manifest` accepts as an artifact file name and what
   every supported platform can store: `:` (rejected by the manifest) and `* ? " < > |` and spaces
   (not representable on Windows) are refused at expansion. `+` is admitted for SemVer build
   metadata such as `1.2.3-rc.1+build.5` (`validate_version`).
-- **Member `source`** is literal, never templated; `{` and `}` are rejected (`:718-722`).
+- **Member `source`** is literal, never templated; `{` and `}` are rejected (`:758-762`).
 - **Pre-expansion uniqueness** covers bundle entry assets and installs, archive member installs, and
-  archive member `source` paths, using bounded labels such as `entries[0].asset` (`:526-539`,
-  `:574-580`). Member sources are keyed on the ASCII-lowercased value, matching
+  archive member `source` paths, using bounded labels such as `entries[0].asset` (`:551-564`,
+  `:605-611`). Member sources are keyed on the ASCII-lowercased value, matching
   `ArchiveMemberInventory::new` and `validate_observed_mapping`: a case-colliding pair is rejected
   here rather than parsing into an archive contract that its own inventory would refuse. Sidecar collisions
   cannot be checked here — one sidecar template per target, expanded once per asset — so they
@@ -142,20 +142,20 @@ sidecar = "{asset}.sha256"         # may additionally use {asset}
 
 ## Target and alias resolution
 
-`resolve` (`:280-290`) is a linear scan over `targets`: for each target it compares the input
+`resolve` (`:302-312`) is a linear scan over `targets`: for each target it compares the input
 against `triple`, then against each alias, with plain `String` equality. No case folding, no
 trimming, no separator normalisation, no nearest-architecture fallback — an unknown input is
-`UnknownTarget` (`:289`).
+`UnknownTarget` (`:311`).
 
 Alias resolution is safe because the two lookup spaces are provably disjoint by validation, not by
 convention:
 
 - An alias equal to *any* declared triple is rejected at parse time, even when it belongs to that
-  triple's own target (`:405-409`).
+  triple's own target (`:430-434`).
 - An alias owned by two different targets is rejected; the same alias repeated by one target is
-  tolerated (`:410-417`).
+  tolerated (`:435-442`).
 - Triples must contain `-` while aliases need not, so no triple-shaped string can be a mis-spelled
-  alias (`:640-644`).
+  alias (`:671-675`).
 
 Given those, the per-target triple-then-alias order in `resolve` cannot produce an order-dependent
 answer: at most one target can match, and within it the two branches cannot both be live. This is
@@ -164,24 +164,24 @@ exactly against a declared identity; the exact-match rule for artifact identity 
 `validation-model.md`.
 
 `ExtrasPolicy` has **no** effect on resolution. It appears only in the two inventory validators
-(`:1139`, `:1180`, `:1247`, `:1280`).
+(`:1179`, `:1220`, `:1287`, `:1320`).
 
 `expand` records *how* the lookup happened: `{alias}` expands to the alias used for the lookup, and
 a triple lookup leaves the alias input empty, so a contract using `{alias}` fails with
-`MissingInput` when expanded by triple (`:309-313`, `:847-854`).
+`MissingInput` when expanded by triple (`:334-338`, `:887-894`).
 
 ## The `expand` projection
 
-`expand(target_or_alias, version)` (`:300-372`) runs a fixed pipeline:
+`expand(target_or_alias, version)` (`:325-397`) runs a fixed pipeline:
 
-1. `validate_version` (`:305`).
-2. `resolve` (`:306`).
+1. `validate_version` (`:330`).
+2. `resolve` (`:331`).
 3. Build `ExpansionCtx { product, version, target: &target.triple, alias: alias_used }`
-   (`:314-319`). `{target}` is always the *canonical triple*, never the alias the caller typed.
-4. Expand per form (`:320-365`). The sidecar is expanded with the already-expanded asset name
-   supplied as `{asset}` (`:324-325`, `:337-338`, `:349-350`), which is why a bundle yields one
+   (`:339-344`). `{target}` is always the *canonical triple*, never the alias the caller typed.
+4. Expand per form (`:345-390`). The sidecar is expanded with the already-expanded asset name
+   supplied as `{asset}` (`:349-350`, `:362-363`, `:374-375`), which is why a bundle yields one
    sidecar per entry.
-5. `validate_expanded_names` on the result (`:370`).
+5. `validate_expanded_names` on the result (`:395`).
 
 Why a projection exists: the input types are authority-shaped and carry unresolved templates plus
 whatever the caller constructed by hand; the `Expanded*` family is a fully resolved,
@@ -194,11 +194,11 @@ sidecar name.
 `Expanded*` mirrors rather than flattens `AssetForm`: `ExpandedAssets` has the same three variants,
 `ExpandedTarget.triple` is the canonical triple, and `ExpandedBundle.entries` preserves declaration
 order — only release *files* and archive *members* are sorted, and only inside validators.
-`ExpandedArchiveMember.source` is copied through unchanged (`:355`); only `install` is a template.
+`ExpandedArchiveMember.source` is copied through unchanged (`:380`); only `install` is a template.
 Because the projection holds expanded strings, the `Expanded*` types derive `PartialEq`/`Eq` and can
 be compared directly against observations.
 
-Collision checking (`validate_expanded_names`, `:910-948`) is **per expanded target**, not per
+Collision checking (`validate_expanded_names`, `:950-988`) is **per expanded target**, not per
 contract: it collects only that target's release and install names, so two different targets may
 legitimately install the same names — which is what `tests/fixtures/egress-archive.toml` does
 (`egress`, `egress-helper` on both its Linux and macOS targets). What is rejected is a collision
@@ -208,19 +208,19 @@ inside one target, including ASCII-case-only collisions.
 
 | | `ReleaseInventory` | `ArchiveMemberInventory` |
 | --- | --- | --- |
-| Struct / constructor | `:1075` / `new` `:1085` | `:1197` / `new` `:1206` |
-| Accessor | `files()` `:1114` | `members()` `:1236` |
-| Name rule | flat, no separators, no control chars, ≤256 B (`:1119-1130`) | same traversal-free `/`-path rules as schema v1, via `validate_member_source` (`:1220`) |
-| Duplicate rule | exact and ASCII-case duplicate rejected (`:1101-1106`) | exact and ASCII-case duplicate rejected (`:1223-1228`) |
-| Bound failure | `InvalidReleaseInventory` (`:1094`, `:1100`, `:1103`) | `InvalidArchiveMemberInventory` (`:1215`, `:1221`, `:1225`) |
-| Determinism | `names.sort()` (`:1109`) | `paths.sort()` (`:1231`) |
-| Expected side | `&[ExpectedReleaseFile]` from `expected_release_files` (`:1137`) | `&ExpandedTarget`, which must be an archive target (`:1244-1249`) |
-| Return type | `ConformanceReport` (`:1140`) | `Result<ConformanceReport, DistError>` (`:1248`) |
-| Findings | `MissingReleaseFile`, `UnexpectedReleaseFile` (`:1173`, `:1184`) | `MissingArchiveMember`, `UnexpectedArchiveMember` (`:1273`, `:1284`) |
-| Finding labels | contract field labels: `asset`, `sidecar`, `entries[0].asset`, `archive` (`:1043-1060`) | the member source path itself (`:1274`) |
-| `AllowExtras` | extras ignored; only missing required files reported (`:1170-1179`) | same (`:1270-1279`) |
-| `Exact` | undeclared release file becomes `UnexpectedReleaseFile` (`:1180-1191`) | undeclared member path becomes `UnexpectedArchiveMember` (`:1280-1291`) |
-| Wrong target type | not applicable | `Err(InvalidInput)` "archive member validation requires an archive target" (`:1249-1253`) |
+| Struct / constructor | `:1115` / `new` `:1125` | `:1237` / `new` `:1246` |
+| Accessor | `files()` `:1154` | `members()` `:1276` |
+| Name rule | flat, no separators, no control chars, ≤256 B (`:1159-1170`) | same traversal-free `/`-path rules as schema v1, via `validate_member_source` (`:1260`) |
+| Duplicate rule | exact and ASCII-case duplicate rejected (`:1141-1146`) | exact and ASCII-case duplicate rejected (`:1263-1268`) |
+| Bound failure | `InvalidReleaseInventory` (`:1134`, `:1140`, `:1143`) | `InvalidArchiveMemberInventory` (`:1255`, `:1261`, `:1265`) |
+| Determinism | `names.sort()` (`:1149`) | `paths.sort()` (`:1271`) |
+| Expected side | `&[ExpectedReleaseFile]` from `expected_release_files` (`:1177`) | `&ExpandedTarget`, which must be an archive target (`:1284-1289`) |
+| Return type | `ConformanceReport` (`:1180`) | `Result<ConformanceReport, DistError>` (`:1288`) |
+| Findings | `MissingReleaseFile`, `UnexpectedReleaseFile` (`:1213`, `:1224`) | `MissingArchiveMember`, `UnexpectedArchiveMember` (`:1313`, `:1324`) |
+| Finding labels | contract field labels: `asset`, `sidecar`, `entries[0].asset`, `archive` (`:1083-1100`) | the member source path itself (`:1314`) |
+| `AllowExtras` | extras ignored; only missing required files reported (`:1210-1219`) | same (`:1310-1319`) |
+| `Exact` | undeclared release file becomes `UnexpectedReleaseFile` (`:1220-1231`) | undeclared member path becomes `UnexpectedArchiveMember` (`:1320-1331`) |
+| Wrong target type | not applicable | `Err(InvalidInput)` "archive member validation requires an archive target" (`:1289-1293`) |
 
 Why separate: they answer different questions about different namespaces with different grammar
 and different producers. A release file is a flat name a client downloads from a release; an
@@ -231,42 +231,43 @@ member sources live on the archive projection, not on `ExpectedReleaseFile`. Nei
 opens a file, an archive, or a release: both take caller-supplied names.
 
 Both are fail-closed on bad *expected* input: an over-limit or malformed expected set is reported
-as an `InvalidObservation` finding rather than ignored (`:1141-1154`, `:1254-1266`).
+as an `InvalidObservation` finding rather than ignored (`:1181-1194`, `:1294-1306`).
 
 ## Conformance validation
 
-`validate_observed_mapping(contract, version, observed)` (`:1446-1481`) compares what a consumer
+`validate_observed_mapping(contract, version, observed)` (`:1486-1535`) compares what a consumer
 claims it shipped against what the contract says it should ship:
 
-1. `valid_observation` gate (`:1451`, `:1483-1540`) — non-empty bounded `target` /
+1. `valid_observation` gate (`:1491`, `:1537-1594`) — non-empty bounded `target` /
    `canonical_target` without control characters, flat names, traversal-free member sources,
    ASCII-unique release names, and a total name count at or under `MAX_OBSERVED_ENTRIES`. Failure
    yields one `InvalidObservation` finding.
-2. `contract.expand(&observed.target, version)` (`:1459`); a resolution or expansion failure becomes
-   a `TargetMismatch` finding (`:1461-1468`) — the function never returns `Err`.
-3. Canonical triple comparison (`:1471-1478`).
-4. `compare_observed_assets` (`:1479`).
+2. `contract.expand(&observed.target, version)` (`:1499`); an unresolvable target or alias becomes
+   a `TargetMismatch` finding, and every other expansion failure becomes an `InvalidObservation`
+   labelled `expansion` (`:1501-1522`) — the function never returns `Err`.
+3. Canonical triple comparison (`:1525-1532`).
+4. `compare_observed_assets` (`:1533`).
 
 - **Bundle entries are order-insensitive.** Both sides are sorted by `asset_file` before zipping
-  (`:1581-1582`), so a reordered observation is not drift. A differing entry count produces one
-  `AssetMismatch` labelled `bundle entry count` (`:1607-1623`).
+  (`:1635-1636`), so a reordered observation is not drift. A differing entry count produces one
+  `AssetMismatch` labelled `bundle entry count` (`:1661-1677`).
 - **Archive members are diffed as a `source -> install_name` map** over the sorted union of both key
-  sets (`:1647-1674`), so an absent member and a member with a wrong install name are the same
+  sets (`:1701-1728`), so an absent member and a member with a wrong install name are the same
   `ArchiveMappingMismatch` kind, with `expected` or `observed` as `None`.
 - **A form mismatch** (contract says `archive`, consumer claims `direct`) is one `AssetMismatch`
-  labelled `asset form` (`:1676-1681`).
+  labelled `asset form` (`:1730-1735`).
 
-`FindingKind` (`:1358`) is `Copy` + `Ord` + `Serialize` (snake_case, `:1357`); `ConformanceFinding`
-(`:1383`) derives `Ord` over `(kind, label, expected, observed)`, and `ConformanceReport::new` sorts
-then truncates at 512 findings, setting `truncated` (`:1415-1423`).
+`FindingKind` (`:1398`) is `Copy` + `Ord` + `Serialize` (snake_case, `:1397`); `ConformanceFinding`
+(`:1423`) derives `Ord` over `(kind, label, expected, observed)`, and `ConformanceReport::new` sorts
+then truncates at 512 findings, setting `truncated` (`:1455-1463`).
 
 A report rather than a boolean, because the consumer of a conformance check is a human or a golden
 comparison, not a branch: the first error hides the rest of the diff, a sorted list is byte-stable
-across runs, and `into_result` (`:1431`) returns the whole `ConformanceReport` in the error position
-so a caller can render every finding before failing. `is_conformant` (`:1426`) remains for
+across runs, and `into_result` (`:1471`) returns the whole `ConformanceReport` in the error position
+so a caller can render every finding before failing. `is_conformant` (`:1466`) remains for
 boolean-style callers.
 
-The observation types carry a deliberate negative boundary, stated at `:1341-1343`: no URLs, version
+The observation types carry a deliberate negative boundary, stated at `:1381-1383`: no URLs, version
 policy, commands, privileges, scripts, or service behaviour. Eggpack compares data facts; it does
 not parse consumer shell, PowerShell, Rust, or workflow sources.
 
@@ -277,38 +278,38 @@ matchers. `Display` is hand-written (`:88-119`) and implements `std::error::Erro
 
 | Variant | Line | Raised when |
 | --- | --- | --- |
-| `InvalidInput(String)` | `:49` | Any schema violation; also wraps TOML parse/render failures (`:263`, `:273`). |
-| `UnsupportedVersion { found }` | `:51` | `schema_version != 1` (`:376`). |
-| `DuplicateTarget(String)` | `:56` | Two targets share a canonical triple (`:393`). |
-| `DuplicateAlias(String)` | `:58` | Alias collides with a triple, or with another target's alias (`:406`, `:412`). |
-| `UnknownTarget(String)` | `:60` | No target matches (`:289`). |
-| `UnknownPlaceholder(String)` | `:62` | Placeholder outside the v1 grammar (`:804`). |
-| `MissingInput(String)` | `:64` | `{alias}` on a triple lookup, or `{asset}` without checksum context (`:849`, `:857`). |
-| `InvalidMemberPath(String)` | `:66` | Unsafe member source path (`:709` and siblings in `:707-751`). |
-| `NameCollision { namespace, first, second }` | `:68` | Raw or expanded name collision (`:887`). |
+| `InvalidInput(String)` | `:49` | Any schema violation; also wraps TOML parse/render failures (`:285`, `:295`). |
+| `UnsupportedVersion { found }` | `:51` | `schema_version != 1` (`:401`). |
+| `DuplicateTarget(String)` | `:56` | Two targets share a canonical triple (`:418`). |
+| `DuplicateAlias(String)` | `:58` | Alias collides with a triple, or with another target's alias (`:431`, `:437`). |
+| `UnknownTarget(String)` | `:60` | No target matches (`:311`). |
+| `UnknownPlaceholder(String)` | `:62` | Placeholder outside the v1 grammar (`:844`). |
+| `MissingInput(String)` | `:64` | `{alias}` on a triple lookup, or `{asset}` without checksum context (`:889`, `:897`). |
+| `InvalidMemberPath(String)` | `:66` | Unsafe member source path (`:749` and siblings in `:747-791`). |
+| `NameCollision { namespace, first, second }` | `:68` | Raw or expanded name collision (`:927`). |
 | `InvalidReleaseInventory(String)` | `:77` | Bad `ReleaseInventory` input. |
 | `InvalidArchiveMemberInventory(String)` | `:79` | Bad `ArchiveMemberInventory` input. |
 
 The fail-closed rule is structural: every validator returns `Result` or a report; there is no
 best-effort path, no default target, and no partial contract. Messages stay bounded by `bound()`
-(`:123-128`), which truncates any string to 512 bytes, applied through `DistError::invalid`
-(`:83-85`) and directly at `:289`, `:393`, `:404`, `:707-750`, `:849`, `:857`, `:1100`, `:1221`.
+(`:132-137`), which truncates any string to 512 bytes, applied through `DistError::invalid`
+(`:83-85`) and directly at `:311`, `:418`, `:429`, `:747-790`, `:889`, `:897`, `:1140`, `:1261`.
 
 On leaking: this crate runs no process and reads no file, so there is no captured external output to
 leak. Error strings originate in the caller's own TOML document, in bounded field labels, or in the
 caller's own name arguments. The one indirect case is
-`DistError::invalid(format!("TOML parse: {e}"))` (`:263`), which quotes the `toml` crate's diagnostic
+`DistError::invalid(format!("TOML parse: {e}"))` (`:285`), which quotes the `toml` crate's diagnostic
 for the document the caller supplied — parser output over caller input, not external command
 output, and bounded by `bound()`.
 
 ## Tests and fixtures
 
-Unit tests live in `src/lib.rs` `mod tests` (`:1726-2302`), 24 tests, driven by three inline TOML
-constants `SIMPLE` (`:1730`), `BUNDLE` (`:1749`), `ARCHIVE` (`:1778`) and the builders `bundle_with`
-(`:1804`), `archive_with` (`:1839`). They cover version rejection, duplicate triple and alias,
-alias/triple collision, unknown placeholder, the malformed-template matrix (`:1951-1972`), pre- and
+Unit tests live in `src/lib.rs` `mod tests` (`:1780-2449`), 26 tests, driven by three inline TOML
+constants `SIMPLE` (`:1784`), `BUNDLE` (`:1803`), `ARCHIVE` (`:1832`) and the builders `bundle_with`
+(`:1858`), `archive_with` (`:1893`). They cover version rejection, duplicate triple and alias,
+alias/triple collision, unknown placeholder, the malformed-template matrix (`:2036-2057`), pre- and
 post-expansion collision cases, `{alias}` input, member-path traversal, opaque-but-safe versions,
-byte-stable round-trip (`:2283-2292`), and unknown-field rejection.
+byte-stable round-trip (`:2430-2439`), and unknown-field rejection.
 
 `tests/fixtures.rs` (5 tests) loads files from `tests/fixtures/` via `CARGO_MANIFEST_DIR`, asserts
 expansion per layout, then that parse → `to_toml_string` → parse is value-stable (`:49-59`).
@@ -316,11 +317,11 @@ Contract M003 added `consumer_direct_targets_fixture_matches_the_live_consumer_s
 (`:63`), which pins the exact public asset, sidecar, and install names of the adopted eggsact
 contract, including the `.exe` rule for `*-pc-windows-msvc` that the older
 `eggsact-direct-targets.toml` fixture does not carry, and pins ARMv7 as deliberately absent.
-`tests/conformance.rs` (11 tests) is the inventory and mapping matrix: default-`AllowExtras` acceptance
+`tests/conformance.rs` (12 tests) is the inventory and mapping matrix: default-`AllowExtras` acceptance
 (`:29`), the golden observation pairs (`:43`), missing + exact-extra ordering (`:58`), per-entry
 bundle requirements (`:74`), archive member validation without opening an archive (`:88`), input
 rejection including `MAX_OBSERVED_ENTRIES + 1` (`:134`), per-field mapping drift (`:190`), bundle
-reorder insensitivity (`:271`), and finding-sort stability (`:306`).
+reorder insensitivity (`:306`), and finding-sort stability (`:341`).
 
 | Fixture | Represents |
 | --- | --- |
@@ -335,11 +336,11 @@ reorder insensitivity (`:271`), and finding-sort stability (`:306`).
 
 The three `observed-*` files are the *positive* goldens: each must conform (`conformance.rs:43-55`),
 and each pins the serde wire shape of `ObservedTargetMapping` — `[assets]` with `kind = "direct" |
-"bundle" | "archive"`, matching the internally tagged enum at `:1319`. Their value is that they are
+"bundle" | "archive"`, matching the internally tagged enum at `:1359`. Their value is that they are
 written by hand rather than produced by `expand`, so they would drift the moment a template rule
 changed. The negative evidence is the in-test mutation set instead: wrong asset/sidecar/install
-(`:190-210`), wrong `canonical_target` (`:181-186`), a corrupted member install name (`:260-267`), a
-swapped bundle with shifted install names (`:288-302`), and an over-limit observation (`:308-324`).
+(`:190-210`), wrong `canonical_target` (`:181-186`), a corrupted member install name (`:295-302`), a
+swapped bundle with shifted install names (`:323-337`), and an over-limit observation (`:343-359`).
 
 Publication metadata in `crates/eggpack-contract/Cargo.toml`: `readme` (`:11`), `documentation`
 (`:9`), `keywords` (`:13`), `categories` (`:14`), and `exclude = ["tests/", "benches/"]` (`:15`).
@@ -389,12 +390,12 @@ lives in `crates/eggpack-contract/README.md:38-52`.
 Dependencies (`crates/eggpack-contract/Cargo.toml:20-22`): `serde` with `features = ["derive"]` for
 the four reusable public serde types plus the private `Raw*` shapes; `toml` 0.8 with
 `default-features = false, features = ["parse", "display"]`, narrowed to exactly the two
-capabilities the crate calls — `toml::from_str` (`:263`) and `toml::to_string` (`:273`). No HTTP,
+capabilities the crate calls — `toml::from_str` (`:285`) and `toml::to_string` (`:295`). No HTTP,
 async, archive, process, or Git dependency exists.
 
 Determinism consequence: rendered TOML field order comes from `RawContract`'s derived field order
-(`:437-484`), not from the input document's key order, and `targets` is a `Vec` (`:226`), so target
-order is declaration order and is preserved. Round-trip stability is asserted at `:2283-2292` and in
+(`:462-509`), not from the input document's key order, and `targets` is a `Vec` (`:248`), so target
+order is declaration order and is preserved. Round-trip stability is asserted at `:2430-2439` and in
 `tests/fixtures.rs:49-59`.
 
 Dependents, each by path plus `version = "0.1.0"`: `eggpack-core`

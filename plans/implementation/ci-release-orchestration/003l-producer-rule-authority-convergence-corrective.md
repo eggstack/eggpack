@@ -26,6 +26,19 @@ After this milestone:
 
 ## 2. Current evidence and the defects
 
+**Citation date.** Every location in this section is as of the repository
+baseline named in this plan's header (`fb81aa1`, 2026-10-23), where each anchor
+resolved to exactly the construct it names. The CI crate was afterwards split
+into a module tree by CI/Release M003n, so `crates/eggpack-ci/src/lib.rs:NNNN`
+no longer resolves, and the core, GitHub, and manifest anchors have moved as
+well: the tables below record where each duplicated rule stood when this
+milestone was planned, not where it stands now. Each rule now has one owner —
+host/target matching at `crates/eggpack-core/src/lib.rs:92`,
+compatibility-floor applicability at `crates/eggpack-core/src/lib.rs:188`,
+exact-tag safety at `crates/eggpack-core/src/lib.rs:315`, the SHA-256 hex
+acceptance set at `crates/eggpack-manifest/src/lib.rs:98`, and the file digest
+at `crates/eggpack-core/src/digest.rs:110`.
+
 ### 2.1 Host/target matching is implemented twice
 
 | Site | Location | Visibility |

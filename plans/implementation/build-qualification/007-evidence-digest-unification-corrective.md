@@ -85,6 +85,11 @@ retirements, the call sites, and the tests.
 - `crates/eggpack-ci/src/lib.rs:4663` `hash_candidate_file` and
   `crates/eggpack-github/src/lib.rs:597` `digest_file`. These are consumers of
   the canonical helper and are converged by CI M003l.
+  *(The two locations are as of this plan's repository baseline (`fb81aa1`,
+  2026-10-23). The CI crate was afterwards split into a module tree by
+  CI/Release M003n: `hash_candidate_file` now lives at
+  `crates/eggpack-ci/src/consumer_validator.rs:477` and `digest_file` at
+  `crates/eggpack-github/src/lib.rs:604`.)*
 - Any change to `ReleaseManifest` v1's fields, `schema_version`, or the
   published `eggpack-manifest` crate.
 - Any change to archive assembly, sidecar content, or the finalization order.

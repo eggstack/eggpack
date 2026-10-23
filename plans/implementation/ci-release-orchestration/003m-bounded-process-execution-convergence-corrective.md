@@ -34,6 +34,19 @@ reimplementation rather than adjusting it in place.
 
 ## 2. Current evidence and the defects
 
+**Citation date.** Every location in this section is as of the repository
+baseline named in this plan's header (`fb81aa1`, 2026-10-23), where each anchor
+resolved to exactly the construct it names. The CI crate was afterwards split
+into a module tree by CI/Release M003n, so the `crates/eggpack-ci/src/lib.rs`
+anchors in this section — the explicit ones and the bare `:NNNN` ones alike —
+no longer resolve, and the core and CLI anchors have moved as well. The
+CI-local runner this section describes was removed by this milestone; the two
+validator functions that survived it now live at
+`crates/eggpack-ci/src/consumer_validator.rs:488` and
+`crates/eggpack-ci/src/consumer_validator.rs:521`, and they call the shared
+bounded runner `eggpack_core::run_interpreter_bounded` in
+`crates/eggpack-core/src/builder.rs`.
+
 `eggpack-core` and `eggpack-cli` already share one bounded runner:
 `crates/eggpack-cli/src/main.rs:365` and `:384` call
 `eggpack_core::run_git_tag_bounded` and `eggpack_core::run_git_bounded`, which

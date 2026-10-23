@@ -43,6 +43,19 @@ after.**
 
 ## 2. Current evidence and the defects
 
+**Citation date.** Every location in this section is as of the repository
+baseline named in this plan's header (`fb81aa1`, 2026-10-23), where each anchor
+resolved to exactly the construct it names — including the 11,044-line
+`crates/eggpack-ci/src/lib.rs` whose size and section banners this section
+quotes. This milestone split that file into a module tree, so those
+`crates/eggpack-ci/src/lib.rs:NNNN` anchors no longer resolve. The constructs
+they name now live in the module tree: `render_release_github_inner` at
+`crates/eggpack-ci/src/render_release.rs:1370`, the three drift checks at
+`crates/eggpack-ci/src/drift.rs:63`, `crates/eggpack-ci/src/drift.rs:88`, and
+`crates/eggpack-ci/src/drift.rs:99`, and the staging-payload builders at
+`crates/eggpack-github/src/lib.rs:663`, `crates/eggpack-github/src/lib.rs:690`,
+and `crates/eggpack-github/src/lib.rs:1012`.
+
 ### 2.1 The drift comparison is written three times
 
 `crates/eggpack-ci/src/lib.rs` contains three public check functions:
