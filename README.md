@@ -55,33 +55,74 @@ The rendered workflow is read-only (`contents: read`) and chains
 runners are the file-in/file-out steps the generated workflow replays inside
 CI. A bare `eggpack` prints every subcommand.
 
-There is one other user-facing family, `contract expand`: a bounded, local-only
-projection that reads one producer contract and prints one scalar, so a consumer
-repository can read a producer fact instead of re-implementing TOML parsing and
-template expansion.
+There are two other user-facing families.
+
+## The operator family — build a release locally
+
+Six commands drive the producer on a workstation: `check` → `plan` → `package` →
+`qualify` → `collect` → `manifest`. Unlike the `ci` rendering path, this family
+**performs a real Cargo build** — `package` invokes `cargo +<toolchain>` on
+every planned target — but it still performs no network access and needs no
+GitHub token. The six commands share one implementation with the `ci _*`
+runners, so both surfaces derive one plan from one rule set.
+
+| Command | Class | What it does |
+|---|---|---|
+| `check` | validation | Resolves the whole planning input set and writes nothing. |
+| `plan` | validation | Writes the `ReleasePlan` — the release identity, the selected targets, and their policies. |
+| `package` | build | Builds every planned target's candidates under an output root. |
+| `qualify` | build | Qualifies the built candidates and writes qualification evidence. |
+| `collect` | release aggregation | Aggregates the qualified candidates into a finalized release tree. |
+| `manifest` | final-bytes evidence | Derives `release-manifest.json` from the finalized release tree — and checks it against the finalized tree it describes. |
+
+Three optional flags are available on the family: `--qemu-sysroot` (the QEMU
+sysroot for an emulated target), `--identity-mode` (a caller-chosen
+release-identity mode), and `--consumer-validators` (a checked-in consumer
+validator map). The producer policy and both bindings documents may be given as
+**TOML or JSON**. `qualify` refuses `--output-dir == --artifacts-dir`, because
+staging the qualification artifacts into the directory the candidates were read
+from would rewrite the very bytes the qualification is about; and `manifest`
+reads every archive member back out of the finalized `.tar.gz` and compares it
+against the collected manifest, so a manifest that disagrees with its archive is
+refused rather than emitted.
 
 ```sh
-$EGGPACK contract expand --contract contract.toml --release-id 1.2.6 \
-  --target linux-x64 --field asset
-# eggsact-1.2.6-x86_64-unknown-linux-gnu
+# 1. validate the planning inputs — writes nothing
+$EGGPACK check --contract contract.toml --pack-config pack-config.toml \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --selected linux-x64 --release-id 1.2.6 --source-revision "$REV"
+
+# 2. resolve the release identity — writes the plan
+$EGGPACK plan --contract contract.toml --pack-config pack-config.toml \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --selected linux-x64 --release-id 1.2.6 --source-revision "$REV" \
+  --output out/release-plan.json
+
+# 3. build every planned target — a real Cargo build
+$EGGPACK package --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --source-root demo --output-root out/build
+
+# 4. qualify the candidates
+$EGGPACK qualify --contract contract.toml --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --artifacts-dir out/build --output-dir out/qualification
+
+# 5. aggregate the qualified candidates into a finalized release tree
+$EGGPACK collect --contract contract.toml --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --artifacts-dir out/qualification --output-root out/release/finalized
+
+# 6. derive the final-bytes evidence — the manifest sits beside the finalized root
+$EGGPACK manifest --contract contract.toml --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --finalized-root out/release/finalized --output out/manifest/release-manifest.json
 ```
 
-It performs no network access, no repository discovery, and no release
-selection, and it fails closed on bundle/archive targets for direct-only fields.
-See [crates/eggpack-cli/README.md](crates/eggpack-cli/README.md).
+[docs/quickstart.md](docs/quickstart.md) runs this path end to end with the
+exact inputs and the quoted output of every step.
 
-## Verify
+## The `contract` family
 
-```sh
-scripts/check-local.sh   # fmt, check, clippy, tests, doc, package, MSRV
-```
-
-## Docs
-
-- [docs/quickstart.md](docs/quickstart.md) — the runnable walkthrough, in full
-- [docs/release-identity-policy.md](docs/release-identity-policy.md) — opt-in
-  source-tag and manifest-ID mapping policy
-- [docs/](docs/) — user guides and the workspace layout
-- [crates/eggpack-cli/README.md](crates/eggpack-cli/README.md) — command reference
-- [architecture/overview.md](architecture/overview.md) — pipeline, crate boundaries, invariants
-- [AGENTS.md](AGENTS.md) — operating contract, verification, planning conventions
+`contract expand` is a bounded, local-only projection that reads one producer
+contract and prints one scalar, so a consumer repository can read a producer
+fact instead of re-implementing TOML parsing and template expansion.
