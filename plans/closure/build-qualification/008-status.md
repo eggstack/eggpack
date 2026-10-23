@@ -124,7 +124,7 @@ The `eggpack-cli` test run was added because M008 changed the `ReleasePlan` and 
 - **No `ReleaseManifest` change.** No field, no shape, no `schema_version` bump. The published `eggpack-manifest` crate needs no new release from this milestone.
 - **No generated workflow byte changed.** No checked-in workflow declares a floor that changes meaning, so `eggpack ci check` drift status is unchanged for existing consumers.
 - **No dependency added** in any crate.
-- **No historical closure rewritten.** `plans/closure/build-qualification/001`–`007-status.md` and every other historical closure record are untouched.
+- **No historical closure rewritten.** Every closure record under `plans/closure/build-qualification/` other than this one is untouched.
 - **Pre-existing tests stay green** across core, CI, and CLI. The CI crate's two test fixtures were the only CI-side change, one line each.
 
 ## Security and reliability review

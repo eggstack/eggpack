@@ -151,7 +151,7 @@ The `eggpack-core` test run was added because this milestone edited core; the ot
 - **No schema version bump.** `ReleaseManifest v1`, `PackConfig v1`, `CIPlan v1`, and `QualificationEvidence` are unchanged in shape.
 - **No generated workflow byte changed.** The `ci _*` runner arguments, exit discipline, and diagnostics are unchanged, so `eggpack ci check` drift status is unchanged for every existing consumer.
 - **No dependency added** in any crate.
-- **No historical closure rewritten.** `plans/closure/ci-release-orchestration/001`–`003j-status.md` and every other historical closure record are untouched.
+- **No historical closure rewritten.** Every closure record under `plans/closure/ci-release-orchestration/` other than this one is untouched.
 - **Pre-existing tests stay green** across all four affected crates.
 - **`eggpack-core` is not published**, so its new public API surface carries no external compatibility cost.
 

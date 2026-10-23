@@ -91,7 +91,7 @@ The four new tests are `regular_file_digest_is_the_lowercase_hex_sha256_of_its_b
 - **No schema version bump.** `ReleaseManifest v1`, `PackConfig v1`, `CIPlan v1`, and `QualificationEvidence` are all unchanged; no serialized field was added, removed, or renamed anywhere.
 - **No golden changed.** The in-tree golden digests are byte-identical; `manifest_records_agree_with_the_finalized_bytes_for_every_artifact` passes on both the pre- and post-change tree.
 - **No public API break beyond two private removals.** `digest_file` and `digest_regular` were both private `fn`s. `eggpack-core` is not published.
-- **No historical closure rewritten.** `plans/closure/build-qualification/001`–`006-status.md` and every other historical closure record are untouched.
+- **No historical closure rewritten.** Every closure record under `plans/closure/build-qualification/` other than this one is untouched.
 - **Pre-existing tests stay green**, including the finalization suite with its golden digests and the qualification suite.
 
 ## Security and reliability review
