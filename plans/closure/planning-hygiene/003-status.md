@@ -121,12 +121,12 @@ claim, the anchor became a symbol-name reference.
 > figure is a count of every numeric line-reference token in `architecture/`,
 > bare `:N` references included. It is **not** a count of distinct `file:line`
 > citations, and the "left indicative: 0" row covers single-line anchors only:
-> the directory still carries **418** range-style anchors (`file.rs:N-M`) across
-> **391** lines of **16** documents. Measured on the current tree with
+> the directory still carries **429** range-style anchors (`file.rs:N-M`) across
+> **402** lines of **16** documents. Measured on the current tree with
 > `grep -ohE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' architecture/*.md | wc -l`
-> (1144 `file:line` citation tokens across 21 documents, 1086 of them into
+> (1157 `file:line` citation tokens across 21 documents, 1101 of them into
 > `.rs` files) and
-> `grep -ohE '\.rs:[0-9]+-[0-9]+' architecture/*.md | wc -l` (418 range-style
+> `grep -ohE '\.rs:[0-9]+-[0-9]+' architecture/*.md | wc -l` (429 range-style
 > anchor occurrences). A range is neither a single line nor a symbol-name
 > reference, so those anchors remain multi-line claims. The claim in
 > `architecture/overview.md` that "every anchor now names a line that was read,
@@ -614,4 +614,4 @@ No **single-line** anchor in `architecture/` was left indicative. Where a claim
 did not fit one line, a symbol-name reference was used instead, and the twelve
 such replacements are counted in §4. Range-style anchors (`file.rs:N-M`) are a
 different thing: they were checked as ranges, and the directory still carries
-418 of them across 391 lines. See the correction note under §4's table.
+429 of them across 402 lines. See the correction note under §4's table.
