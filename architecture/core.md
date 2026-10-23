@@ -14,7 +14,7 @@ verification, and `eggpack-ci` runs a caller-supplied external validator.
 
 The `git` spawn is the one non-toolchain process `core` executes, and it is
 deliberately here rather than in `cli`: `run_git_bounded`
-(`src/builder.rs:393`) runs through the same bounded runner as the build, so
+(`src/builder.rs:512`) runs through the same bounded runner as the build, so
 the CLI inherits the deadline, the process group, and the environment clear
 instead of owning a second, weaker spawn path. See
 [process-execution.md](process-execution.md).
@@ -23,7 +23,7 @@ instead of owning a second, weaker spawn path. See
 core's finalized release, and `cli` wires all of it.
 
 Code baseline `fa82486dab83d2369d330a3cef197a3651851c26`; the working tree
-measures 8935 lines across six files.
+measures 8750 lines across six files.
 
 ## File map
 
@@ -33,8 +33,8 @@ measures 8935 lines across six files.
 | `src/builder.rs` | 1902 | build bindings, command construction, bounded execution, candidate discovery | [core-build.md](core-build.md) |
 | `src/qualification.rs` | 2982 | qualification bindings, method taxonomy, host matching, evidence | [core-qualification.md](core-qualification.md) |
 | `src/finalization.rs` | 928 | qualification gate, output root, archives, sidecars, manifest | [core-finalization.md](core-finalization.md) |
-| `src/digest.rs` | 327 | the single producer-side file-digest authority | [core-finalization.md](core-finalization.md) |
-| `src/floor.rs` | 1412 | compatibility-floor verification status and bounded ELF `GLIBC_x.y` inspection | [core-qualification.md](core-qualification.md) |
+| `src/digest.rs` | 294 | the single producer-side file-digest authority | [core-finalization.md](core-finalization.md) |
+| `src/floor.rs` | 1260 | compatibility-floor verification status and bounded ELF `GLIBC_x.y` inspection | [core-qualification.md](core-qualification.md) |
 
 Read them in pipeline order. The rough size split is itself informative:
 qualification is the most intricate part of the producer, and finalization is
@@ -99,7 +99,7 @@ the reason the stages cannot be collapsed:
   never a skip. This is the rule that unblocked cross-tool builds. The two
   stages enforce it differently and both must hold: the planning stage rejects
   an inadmissible combination up front as a fail-closed `CoreError`
-  (`src/lib.rs:260-267`), and the qualification stage records the observed
+  (`src/lib.rs:260-270`), and the qualification stage records the observed
   `HostMismatch` at run time (`src/qualification.rs:216`). The planning gate
   runs only inside `PackConfig::resolve`, not on plain parsing.
 - **Fail-closed everywhere.** A missing input, an unknown field, an out-of-bounds
@@ -115,12 +115,12 @@ the reason the stages cannot be collapsed:
   once in [core-finalization.md](core-finalization.md).
 - **One producer rule authority.** `core` owns the producer's policy rules and
   exposes them so that other crates apply them rather than restate them:
-  `host_matches_target` (`src/lib.rs:90`) for the host/target match,
+  `host_matches_target` (`src/lib.rs:92`) for the host/target match,
   `validate_policy` (`src/lib.rs:208`) for the whole policy gate,
   `validate_floor_applicability` (`src/lib.rs:188`) for the compatibility
   floor, and `validate_exact_tag_safety` (`src/lib.rs:315`) for the exact-tag
   safety rule. The SHA-256 hex acceptance rule belongs to `eggpack-manifest`
-  and is re-exported here (`src/lib.rs:18`). Each rule has exactly one
+  and is re-exported here (`src/lib.rs:20`). Each rule has exactly one
   implementation in the workspace; the full map is in
   [validation-model.md](validation-model.md). The exact-tag **safety** rule
   and the exact-tag **format** rule (`vX.Y.Z`) are separate concerns with

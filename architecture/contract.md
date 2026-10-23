@@ -2,7 +2,7 @@
 
 The workspace's sole authority for release layout and names. Every other `eggpack-*` crate references
 its types and may not redefine a name it owns. One file, `crates/eggpack-contract/src/lib.rs`
-(2302 lines), pure and sync: its only imports are `std::collections` and `std::fmt` (`lib.rs:11-12`)
+(2449 lines), pure and sync: its only imports are `std::collections` and `std::fmt` (`lib.rs:11-12`)
 and its only dependencies are `serde` (derive) and `toml` (parse + display).
 
 ## Responsibility and authority
@@ -353,10 +353,10 @@ Library only — `src/` contains `lib.rs` and no `[[bin]]`. The canonical call s
 production by `eggpack-core`:
 
 ```rust
-let contract = DistributionContract::parse_toml_str(&text)?;                  // lib.rs:261
-let expanded = contract.expand(&target.target, &release_id)?;                  // lib.rs:300
-let expected = expected_release_files(&contract, &target.target, &release_id)?; // :1034
-let inventory = ReleaseInventory::new(names)?;                                 // :1085
+let contract = DistributionContract::parse_toml_str(&text)?;                  // lib.rs:283
+let expanded = contract.expand(&target.target, &release_id)?;                  // lib.rs:325
+let expected = expected_release_files(&contract, &target.target, &release_id)?; // :1074
+let inventory = ReleaseInventory::new(names)?;                                 // :1125
 if !validate_release_inventory(&expected, &inventory, ExtrasPolicy::Exact).is_conformant() {
     return Err(/* … */);
 }
