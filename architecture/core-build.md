@@ -69,6 +69,16 @@ call with a hand-built binding.
 | glibc floor | not encoded | `args[5]` rewritten to `<triple>.<major>.<minor>` (`:415-418`) |
 | macOS floor | n/a | rejected: `macOS floor cannot use cargo-zigbuild` (`:419-429`) |
 
+Those two rows describe the floor as a **build-time input** — what the build
+command is told to produce. The floor's **verification status** — what was
+actually done with a declared floor — is a separate, finite, closed model,
+`FloorVerificationStatus` (`src/floor.rs:72-89`), computed by bounded
+independent ELF inspection in `src/floor.rs`. It is recorded on the plan and on
+the qualification evidence, and it is documented in
+[core-qualification.md](core-qualification.md) §Compatibility floor verification
+status. This module builds candidates and never inspects them; the inspection
+is the qualification stage's, and a native build never establishes a floor.
+
 Both append exactly `--package <package> --bin <binary>` (`:436-441`). The executable is
 always the bare tool name `cargo` (`:448`); executable and argv are separate OS arguments, so
 no shell is involved (`:158`). One environment variable is injected, `CARGO_TARGET_DIR` =

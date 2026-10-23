@@ -19,9 +19,10 @@ EGGPACK=./target/debug/eggpack
 $EGGPACK --version   # eggpack 0.1.0
 ```
 
-A release is three pure file-in/file-out commands — no network, no token, no
-real build. These need six input files: a contract, a pack config, build
-bindings, qualification bindings, a draft template, and a GitHub policy.
+The `ci` family's rendering path is three pure file-in/file-out commands — no
+network, no token, no real build. These need six input files: a contract, a pack
+config, build bindings, qualification bindings, a draft template, and a GitHub
+policy.
 [docs/quickstart.md](docs/quickstart.md) writes all six and runs the whole flow
 end to end (~5 minutes, no network); every command and expected output there was
 executed verbatim.
@@ -53,7 +54,8 @@ The rendered workflow is read-only (`contents: read`) and chains
 
 `generate` and `check` are the only user-facing commands in the `ci` family. The nine `ci _*`
 runners are the file-in/file-out steps the generated workflow replays inside
-CI. A bare `eggpack` prints every subcommand.
+CI. A bare `eggpack` prints every subcommand; its usage line leads with the
+operator family — `usage: eggpack <check|plan|package|qualify|collect|manifest|ci|contract> [options]`.
 
 There are two other user-facing families.
 
@@ -85,6 +87,37 @@ from would rewrite the very bytes the qualification is about; and `manifest`
 reads every archive member back out of the finalized `.tar.gz` and compares it
 against the collected manifest, so a manifest that disagrees with its archive is
 refused rather than emitted.
+```sh
+# 1. validate the planning inputs — writes nothing
+$EGGPACK check --contract contract.toml --pack-config pack-config.toml \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --selected linux-x64 --release-id 1.2.6 --source-revision "$REV"
+# 2. resolve the release identity — writes the plan
+$EGGPACK plan --contract contract.toml --pack-config pack-config.toml \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --selected linux-x64 --release-id 1.2.6 --source-revision "$REV" \
+  --output out/release-plan.json
+# 3. build every planned target — a real Cargo build
+$EGGPACK package --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --source-root demo --output-root out/build
+# 4. qualify the candidates
+$EGGPACK qualify --contract contract.toml --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --artifacts-dir out/build --output-dir out/qualification
+# 5. aggregate the qualified candidates into a finalized release tree
+$EGGPACK collect --contract contract.toml --release-plan out/release-plan.json \
+  --build-bindings build-bindings.toml --qualification-bindings qualification-bindings.toml \
+  --artifacts-dir out/qualification --output-root out/release/finalized
+# 6. derive the final-bytes evidence — the manifest sits beside the finalized root
+$EGGPACK manifest --contract contract.toml --release-plan out/release-plan.json \
+  --finalized-root out/release/finalized --output out/manifest/release-manifest.json
+```
+[docs/quickstart.md](docs/quickstart.md) runs this path end to end with the
+exact inputs and the quoted output of every step.
+## The `contract` family
+`contract expand` is a bounded, local-only projection that reads one producer
+contract and prints one scalar, so a consumer repository can read a producer
+fact instead of re-implementing TOML parsing and template expansion.
 
 ```sh
 # 1. validate the planning inputs — writes nothing

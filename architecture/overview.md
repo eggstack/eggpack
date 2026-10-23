@@ -26,7 +26,7 @@ reading instead of the source. Keeping them true is a manual obligation, and it
 has been missed before, so record what is actually true rather than what was
 once true.
 
-The last code commit, `61b2c03`, changed five source files
+The `61b2c03` commit changed five source files
 (`builder.rs`, `qualification.rs`, `ci/src/lib.rs`, `cli/src/main.rs`,
 `github/src/lib.rs`). It also edited most of the deep dives, but **did not
 re-base the line numbers** in six of them, so roughly ninety citations pointed at
@@ -34,8 +34,10 @@ the wrong code while still being in range. A later pass re-based them against
 the current tree and verified each corrected anchor by name:
 
 - `github.md` — 42 anchors, uniformly `+6`
-- `ci.md` and `ci-rendering.md` — 62 anchors, `+2` above `ci/src/lib.rs:2200`
-  and `+29` above `:4723`
+- `ci.md` and `ci-rendering.md` — 62 anchors, `+2` above the pre-split
+  single-file `ci/src/lib.rs` line 2200 and `+29` above its line 4723. That
+  file has since been split into a 14-file module tree, so those two numbers are
+  historical positions in the pre-split file, not live anchors.
 - `process-execution.md` — the `eggpack-ci` row, `+2`
 - `validation-model.md` — 23 anchors that cited a `#[derive]`/`#[serde]`
   attribute line rather than the item, plus the `ci` rows
@@ -250,7 +252,11 @@ redefine a layout name; downstream crates reference these types instead.
 
 Single `src/lib.rs`. Leaf parser/serializer with no I/O (`serde` + `serde_json`
 only), and the only crate here that is published for third-party consumption
-(`eggpack-manifest 0.1.0` on crates.io, consumed by `eggup-eggpack`). Owns
+(`eggpack-manifest 0.1.0` on crates.io, consumed by `eggup-eggpack`). The
+published crate takes a pending `0.1.1` patch release carrying the ADR-0006
+all-zeros refusal; the crate is already at `0.1.1` in
+`crates/eggpack-manifest/Cargo.toml`, and publication of that patch is
+outstanding. Owns
 `ReleaseManifest` plus `TargetRecord`, `ArtifactForm`, `ArtifactRecord`,
 `BundleRecord`, `ArchiveMemberRecord`, and `ByteEvidence`, with hard bounds
 `MAX_DOCUMENT_BYTES`, `MAX_TARGETS`, `MAX_RECORDS`, and

@@ -98,11 +98,20 @@ M001 generator model and direct installer fixtures is closed and qualified. M002
 
 M003 is **closed** as an evidence/ownership decision pass (`plans/closure/bootstrap-installers/003-status.md`, reviewed against Eggpack `013e091`, eggsact `d4e6e5c`/`v1.2.7` -> `d8014cfe`, stegoeggo `v0.5.0` -> `57ca94c9`). Its two-consumer evidence gate cleared 2026-10-04 (Planning Hygiene M001) and the candidate review closed with zero production change. Three decisions are now settled rather than open:
 
-- the existing exact-installer generator generalizes across two real products without a new producer primitive, so **no M003a corrective was required**;
+- the existing exact-installer generator generalizes across two real products without a new producer primitive, so **no corrective to this M003 decision pass was required**;
 - wrapper-to-exact-installer delegation is **not warranted** and cannot be done safely without a new stable machine-readable failure/outcome protocol — a separate capability that is explicitly not authorized;
 - an **Eggup receipt handoff is rejected**: bootstrap installs exact bytes, Eggup owns transaction and rollback state, and the workspace's only receipt type (`GitHubDraftReceiptV1`) is already documented as producer staging evidence, not an install receipt.
 
-Bootstrap has no remaining open work. The only follow-up created is optional and consumer-owned: each consumer may delete its wrapper asset-name reconstruction once Contract M003 provides `eggpack contract expand --field asset`, under a plan registered in that consumer's own repository.
+Bootstrap has no remaining open work from the M003 decision pass. The only follow-up created is optional and consumer-owned: each consumer may delete its wrapper asset-name reconstruction once Contract M003 provides `eggpack contract expand --field asset`, under a plan registered in that consumer's own repository.
+
+> **Identifier note — `M003a` is not unique across this roadmap.** The row
+> `M003a ADR-0006 adversarial digest fixture corrective` in the table below is a
+> **different milestone** from the M003 two-consumer adoption/receipt decision
+> above. It belongs to the 2026-10-23 post-implementation review chain
+> (ADR-0006, CI/Release M003l), not to this M003 decision pass; it was registered
+> as `M003a` because the M003 decision pass never needed a corrective of its
+> own, so no `M003a` identifier had been taken there. Read the two M003a
+> mentions as unrelated milestones that happen to share a name.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
