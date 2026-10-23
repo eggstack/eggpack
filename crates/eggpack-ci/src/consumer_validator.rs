@@ -195,7 +195,7 @@ impl ConsumerValidationEvidenceV1 {
         match (&self.candidate_sha256, self.candidate_size) {
             (Some(digest), size) if size > 0 => {
                 validate_sha256_hex(digest)
-                    .map_err(|_| fail("consumer evidence digest must be lowercase hex"))?;
+                    .map_err(|error| fail(&format!("consumer evidence digest: {error}")))?;
             }
             (Some(_), _) => {
                 return Err(fail(
@@ -341,7 +341,7 @@ pub fn run_consumer_validator(
         ));
     }
     validate_sha256_hex(request.expected_sha256)
-        .map_err(|_| fail("expected candidate digest must be lowercase hex"))?;
+        .map_err(|error| fail(&format!("expected candidate digest: {error}")))?;
     if !safe_metadata(request.release_id, 256)
         || !safe_metadata(request.source_revision, 256)
         || !safe_target(request.target)

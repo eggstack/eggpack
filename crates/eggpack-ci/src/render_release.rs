@@ -28,24 +28,33 @@ use eggpack_core::{BuildStrategy, HostArch, HostOs, Qualification};
 /// Emit a private working-directory creation step for generated release jobs.
 ///
 /// Directory names are renderer constants drawn from the same job's CLI argv;
-/// no caller input ever reaches the shell. The assertion documents that only
+/// no caller input ever reaches the shell. The check documents that only
 /// fixed safe relative paths are representable here.
-fn mkdir_step(out: &mut String, name: &str, dir: &str) {
-    assert!(
-        !dir.is_empty()
-            && dir.len() <= 128
-            && dir
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"./-_".contains(&b))
-            && !dir.starts_with('/')
-            && !dir.contains(".."),
-        "generated mkdir directory is not a fixed safe relative path"
-    );
+///
+/// The check is a refusal, not an assertion: the directory name can be
+/// derived from a contract target triple, and a contract may legally declare
+/// a triple at the contract's own name bound. Such a target produces a
+/// directory name longer than the bound below, and the renderer must refuse
+/// it rather than panic on a caller-supplied document.
+fn mkdir_step(out: &mut String, name: &str, dir: &str) -> Result<(), CiError> {
+    if dir.is_empty()
+        || dir.len() > 128
+        || !dir
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"./-_".contains(&b))
+        || dir.starts_with('/')
+        || dir.contains("..")
+    {
+        return Err(fail(
+            "generated mkdir directory is not a fixed safe relative path",
+        ));
+    }
     out.push_str("      - name: ");
     out.push_str(name);
     out.push_str("\n        shell: bash\n        run: ");
     out.push_str(&yaml_scalar(&format!("mkdir -p '{dir}'")));
     out.push('\n');
+    Ok(())
 }
 
 pub(crate) fn tool_install_snippet(tool: &EggpackToolPolicy) -> String {
@@ -693,7 +702,7 @@ fn emit_resolve_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<
         out,
         "Create runtime identity directory",
         &format!("./{RUNTIME_IDENTITY_DIR}"),
-    );
+    )?;
     out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n");
     let expression = match staging_policy.tag_source {
         StagingTagSource::RefName => "${{ github.ref_name }}",
@@ -1006,7 +1015,7 @@ fn emit_consumer_validation_jobs(
                 out,
                 "Create consumer evidence directory",
                 &format!("./eggpack-consumer/{}", qual.build_job_id),
-            );
+            )?;
             out.push_str("      - name: Validate exact candidate (consumer)\n        shell: bash\n        run: ");
             out.push_str(&yaml_scalar(&validate.to_shell()));
             out.push('\n');
@@ -1102,7 +1111,7 @@ fn emit_gate_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(),
     }
     // M003e: the gate outcome directory must exist before
     // `_evaluate-gate` writes the outcome file.
-    mkdir_step(out, "Create gate outcome directory", "./eggpack-gate");
+    mkdir_step(out, "Create gate outcome directory", "./eggpack-gate")?;
     out.push_str(
         "      - name: Evaluate required qualification gate\n        shell: bash\n        run: ",
     );
@@ -1177,7 +1186,7 @@ fn emit_aggregate_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Resul
         out,
         "Create finalized release directory",
         "./eggpack-finalized",
-    );
+    )?;
     out.push_str(
         "      - name: Aggregate and finalize release\n        shell: bash\n        run: ",
     );

@@ -159,7 +159,12 @@ pub fn zig_expected_digest(
 /// The acceptance set is owned by `eggpack-manifest` (ADR-0006) and re-exported
 /// by `eggpack-core`; this crate applies it rather than restating it.
 pub fn validate_sha256_hex(digest: &str) -> Result<(), CiError> {
-    eggpack_core::validate_sha256_hex(digest).map_err(|_| fail("invalid SHA-256 digest"))
+    // ADR-0006 narrowed the acceptance set, so a refused digest is not always
+    // a formatting problem: the all-zeros digest is well-formed hex and is
+    // refused for a different reason. The diagnostic names the reason, so it
+    // does not misdescribe a digest that is in fact lowercase hex.
+    eggpack_core::validate_sha256_hex(digest)
+        .map_err(|error| fail(&format!("SHA-256 digest {}", error.reason())))
 }
 
 /// Pure archive top-level layout check for an official Zig archive listing.

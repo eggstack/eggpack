@@ -4224,6 +4224,106 @@ fn m003d_consumer_attach_rejects_mismatch() {
 }
 
 #[test]
+fn m003n_review_refuses_an_over_long_generated_directory_instead_of_panicking() {
+    // The consumer-evidence directory name is derived from the build job id,
+    // which is derived from the contract's target triple. A contract may
+    // legally declare a triple at the contract's own name bound, which
+    // produces a directory name longer than the renderer's bound. The
+    // renderer must refuse it, not panic on a caller-supplied document.
+    let long_target = format!("{}-b", "a".repeat(126));
+    assert_eq!(long_target.len(), 128);
+    let fixture = format!(
+        "schema_version = 1\n\n[product]\nid = \"eggsact\"\ndisplay_name = \"eggsact\"\n\n[[targets]]\ntriple = \"{long_target}\"\naliases = [\"linux-x64\"]\n\n[targets.asset]\nkind = \"direct\"\nasset = \"{{product}}-{{version}}-{{target}}\"\ninstall = \"{{product}}\"\n\n[targets.checksum]\nsidecar = \"{{asset}}.sha256\"\n"
+    );
+    let contract = DistributionContract::parse_toml_str(&fixture).unwrap();
+    let config = PackConfig {
+        schema_version: 1,
+        targets: vec![TargetPolicy {
+            target: long_target.clone(),
+            strategy: BuildStrategy::NativeCargo,
+            host_os: HostOs::Linux,
+            host_arch: HostArch::X86_64,
+            qualification_host: None,
+            toolchain: ToolchainRequirement {
+                rust: "1.89.0".into(),
+                cargo_zigbuild: None,
+                zig: None,
+            },
+            floor: CompatibilityFloor::None,
+            qualification: Qualification::Structural,
+            support: SupportTier::Required,
+        }],
+    };
+    let release = config
+        .resolve(&contract, "1.2.3", &"a".repeat(40), &["linux-x64".into()])
+        .unwrap();
+    let expanded = contract.expand("linux-x64", "1.2.3").unwrap();
+    let selectors: Vec<LogicalOutputSelector> = match expanded.assets {
+        eggpack_contract::ExpandedAssets::Direct(_) => vec![LogicalOutputSelector::Direct],
+        eggpack_contract::ExpandedAssets::Bundle(b) => (0..b.entries.len())
+            .map(|index| LogicalOutputSelector::BundleEntry { index })
+            .collect(),
+        eggpack_contract::ExpandedAssets::Archive(a) => a
+            .members
+            .into_iter()
+            .map(|m| LogicalOutputSelector::ArchiveMember { source: m.source })
+            .collect(),
+    };
+    let bindings = BuildBindingsV1 {
+        schema_version: 1,
+        targets: [(
+            long_target.clone(),
+            selectors
+                .iter()
+                .enumerate()
+                .map(|(index, selector)| eggpack_core::BuildBinding {
+                    selector: selector.clone(),
+                    package: "eggsact".into(),
+                    binary: format!("bin{index}"),
+                })
+                .collect(),
+        )]
+        .into_iter()
+        .collect(),
+    };
+    let qual_bindings = QualificationBindingsV1 {
+        schema_version: 1,
+        targets: [(
+            long_target.clone(),
+            eggpack_core::TargetQualificationBinding { smoke: None },
+        )]
+        .into_iter()
+        .collect(),
+    };
+    let ci_plan = project_ci_plan(&contract, &release, &bindings).unwrap();
+    let mut validators = BTreeMap::new();
+    validators.insert(
+        long_target.clone(),
+        m003d_validator(LogicalOutputSelector::Direct),
+    );
+    let graph = project_release_plan_with_consumer(
+        &ci_plan,
+        &qual_bindings,
+        &bindings,
+        &release,
+        validators,
+    )
+    .unwrap();
+    // The build job id is the target with non-alphanumerics replaced, so the
+    // consumer evidence directory is `./eggpack-consumer/{build_job_id}`.
+    assert_eq!(graph.qualifications[0].build_job_id.len(), 134);
+    let mut policy = m002_golden_policy();
+    policy.release_inputs.as_mut().unwrap().consumer_validators =
+        Some("validators/consumer.json".into());
+    // The generated directory is now 153 characters, past the renderer's
+    // bound. The renderer refuses it instead of asserting.
+    assert!(
+        render_release_github(&graph, &policy).is_err(),
+        "an over-long generated directory must be refused, not rendered"
+    );
+}
+
+#[test]
 fn m003d_stage_presentation_flags_are_explicit() {
     // Without a presentation path the stage job carries no wrapper
     // flags (M003c byte-compatible); with one, both paired flags render
