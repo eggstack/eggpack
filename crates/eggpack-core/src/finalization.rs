@@ -635,6 +635,7 @@ mod tests {
             },
             support: SupportTier::Required,
             status: QualificationStatus::Passed,
+            floor: crate::FloorVerificationStatus::NotDeclared,
             candidates: qualified,
             smoke_selector: None,
             processes: vec![],

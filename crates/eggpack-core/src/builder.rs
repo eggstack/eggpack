@@ -1073,6 +1073,7 @@ mod tests {
                 support: SupportTier::Required,
             },
             artifact_form: crate::PlannedAssetForm::Direct,
+            floor_status: crate::FloorVerificationStatus::NotDeclared,
         }
     }
     #[test]
@@ -1148,6 +1149,74 @@ mod tests {
             Duration::from_secs(10)
         )
         .is_err());
+    }
+    /// The compatibility-floor build behaviour is unchanged by the floor
+    /// verification status: the cargo-zigbuild triple rewrite is pinned
+    /// byte-for-byte, and the macOS-under-zigbuild refusal keeps its exact
+    /// message. Recording a floor status must never move the refusal from
+    /// build-command time to declaration time.
+    #[test]
+    fn the_cargo_zigbuild_floor_rewrite_and_macos_refusal_are_unchanged() {
+        let mut t = target();
+        t.policy.strategy = BuildStrategy::CargoZigbuild;
+        t.policy.toolchain.cargo_zigbuild = Some("0.23.3".into());
+        t.policy.toolchain.zig = Some("0.14.1".into());
+        t.policy.floor = CompatibilityFloor::Glibc {
+            major: 2,
+            minor: 17,
+        };
+        let binding = BuildBinding {
+            selector: LogicalOutputSelector::Direct,
+            package: "demo".into(),
+            binary: "demo".into(),
+        };
+        let command = cargo_command(
+            &t,
+            &binding,
+            Path::new("/repo"),
+            Path::new("/target"),
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(
+            command.args,
+            vec![
+                "+1.89.0",
+                "zigbuild",
+                "--release",
+                "--locked",
+                "--target",
+                "x86_64-unknown-linux-gnu.2.17",
+                "--package",
+                "demo",
+                "--bin",
+                "demo",
+            ]
+        );
+        // A macOS floor under cargo-zigbuild is refused at build-command time
+        // with the unchanged message.
+        t.policy.floor = CompatibilityFloor::Macos {
+            major: 13,
+            minor: 0,
+        };
+        let refusal = cargo_command(
+            &t,
+            &binding,
+            Path::new("/repo"),
+            Path::new("/target"),
+            Duration::from_secs(10),
+        )
+        .unwrap_err();
+        assert_eq!(refusal.to_string(), "macOS floor cannot use cargo-zigbuild");
+        // The refusal is not moved to declaration time: the policy still
+        // resolves, because only the canonical floor rule refuses it.
+        assert_eq!(
+            t.policy.floor,
+            CompatibilityFloor::Macos {
+                major: 13,
+                minor: 0
+            }
+        );
     }
     #[test]
     fn binding_document_rejects_duplicate_and_unknown_fields() {

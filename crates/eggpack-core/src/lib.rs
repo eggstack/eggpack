@@ -5,10 +5,12 @@
 mod builder;
 pub mod digest;
 mod finalization;
+mod floor;
 mod qualification;
 pub use builder::*;
 pub use digest::*;
 pub use finalization::*;
+pub use floor::*;
 pub use qualification::*;
 
 use eggpack_contract::{
@@ -620,6 +622,15 @@ pub struct PlannedTarget {
     pub policy: TargetPolicy,
     /// Artifact identity derived exclusively from the contract.
     pub artifact_form: PlannedAssetForm,
+    /// Verification status of the declared compatibility floor.
+    ///
+    /// The status is derived from the policy by
+    /// [`planned_floor_status`], so a plan either states the status its
+    /// declaration implies or it is rejected. A document that omits the field
+    /// is read as `NotDeclared`, which is refused for any target that
+    /// declares a floor.
+    #[serde(default)]
+    pub floor_status: FloorVerificationStatus,
 }
 /// Contract-derived release artifact form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -633,8 +644,13 @@ pub enum PlannedAssetForm {
     Archive,
 }
 impl ReleasePlan {
-    /// Serialize the canonically ordered plan as deterministic compact JSON.
-    pub fn to_json(&self) -> Result<String, CoreError> {
+    /// Validate the plan's bounds and the agreement between each declared
+    /// floor and the floor status the plan states for it.
+    ///
+    /// A plan that declares a floor and does not state a status for it is
+    /// invalid: the status is a pure function of the policy, so a missing or
+    /// contradictory status fails closed.
+    pub fn validate(&self) -> Result<(), CoreError> {
         if self.schema_version != 1
             || self.release_id.is_empty()
             || self.source_revision.is_empty()
@@ -642,6 +658,18 @@ impl ReleasePlan {
         {
             return Err(err("invalid ReleasePlan bounds"));
         }
+        for planned in &self.targets {
+            if planned.floor_status != planned_floor_status(&planned.policy) {
+                return Err(err(
+                    "ReleasePlan floor status does not match the declared compatibility floor",
+                ));
+            }
+        }
+        Ok(())
+    }
+    /// Serialize the canonically ordered plan as deterministic compact JSON.
+    pub fn to_json(&self) -> Result<String, CoreError> {
+        self.validate()?;
         serde_json::to_string(self).map_err(|_| err("ReleasePlan serialization failed"))
     }
 }
@@ -718,10 +746,12 @@ impl PackConfig {
                 eggpack_contract::AssetForm::Bundle { .. } => PlannedAssetForm::Bundle,
                 eggpack_contract::AssetForm::Archive { .. } => PlannedAssetForm::Archive,
             };
+            let floor_status = planned_floor_status(&policy);
             targets.push(PlannedTarget {
                 target: t.triple.clone(),
                 policy,
                 artifact_form,
+                floor_status,
             });
         }
         if targets.is_empty() {
@@ -803,6 +833,71 @@ mod tests {
         assert!(invalid
             .resolve(&contract, "1.2.6", "abc", &selected)
             .is_err());
+    }
+    #[test]
+    fn a_native_cargo_glibc_floor_is_recorded_in_the_plan_and_still_resolves() {
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: BuildStrategy::NativeCargo,
+                host_os: HostOs::Linux,
+                host_arch: HostArch::X86_64,
+                qualification_host: None,
+                toolchain: ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                    zig: None,
+                },
+                floor: CompatibilityFloor::Glibc {
+                    major: 2,
+                    minor: 17,
+                },
+                qualification: Qualification::Native,
+                support: SupportTier::Required,
+            }],
+        };
+        let selected = vec!["linux-x64".into()];
+        // A declared glibc floor under native Cargo is still accepted, and it
+        // is no longer dropped: it survives into the plan with a status.
+        let plan = config
+            .resolve(&contract, "1.2.6", "abc", &selected)
+            .unwrap();
+        assert_eq!(
+            plan.targets[0].policy.floor,
+            CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17
+            }
+        );
+        assert_eq!(
+            plan.targets[0].floor_status,
+            FloorVerificationStatus::Unverified(FloorUnverifiedReason::PendingInspection)
+        );
+        assert!(plan.validate().is_ok());
+        assert!(plan.to_json().is_ok());
+        // A plan whose declared floor and stated status disagree is refused.
+        let mut contradictory = plan.clone();
+        contradictory.targets[0].floor_status = FloorVerificationStatus::NotDeclared;
+        assert!(contradictory.validate().is_err());
+        assert!(contradictory.to_json().is_err());
+        // A cargo-zigbuild target binds the floor into the toolchain instead.
+        let mut cross_tool = config.clone();
+        cross_tool.targets[0].strategy = BuildStrategy::CargoZigbuild;
+        cross_tool.targets[0].toolchain.cargo_zigbuild = Some("0.23.3".into());
+        cross_tool.targets[0].toolchain.zig = Some("0.14.1".into());
+        let plan = cross_tool
+            .resolve(&contract, "1.2.6", "abc", &selected)
+            .unwrap();
+        assert_eq!(
+            plan.targets[0].floor_status,
+            FloorVerificationStatus::ToolchainBound
+        );
+        assert!(plan.validate().is_ok());
     }
     #[test]
     fn pack_config_toml_is_versioned_bounded_and_rejects_unknown_fields() {
