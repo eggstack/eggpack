@@ -319,7 +319,7 @@ allocation and the input is also refused if it is a symlink. This is the same
 gate every other input in the crate uses; the workflow is not a special case.
 
 Drift comparison is delegated. The CRLF→LF-only normalization lives in
-`eggpack-ci` (`normalize_newlines`, `crates/eggpack-ci/src/lib.rs:1885`), not
+`eggpack-ci` (`normalize_newlines`, `crates/eggpack-ci/src/drift.rs:72`), not
 here. The CLI branches on `report.matches` and, on drift, returns `ci check:
 drift detected (expected N bytes, found N bytes, first difference at ...)`
 (`915-918`, `938-941`).
@@ -354,7 +354,7 @@ single external program in the crate is the literal `"git"` with fixed arguments
 finite interpreter enum, not from a caller string.
 
 Invocations are rendered, not typed: `RunnerCommand::argv()` in
-`eggpack-ci` (`crates/eggpack-ci/src/lib.rs:1152`) is what the tests feed
+`eggpack-ci` (`crates/eggpack-ci/src/runner.rs:169`) is what the tests feed
 straight into these handlers.
 
 ## The file-safety helpers
@@ -524,11 +524,11 @@ named environment variable: its only `std::env` uses are `args()` (`11`),
 What it does: it validates that the expected revision is 40 lowercase hex
 characters (`411-416`), then delegates to `eggpack_core::run_git_bounded`
 (`421`), which owns the spawn. That helper builds a `CommandSpec` for
-`git rev-parse --verify HEAD^{commit}` (`builder.rs:417-427`) and, for the tag
+`git rev-parse --verify HEAD^{commit}` (`builder.rs:513-518`) and, for the tag
 peel, `git rev-parse --verify refs/tags/<tag>^{commit}`
-(`builder.rs:430-449`); both use the same bounded runner with a 30 s deadline
-(`builder.rs:20`), a 4 KiB retained-output cap (`builder.rs:22`), a
-`command-group` process group, and a cleared environment (`builder.rs:464`).
+(`builder.rs:535-541`); both use the same bounded runner with a 30 s deadline
+(`builder.rs:29`), a 4 KiB retained-output cap (`builder.rs:31`), a
+`command-group` process group, and a cleared environment (`builder.rs:667`).
 See
 [process-execution.md](process-execution.md) for the workspace spawn contract.
 
@@ -561,7 +561,7 @@ no revision text (`426`).
 The expected object name is matched *inside* the runner and never returned to
 this process, so the CLI cannot leak stdout even by accident. The comparison is
 exact rather than containment: the `expected_stdout_exact` field of the
-`CommandSpec` (`builder.rs:469`) requires stdout to equal the expected value,
+`CommandSpec` (`builder.rs:177-181`) requires stdout to equal the expected value,
 which a substring check would not.
 
 ## Error and exit discipline
@@ -638,7 +638,7 @@ What [ci.md](ci.md) records is that `eggpack-ci`'s *own* dev-dependencies let
 
 Dependents: end users, and the generated workflow, whose steps are invocations of
 this binary rendered by `eggpack-ci`'s `RunnerCommand`
-(`crates/eggpack-ci/src/lib.rs:1152`).
+(`crates/eggpack-ci/src/runner.rs:169`).
 
 ## Tests
 

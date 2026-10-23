@@ -98,7 +98,7 @@ the reason the stages cannot be collapsed:
   stages enforce it differently and both must hold: the planning stage rejects
   an inadmissible combination up front as a fail-closed `CoreError`
   (`src/lib.rs:260-267`), and the qualification stage records the observed
-  `HostMismatch` at run time (`src/qualification.rs:215`). The planning gate
+  `HostMismatch` at run time (`src/qualification.rs:216`). The planning gate
   runs only inside `PackConfig::resolve`, not on plain parsing.
 - **Fail-closed everywhere.** A missing input, an unknown field, an out-of-bounds
   count, or an unmatched identity is an error. There is no tolerant or
@@ -114,9 +114,9 @@ the reason the stages cannot be collapsed:
 - **One producer rule authority.** `core` owns the producer's policy rules and
   exposes them so that other crates apply them rather than restate them:
   `host_matches_target` (`src/lib.rs:90`) for the host/target match,
-  `validate_policy` (`src/lib.rs:206`) for the whole policy gate,
-  `validate_floor_applicability` (`src/lib.rs:186`) for the compatibility
-  floor, and `validate_exact_tag_safety` (`src/lib.rs:313`) for the exact-tag
+  `validate_policy` (`src/lib.rs:208`) for the whole policy gate,
+  `validate_floor_applicability` (`src/lib.rs:188`) for the compatibility
+  floor, and `validate_exact_tag_safety` (`src/lib.rs:315`) for the exact-tag
   safety rule. The SHA-256 hex acceptance rule belongs to `eggpack-manifest`
   and is re-exported here (`src/lib.rs:18`). Each rule has exactly one
   implementation in the workspace; the full map is in

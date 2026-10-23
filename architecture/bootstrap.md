@@ -19,7 +19,7 @@ no environment probing at render time.
 
 `render_posix` (`:140-144`) and `render_powershell` (`:193-197`) take the first
 three; `render_posix_with_policy` (`:657-662`) and
-`render_powershell_with_policy` (`:872-877`) take all four.
+`render_powershell_with_policy` (`:884-889`) take all four.
 
 The boundary is structural, not conventional. The origin is a single fixed base
 URL (`:14`) validated as `https://`, or loopback `http://` when `fixture_http`
@@ -44,7 +44,7 @@ signature logic at all.
 | `BootstrapInstallPolicyV1` | `:280-286` | Strict versioned policy; `deny_unknown_fields`. |
 | `empty` / `from_toml` / `from_json` / `validate_shape` | `:294-337` | Constructors, bounded parsers, shape validation. |
 | `render_posix_with_policy` | `:657-860` | Direct + bundle + archive POSIX renderer (policy pair). |
-| `render_powershell_with_policy` | `:872-1048` | Direct + bundle + archive PowerShell renderer (policy pair). |
+| `render_powershell_with_policy` | `:884-1064` | Direct + bundle + archive PowerShell renderer (policy pair). |
 
 Internal machinery: `Item` (`:30-37`), `project` (`:38-112`, direct-only),
 `safe_segment` (`:113-117`), `runtime_pair` (`:118-138`), `shq` (`:189-191`),
@@ -52,7 +52,7 @@ Internal machinery: `Item` (`:30-37`), `project` (`:38-112`, direct-only),
 `ArchiveMemberProjection` (`:367-373`), `TargetProjection` (`:376-398`),
 `project_all` (`:400-622`), `posix_mode` (`:624-629`), `POSIX_SHA_SNIPPET`
 (`:631`), `posix_verify_block` (`:633-645`), `posix_download_block`
-(`:647-654`), `ps_verify_block` (`:862-869`).
+(`:647-654`), `ps_verify_block` (`:862-873`).
 
 ## The two-layer render API
 
@@ -68,15 +68,15 @@ policy layer adds multi-entry placement with rollback, per-entry POSIX mode from
 `InstallMode`, archive extraction with per-member verification, and a strict
 cross-check of policy against contract. Policy is mandatory for bundle and
 archive targets (`:466`, `:527`) and optional for direct targets. Callers outside
-this crate use only the policy pair (`crates/eggpack-github/src/lib.rs:802`,
-`:808`, `:1471`, `:1477`); the spec pair has no caller outside its own tests.
+this crate use only the policy pair (`crates/eggpack-github/src/lib.rs:668`,
+`:695`, `:1017`, `:1296`); the spec pair has no caller outside its own tests.
 
 ## Install modes and the shell/PowerShell matrix
 
 `InstallMode` is keyed by install name, not by target. `posix_mode` (`:624-629`)
 maps `Executable` to `755` and `Data` to `644`. The PowerShell renderers never
-consult the mode: they move verified bytes with `[IO.File]::Move` (`:942`,
-`:1015`), preserving content and inheriting the destination directory ACL, as
+consult the mode: they move verified bytes with `[IO.File]::Move` (`:954`,
+`:1031`), preserving content and inheriting the destination directory ACL, as
 the `InstallMode` doc comments state (`:251`, `:253`). Policy is still required
 and validated for Windows targets, so a policy valid for POSIX is valid for
 PowerShell. `BundleArchiveEncoding` has one variant, and the archive filename
@@ -84,18 +84,18 @@ must end in `.tar.gz` (`:533-535`).
 
 | Form | POSIX (`render_posix_with_policy`) | PowerShell (`render_powershell_with_policy`) |
 | --- | --- | --- |
-| Direct | Download to `"$tmp/payload"`, size + SHA-256, `chmod 755`, `ln` (`:676-684`). | `Invoke-WebRequest -OutFile`, `Get-FileHash`, `[IO.File]::Move` (`:890-900`). No chmod. |
-| Bundle | All destinations pre-checked absent; per-entry download + size + SHA-256; re-check; per-entry `chmod 755`/`644`; sequential `ln` with `rm -f` rollback of prior links (`:687-744`). | Same pre-check / verify / re-check order; sequential `[IO.File]::Move` appending to `$created` (`:903-947`); rollback via the shared `catch` (`:1040-1042`). |
-| Archive | Requires `tar` (`:768`); outer verify (`:770-776`); expected-inventory `printf` (`:778-783`); `tar -tzf` (`:784`); member-path guard (`:785`); `LC_ALL=C sort` + `cmp -s` exact inventory (`:786-788`); extract to `"$tmp/extracted"` (`:789-790`); per-member symlink + regular-file check (`:793`), size + SHA-256 (`:796-803`), `chmod` (`:804-807`); re-check; `ln` with rollback (`:815-834`). | Requires `tar.exe` (`:971`); outer verify (`:976-981`); `$expected` vs `tar.exe -tzf` with `$missing`/`$extra` (`:982-993`); extract to `$extractDir` (`:994`); per-member `LinkType` and `-PathType Leaf` (`:997`) plus size + SHA-256 (`:1000-1005`); `[IO.File]::Move` with `$created` (`:1013-1019`). |
+| Direct | Download to `"$tmp/payload"`, size + SHA-256, `chmod 755`, `ln` (`:676-684`). | `Invoke-WebRequest -OutFile`, `Get-FileHash`, `[IO.File]::Move` (`:902-912`). No chmod. |
+| Bundle | All destinations pre-checked absent; per-entry download + size + SHA-256; re-check; per-entry `chmod 755`/`644`; sequential `ln` with `rm -f` rollback of prior links (`:687-744`). | Same pre-check / verify / re-check order; sequential `[IO.File]::Move` appending to `$created` (`:915-959`); rollback via the shared `catch` (`:1056-1058`). |
+| Archive | Requires `tar` (`:768`); outer verify (`:770-776`); expected-inventory `printf` (`:778-783`); `tar -tzf` (`:784`); member-path guard (`:785`); `LC_ALL=C sort` + `cmp -s` exact inventory (`:786-788`); extract to `"$tmp/extracted"` (`:789-790`); per-member symlink + regular-file check (`:793`), size + SHA-256 (`:796-803`), `chmod` (`:804-807`); re-check; `ln` with rollback (`:815-834`). | Requires `tar.exe` (`:983`); outer verify (`:988-993`); `$expected` vs `tar.exe -tzf` with `$missing`/`$extra` (`:994-1009`); extract to `$extractDir` (`:1010`); per-member `LinkType` and `-PathType Leaf` (`:1013`) plus size + SHA-256 (`:1016-1021`); `[IO.File]::Move` with `$created` (`:1029-1035`). |
 
 Archive members declare a `source` inside the archive and an `install` name at
 the destination. Nested sources flatten: the test fixture uses
-`bin/egress-helper` installing as `egress-helper` (`:1914-1921`), and `bin/` is
-never created in the destination (`:818`, `:1015`; asserted at `:3178`). A
+`bin/egress-helper` installing as `egress-helper` (`:1930-1937`), and `bin/` is
+never created in the destination (`:818`, `:1031`; asserted at `:3317`). A
 missing member fails the inventory comparison (`archive member inventory
-mismatch`, `exit 6` at `:788`; `throw` at `:992-993`); a member that is present
+mismatch`, `exit 6` at `:788`; `throw` at `:1008-1009`); a member that is present
 but not a regular file is rejected after extraction (`symlink member rejected` /
-`member is not a regular file`, `:793`, `:997`).
+`member is not a regular file`, `:793`, `:1013`).
 
 ## `BootstrapInstallPolicyV1` and per-target policy
 
@@ -110,7 +110,7 @@ mode key passing `safe_segment` (`[A-Za-z0-9._+-]+`, `:113-117`).
 What a caller may override per target is deliberately narrow: the mode of each
 install name and, for archive targets only, the required encoding. It cannot
 override the install location (fixed to the single positional argument, `:848` /
-`:1031`), the download URL (fixed by contract + manifest + origin), the artifact
+`:1047`), the download URL (fixed by contract + manifest + origin), the artifact
 names, or the digests. Policy cannot contradict the contract; every
 contradiction is a hard error before any text is emitted:
 
@@ -154,13 +154,13 @@ POSIX policy script (emitted at `:841-856`):
    listing, path, and inventory gates below before extraction.
 7. `exit 0` per branch (`:743`, `:835`), so the `case` is terminal.
 
-PowerShell policy script (emitted at `:1026-1043`): `$ErrorActionPreference =
+PowerShell policy script (emitted at `:1042-1059`): `$ErrorActionPreference =
 'Stop'`; OS/arch from `$env:OS`, `$IsMacOS`, and
-`[Runtime.InteropServices.RuntimeInformation]::OSArchitecture` (`:1027-1029`);
-`$origin`, `$dest = $args[0]`, `New-Item -Force` (`:1030-1032`); GUID temp dir
-under `$dest` (`:1033-1034`); `$created = @()` (`:1035`); `try { switch ... }`
-(`:1036-1039`); `catch` removes only `$created` paths and rethrows
-(`:1040-1042`); `finally` removes the temp dir (`:1043`).
+`[Runtime.InteropServices.RuntimeInformation]::OSArchitecture` (`:1043-1045`);
+`$origin`, `$dest = $args[0]`, `New-Item -Force` (`:1046-1048`); GUID temp dir
+under `$dest` (`:1049-1050`); `$created = @()` (`:1051`); `try { switch ... }`
+(`:1052-1055`); `catch` removes only `$created` paths and rethrows
+(`:1056-1058`); `finally` removes the temp dir (`:1059`).
 
 There is no PATH wiring in either renderer: no profile editing, no symlink into
 a `bin` directory, no shell rc modification. The installer places files and
@@ -168,18 +168,18 @@ exits.
 
 The scripts explicitly do not: fetch or parse a release index; check for a newer
 version; install over an existing file; remove a pre-existing file; escalate
-privilege (`sudo`, `RunAs`, `Start-Process` absent, asserted at `:3122-3123`);
-follow redirects (`-MaximumRedirection 0` at `:228`, `:891`, `:919`, `:973`);
+privilege (`sudo`, `RunAs`, `Start-Process` absent, asserted at `:3261-3262`);
+follow redirects (`-MaximumRedirection 0` at `:228`, `:903`, `:931`, `:985`);
 or verify a signature.
 
 ## Integrity, not authenticity
 
 `sha2` is a **dev-dependency** (`crates/eggpack-bootstrap/Cargo.toml:21-24`)
-used only by the test helper `sha_hex` (`:1403-1409`). The renderer never
+used only by the test helper `sha_hex` (`:1419-1425`). The renderer never
 computes a digest: it copies the manifest's `sha256` string into the script
 (`:80`, `:461`, `:504`, `:579`, `:596`) and emits a comparison (`:639-643`,
 `:864`). Likewise `tar` and `flate2` are dev-dependencies used to *build*
-deterministic fixture archives in tests (`:1757-1780`, `:2758-2780`), not to
+deterministic fixture archives in tests (`:1773-1796`, `:2897-2919`), not to
 unpack anything.
 
 What the emitted check proves: the bytes the script received are the bytes the
@@ -208,12 +208,12 @@ hostname, no user name, no random identifier, no locale-dependent formatting.
   pairs contract and manifest entries (`:474`, `:547`); policy mode maps are
   `BTreeMap` (`:271`), so lookup and serialization are ordered.
 - Randomness exists only at run time: `mktemp -d` (`:850`) and
-  `[Guid]::NewGuid()` (`:1033`) are fixed source text in the script and resolve
+  `[Guid]::NewGuid()` (`:1049`) are fixed source text in the script and resolve
   when the script runs.
 - The legacy `project` (`:38-112`) deliberately preserves manifest order. That
   is input-derived and stable, not host-derived.
-- Asserted directly: `render_posix` equality at `:1122-1123`,
-  `render_powershell_with_policy` equality at `:3116-3120`.
+- Asserted directly: `render_posix` equality at `:1138-1139`,
+  `render_powershell_with_policy` equality at `:3255-3259`.
 
 Cross-reference `determinism.md`.
 
@@ -221,21 +221,21 @@ Cross-reference `determinism.md`.
 
 **Fail-closed exits.** Size mismatch exits 6 (`:635`, `:178`); SHA-256 mismatch
 exits 8 (`:641`, `:180`); missing tooling exits 5 (`curl is required` `:649` /
-`:176`, `tar is required` `:768`, `tar.exe is required` `:971`); missing
+`:176`, `tar is required` `:768`, `tar.exe is required` `:983`); missing
 SHA-256 tooling exits 7 (`:631`); every branch ends in `exit 0` (`:743`, `:835`)
 so execution cannot fall through. PowerShell throws instead, under
-`$ErrorActionPreference = 'Stop'` (`:1026`).
+`$ErrorActionPreference = 'Stop'` (`:1042`).
 
 **Unwritable targets.** Destinations are checked absent before any download and
-re-checked immediately before placement (`:696-699` + `:712-717`; `:965-970` +
-`:1007-1012`). Final placement is the authoritative guard: POSIX `ln` (`:677`,
+re-checked immediately before placement (`:696-699` + `:712-717`; `:977-982` +
+`:1023-1028`). Final placement is the authoritative guard: POSIX `ln` (`:677`,
 `:728`, `:737`, `:818`, `:828`) and PowerShell `[IO.File]::Move` (`:232`,
-`:942`, `:1015`) both refuse to overwrite, reporting `destination already exists
+`:954`, `:1031`) both refuse to overwrite, reporting `destination already exists
 or filesystem does not support safe placement`. A failure after the first
 successful placement rolls back only files this invocation created — `rm -f` of
-prior links (`:737`, `:828`) or the `$created` list (`:1040-1042`) — and never
+prior links (`:737`, `:828`) or the `$created` list (`:1056-1058`) — and never
 deletes anything pre-existing. Because the temp dir lives under the destination
-(`:850`, `:1033`), placement is a same-filesystem link or same-volume move by
+(`:850`, `:1049`), placement is a same-filesystem link or same-volume move by
 construction; a cross-device layout surfaces as a placement failure, not a
 silent copy.
 
@@ -245,29 +245,29 @@ quotes with `''` doubling). Values reaching unquoted positions are additionally
 constrained by `safe_segment` (`:113-117`) to `[A-Za-z0-9._+-]`, and the origin
 is rejected if it contains any character that could escape quoting (`:47-48`,
 `:345-346`). Install names, artifact names, and archive sources all go through
-the quoting helpers (`:677`, `:690`, `:757`, `:794`, `:818`, `:891`, `:906`,
-`:960`, `:998`, `:1017`). One coupling worth recording: `ps_verify_block`
-formats the expected digest with `shq` and lowercases it (`:867`), which is safe
+the quoting helpers (`:677`, `:690`, `:757`, `:794`, `:818`, `:903`, `:918`,
+`:972`, `:1014`, `:1033`). One coupling worth recording: `ps_verify_block`
+formats the expected digest with `shq` and lowercases it (`:871`), which is safe
 only because `m.validate()` enforces 64 lowercase hex characters
-(`crates/eggpack-manifest/src/lib.rs:268-275`); a digest containing a quote
+(`crates/eggpack-manifest/src/lib.rs:98-116`); a digest containing a quote
 would be mis-escaped for PowerShell. Real dependency, currently unreachable.
 
 **No `eval`-style constructs.** No `eval`, `Invoke-Expression`, `iex`,
 `bash -c`, `sh -c`, or `Start-Process` appears in either renderer, and absence
-is asserted (`:1125`, `:3122-3123`). Branching uses `case` / `switch` over
+is asserted (`:1141`, `:3261-3262`). Branching uses `case` / `switch` over
 literal arms.
 
 **Archive path traversal.** The guard is emitted into the script, not delegated
 to `tar`, and it runs *before* extraction. The POSIX listing gate (`:785`)
 rejects, per listed member: the empty string, a leading `/`, any backslash, any
-colon, and any occurrence of `..`. The PowerShell gate (`:991`) is the same five
+colon, and any occurrence of `..`. The PowerShell gate (`:1003`) is the same five
 checks. Extraction then happens into a fresh private temp directory (`:789-790`,
-`:994`), and only afterwards is each expected member resolved, checked for
-symlink and regular-file type (`:793`, `:997`), verified by size and SHA-256
-(`:796-803`, `:1000-1005`), and linked or moved to its install name. No
+`:1010`), and only afterwards is each expected member resolved, checked for
+symlink and regular-file type (`:793`, `:1013`), verified by size and SHA-256
+(`:796-803`, `:1016-1021`), and linked or moved to its install name. No
 archive-derived path is ever used as a write target inside the destination, so
 even a guard bypass could not place a file outside `$dest`. Independently, the
-exact-inventory comparison (`:786-788` via `sort` + `cmp -s`; `:992-993` via
+exact-inventory comparison (`:786-788` via `sort` + `cmp -s`; `:1008-1009` via
 `$missing`/`$extra`) rejects any member not named by the contract and manifest,
 which subsumes traversal as a special case. The `..` test is substring-based
 (`*'..'*` / `-match '\.\.'`) and so also rejects legitimate names containing
@@ -275,63 +275,63 @@ which subsumes traversal as a special case. The `..` test is substring-based
 `safe_segment`-checked (`:567`) but `source` is not re-validated here;
 traversal-shaped `source` values are rejected upstream by
 `validate_member_source` in the contract
-(`crates/eggpack-contract/src/lib.rs:707-751`, which rejects control
+(`crates/eggpack-contract/src/lib.rs:747-791`, which rejects control
 characters, braces, backslashes, leading `/`, `:`, and any `.` or `..`
 component). Tests build raw ustar fixtures the `tar` crate would refuse to
-construct, specifically to exercise the consumer guard (`:1780-1850`;
-traversal `:2594-2609`, absolute `:2611-2627`, backslash `:2629-2646`).
+construct, specifically to exercise the consumer guard (`:1796-1866`;
+traversal `:2733-2748`, absolute `:2750-2766`, backslash `:2768-2785`).
 
 ## Windows and PowerShell specifics
 
 The PowerShell renderers need a host that provides a PowerShell exposing
-`$IsMacOS` and `[Runtime.InteropServices.RuntimeInformation]` (`:1027-1029`) —
-hence the pwsh 7 requirement — and, for archive targets, `tar.exe` (`:971`).
+`$IsMacOS` and `[Runtime.InteropServices.RuntimeInformation]` (`:1043-1045`) —
+hence the pwsh 7 requirement — and, for archive targets, `tar.exe` (`:983`).
 POSIX archive targets need `tar` (`:768`).
 
 `cargo test -p eggpack-bootstrap` refuses to skip on the Windows lane: under
 `cfg!(windows)` the test fails unless `pwsh_available()` and
-`tar_exe_available()` both hold (`:3089-3094`, helpers `:1862-1905`); other
-platforms print a skip note and return (`:3095-3098`). The Windows CI lane
+`tar_exe_available()` both hold (`:3228-3233`, helpers `:1878-1921`); other
+platforms print a skip note and return (`:3234-3237`). The Windows CI lane
 independently asserts `pwsh -Version` and `tar.exe --version`
 (`.github/workflows/ci.yml:70-75`) and then runs
 `m002a_powershell_archive_runtime` as a focused step
 (`.github/workflows/ci.yml:76-77`).
 
-`m002a_powershell_archive_runtime` (`:3084-3436`) is real runtime evidence: it
+`m002a_powershell_archive_runtime` (`:3223-3587`) is real runtime evidence: it
 serves fixture bytes over loopback HTTP, renders the archive installer,
 executes it with `pwsh -NoProfile -NonInteractive -File`, and asserts exact
-installed bytes (`:3176-3177`), nested-source flattening (`:3178`), no-overwrite
-on re-run (`:3180-3183`), outer size and digest rejection (`:3186-3202`), the six
-inner guards (`:3311-3349`), member-evidence rejection (`:3352-3371`), the
-`tar.exe` tool boundary (`:3373-3399`), rollback of an invocation-created file
-while preserving a pre-existing sentinel (`:3401-3421`), and preservation of a
-pre-existing first destination (`:3423-3432`).
+installed bytes (`:3315-3316`), nested-source flattening (`:3317`), no-overwrite
+on re-run (`:3319-3322`), outer size and digest rejection (`:3325-3341`), the six
+inner guards (`:3462-3500`), member-evidence rejection (`:3503-3522`), the
+`tar.exe` tool boundary (`:3524-3550`), rollback of an invocation-created file
+while preserving a pre-existing sentinel (`:3552-3572`), and preservation of a
+pre-existing first destination (`:3574-3583`).
 
 Cross-reference `testing-and-portability.md`.
 
 ## Tests and coverage shape
 
-This crate has 8 `#[test]` functions (`:1077`, `:1160`, `:1185`, `:1991`,
-`:2201`, `:2440`, `:2964`, `:3084`) — the lowest test count in the workspace
-against 3436 source lines, and the test module spans `:1050-3436`, so roughly
+This crate has 8 `#[test]` functions (`:1093`, `:1176`, `:1201`, `:2007`,
+`:2217`, `:2579`, `:3103`, `:3223`) — the lowest test count in the workspace
+against 3436 source lines, and the test module spans `:1066-3587`, so roughly
 70% of the file is tests. The dev-dependencies make fixtures real: `sha2`
-computes fixture digests (`:1403-1409`); `tar` plus `flate2` build deterministic
+computes fixture digests (`:1419-1425`); `tar` plus `flate2` build deterministic
 `.tar.gz` archives with `mtime(0)`, `uid/gid 0`, and
-`tar::HeaderMode::Deterministic` (`:1757-1780`). A hand-written ustar writer
-(`:1780-1850`) produces archives with names the `tar` crate rejects, so the
+`tar::HeaderMode::Deterministic` (`:1773-1796`). A hand-written ustar writer
+(`:1796-1866`) produces archives with names the `tar` crate rejects, so the
 traversal and type guards run against bytes an attacker could actually serve.
 
 Honest assessment. The strong part: the direct-only renderers execute for real
-against a loopback fixture server (`:1185`), the POSIX bundle and archive
-renderers run full positive and negative matrices end to end (`:2201`, `:2440`),
+against a loopback fixture server (`:1201`), the POSIX bundle and archive
+renderers run full positive and negative matrices end to end (`:2217`, `:2579`),
 and the PowerShell archive lane runs actual `pwsh`. The weak part: most of this
 crate is emitted text and several assertions are substring checks
-(`assert!(a.contains("--connect-timeout 10 --max-time 120"))` at `:1124`;
-`assert!(script.contains("tar.exe"))` at `:3121`). A substring assertion can
+(`assert!(a.contains("--connect-timeout 10 --max-time 120"))` at `:1140`;
+`assert!(script.contains("tar.exe"))` at `:3260`). A substring assertion can
 pass while unrelated parts of the same script are wrong. POSIX policy coverage
 is behavioural, strong but only for the platform and tool combinations that ran;
 the spec pair is covered by substring, parse, and one runtime direct test.
-PowerShell non-archive forms have static coverage only (`:2964`), making
+PowerShell non-archive forms have static coverage only (`:3103`), making
 `m002_powershell_static_and_runtime` the weakest M002 test by construction.
 Nothing asserts the full text of a rendered script, and nothing exercises
 `render_posix` / `render_powershell` output on Windows.

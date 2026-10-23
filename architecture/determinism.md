@@ -41,18 +41,18 @@ the same facts always yield the same bytes.
 | `ReleasePlan` on re-serialize | *not re-sorted* | `crates/eggpack-core/src/lib.rs:489-498` | relies on construction order |
 | `ReleaseInventory.files` | lexical filename | `crates/eggpack-contract/src/lib.rs:1109` | imposed at construction |
 | `ArchiveMemberInventory.members` | lexical member path | `crates/eggpack-contract/src/lib.rs:1231` | imposed at construction |
-| `ConformanceReport.findings` | derived `Ord`: kind, label, expected, observed | `crates/eggpack-contract/src/lib.rs:1416`; derive `:1382` | imposed before truncation |
-| `ReleaseManifest.targets` | `target` | `crates/eggpack-manifest/src/lib.rs:242` | imposed at serialization |
-| `ReleaseManifest` bundle entries | `(artifact.name, install)` | `crates/eggpack-manifest/src/lib.rs:245-247` | imposed at serialization |
-| `ReleaseManifest` archive members | `(source, install)` | `crates/eggpack-manifest/src/lib.rs:249` | imposed at serialization |
+| `ConformanceReport.findings` | derived `Ord`: kind, label, expected, observed | `crates/eggpack-contract/src/lib.rs:1422-1423`; field `:1449` | imposed before truncation |
+| `ReleaseManifest.targets` | `target` | `crates/eggpack-manifest/src/lib.rs:327` | imposed at serialization |
+| `ReleaseManifest` bundle entries | `(artifact.name, install)` | `crates/eggpack-manifest/src/lib.rs:330-332` | imposed at serialization |
+| `ReleaseManifest` archive members | `(source, install)` | `crates/eggpack-manifest/src/lib.rs:333-335` | imposed at serialization |
 | Finalization manifest targets | `target` | `crates/eggpack-core/src/finalization.rs:297` | imposed before `build_manifest` |
-| `StagingPayloadV1.assets` | `name` | `crates/eggpack-github/src/lib.rs:247` (serialize), `:1589` (build), `:883` (wrapper variant) | both, belt and braces |
+| `StagingPayloadV1.assets` | `name` | `crates/eggpack-github/src/lib.rs:333` (serialize), `:1432` (build) | both, belt and braces |
 | `GitHubDraftReceiptV1.assets` | `name` | `crates/eggpack-github/src/lib.rs:2194-2195` | imposed at construction |
-| `CIPlan` job outputs | `selector` | `crates/eggpack-ci/src/lib.rs:182` | imposed at construction |
-| `CIPlan.targets` (jobs) | `planned.target` | `crates/eggpack-ci/src/lib.rs:195` | imposed at construction |
-| `CIPlan.required_aggregation_dependencies` | lexical job id | `crates/eggpack-ci/src/lib.rs:196` | imposed at construction |
-| `ReleaseCIPlanV1.qualifications` | `target` | `crates/eggpack-ci/src/lib.rs2506` | imposed at construction |
-| `LogicalOutputSelector` comparison | derived `Ord`: `Direct` < `BundleEntry{index}` < `ArchiveMember{source}` | `crates/eggpack-core/src/builder.rs51-66` | derived, declaration-ordered |
+| `CIPlan` job outputs | `selector` | `crates/eggpack-ci/src/planning.rs:164` | imposed at construction |
+| `CIPlan.targets` (jobs) | `planned.target` | `crates/eggpack-ci/src/planning.rs:177` | imposed at construction |
+| `CIPlan.required_aggregation_dependencies` | lexical job id | `crates/eggpack-ci/src/planning.rs:178` | imposed at construction |
+| `ReleaseCIPlanV1.qualifications` | `target` | `crates/eggpack-ci/src/release_plan.rs` (`qualifications.sort_by`) | imposed at construction |
+| `LogicalOutputSelector` comparison | derived `Ord`: `Direct` < `BundleEntry{index}` < `ArchiveMember{source}` | `crates/eggpack-core/src/builder.rs:74-89` | derived, declaration-ordered |
 | Qualification evidence candidates | `selector` | `crates/eggpack-core/src/finalization.rs:632` | imposed before evidence assembly |
 | Bootstrap installer cases | `(os, arch)` | `crates/eggpack-bootstrap/src/lib.rs:613-620` | imposed at projection |
 | Archive comparison source set | lexical, then `dedup` | `crates/eggpack-contract/src/lib.rs:1661-1662` | imposed over a merged `HashMap` key set |
@@ -60,9 +60,9 @@ the same facts always yield the same bytes.
 
 `LogicalOutputSelector` derives `Ord` from enum variant declaration order, so
 `Direct` sorts before every `BundleEntry` regardless of index, and `BundleEntry`
-before every `ArchiveMember` (`crates/eggpack-core/src/builder.rs51`). That
+before every `ArchiveMember` (`crates/eggpack-core/src/builder.rs:76-89`). That
 ordering is what makes `CIPlan::validate`'s strict-ascending check
-(`crates/eggpack-ci/src/lib.rs:333`) and finalization's candidate matching
+(`crates/eggpack-ci/src/planning.rs:288`) and finalization's candidate matching
 (`crates/eggpack-core/src/finalization.rs:395`) agree.
 Reordering the variants would silently change both — the main structural hazard
 in this table.
@@ -89,32 +89,34 @@ Every serialized document derives `serde::Serialize` from a struct definition,
 so emission order is field order. Stability therefore depends on field
 declarations being treated as part of the wire contract rather than as
 incidental layout. Examples: `ReleaseManifest`
-(`crates/eggpack-manifest/src/lib.rs:59-72`), `StagingPayloadV1`
-(`crates/eggpack-github/src/lib.rs:206-228`), `ReleaseCIPlanV1`
-(`crates/eggpack-ci/src/lib.rs2311`).
+(`crates/eggpack-manifest/src/lib.rs:122-133`), `StagingPayloadV1`
+(`crates/eggpack-github/src/lib.rs:290-292`), `ReleaseCIPlanV1`
+(`crates/eggpack-ci/src/release_plan.rs:128-129`).
 
 Two conventions make this fail closed:
 
 - `deny_unknown_fields` on essentially every document type
-  (`crates/eggpack-manifest/src/lib.rs:58`, `:77`, `:112`, `:124`, `:134`,
-  `:147`; `crates/eggpack-github/src/lib.rs:187`, `:205`, `:297`;
-  `crates/eggpack-ci/src/lib.rs:1861`, `:2308`;
-  `crates/eggpack-core/src/builder.rs70`, `:78`). An unrecognized field is a
+  (`crates/eggpack-manifest/src/lib.rs:122`, `:141`, `:151`, `:176`, `:188`,
+  `:198`, `:211`; `crates/eggpack-github/src/lib.rs:95`, `:273`, `:291`, `:383`;
+  `crates/eggpack-ci/src/handoff.rs:42`, `crates/eggpack-ci/src/release_plan.rs:128`;
+  `crates/eggpack-core/src/builder.rs:93`, `:105`). An unrecognized field is a
   parse error, not a dropped key, so a third party's re-serialization cannot
   lose or reorder facts.
 - Internally tagged enums with explicit tag name and
   `rename_all = "snake_case"`: `ArtifactForm`
-  (`crates/eggpack-manifest/src/lib.rs:87`), `LogicalOutputSelector`
-  (`crates/eggpack-core/src/builder.rs52`), `FindingKind`
-  (`crates/eggpack-contract/src/lib.rs:1356-1357`), and `PlannedAssetForm`
-  (`crates/eggpack-core/src/lib.rs:478`).
+  (`crates/eggpack-manifest/src/lib.rs:151-152`), `LogicalOutputSelector`
+  (`crates/eggpack-core/src/builder.rs:75-76`), and `ObservedTargetAssets`
+  (`crates/eggpack-contract/src/lib.rs:1359-1360`). Plain string-tagged enums use
+  `rename_all = "snake_case"` alone: `FindingKind`
+  (`crates/eggpack-contract/src/lib.rs:1396-1398`) and `PlannedAssetForm`
+  (`crates/eggpack-core/src/lib.rs:636-638`).
 
 `Option` fields are not elided unless declared. The `skip_serializing_if` uses
 are narrow and deliberate: `evidence_references` on `ReleaseManifest`
-(`crates/eggpack-manifest/src/lib.rs:71`), `smoke` on
+(`crates/eggpack-manifest/src/lib.rs:134-136`), `smoke` on
 `TargetQualificationBinding`
 (`crates/eggpack-core/src/qualification.rs:63`), and `consumer_validators` on
-the CI orchestration graph (`crates/eggpack-ci/src/lib.rs2329-2330`), the last
+the CI orchestration graph (`crates/eggpack-ci/src/release_plan.rs:147-148`), the last
 keyed by `BTreeMap` so its object key order is lexical when present. A
 `BTreeMap` serialized by `serde_json` always emits keys sorted, so those
 documents are stable without an explicit sort.
@@ -130,7 +132,7 @@ checked against the serialization boundary; none reaches serialized output.
   and deduplicated first (`:1656-1663`), so emitted findings are order-stable.
 - `crates/eggpack-manifest/src/lib.rs:7` uses only `HashSet`, for validation
   (`:188`, `:195`, `:205`, `:219`, `:263`, `:320`); none is serialized.
-- `crates/eggpack-core/src/lib.rs:177`, `:507`, `:547` use `HashSet` for
+- `crates/eggpack-core/src/lib.rs:352`, `:690`, `:730` use `HashSet` for
   duplicate detection.
 - `crates/eggpack-github/src/lib.rs` and `crates/eggpack-ci/src/lib.rs` contain
   no `HashMap` at all; both standardize on `BTreeMap`/`BTreeSet` for exactly
@@ -140,11 +142,11 @@ checked against the serialization boundary; none reaches serialized output.
 
 Where a directory must be read, the code funnels through `BTreeMap` rather than
 trusting `read_dir` order — see the finalized-root inventory at
-`crates/eggpack-github/src/lib.rs:682` and `:1358`, and the provisioned Zig
-listing, collected then sorted (`crates/eggpack-ci/src/lib.rs:681-689`).
+`crates/eggpack-github/src/lib.rs:1181` (one shared implementation), and the provisioned Zig
+listing, collected then sorted (`crates/eggpack-ci/src/policy.rs:232-240`).
 `validate_build_artifact_dir` deliberately does not rely on directory order:
 `read_dir` only rejects extras and counts
-(`crates/eggpack-ci/src/lib.rs:2087-2105`), matching membership against the
+(`crates/eggpack-ci/src/handoff.rs:243-266`), matching membership against the
 already sorted handoff list.
 
 The honest caveat: this is a property of the current source, not a lint.
@@ -211,24 +213,26 @@ writer mirrors the same constants
 ## Byte-identical rendering and drift checking
 
 `eggpack-ci` emits YAML by string concatenation into a `String`, not through a
-YAML serializer (`crates/eggpack-ci/src/lib.rs:1660-1765`). That is a
+YAML serializer (`crates/eggpack-ci/src/render_github.rs:143-248`). That is a
 determinism choice: there is no key-ordering policy to inherit, so the byte
 sequence is a direct function of the validated plan and policy. Two
 consequences: scalars are quoted through `serde_json::to_string`
-(`yaml_scalar`, `crates/eggpack-ci/src/lib.rs:1767-1769`), so every interpolated
+(`yaml_scalar`, `crates/eggpack-ci/src/render_github.rs:250-252`), so every interpolated
 value is escaped and cannot break out of its YAML context;
 and job order is `plan.targets` order, canonically sorted at construction
-(`crates/eggpack-ci/src/lib.rs:195`). Triggers render in policy vector order
-(`:1663-1668`) — policy-supplied and validated, not sorted.
+(`crates/eggpack-ci/src/planning.rs:177`). Triggers render in policy vector order
+(`crates/eggpack-ci/src/render_github.rs:146-151`) — policy-supplied and validated, not sorted.
 
 Drift checking is what keeps the checked-in workflow honest. `check_github`
-(`crates/eggpack-ci/src/lib.rs:1788-1817`) re-renders from plan and policy,
-bounds the existing bytes (`MAX_WORKFLOW_BYTES`, `:1794`), normalizes both
+(`crates/eggpack-ci/src/drift.rs:63-70`) re-renders from plan and policy,
+bounds the existing bytes (`MAX_WORKFLOW_BYTES`, `crates/eggpack-ci/src/drift.rs:12`),
+normalizes both
 sides, compares, and reports the first differing offset. The other entry points
-have the same shape: `check_reusable_release_github` (`:3058-3059`) and
-`check_release_github` (`:3818-3819`).
+have the same shape: `check_reusable_release_github`
+(`crates/eggpack-ci/src/drift.rs:88-96`) and
+`check_release_github` (`crates/eggpack-ci/src/drift.rs:99-106`).
 
-`normalize_newlines` (`crates/eggpack-ci/src/lib.rs:1818-1831`) performs one
+`normalize_newlines` (`crates/eggpack-ci/src/drift.rs:72-85`) performs one
 transformation: `\r\n` → `\n`, byte by byte; everything else passes through. It
 does not trim, collapse runs, or touch a lone `\r`. That narrowness is the
 point — the only tolerated difference between the checked-in file and the
@@ -236,47 +240,48 @@ rendered bytes is the line-ending convention a repository's `.gitattributes`
 may impose, and a lone `\r` or a trailing-whitespace edit is still drift.
 
 `eggpack ci check` never writes: it reads, re-renders, and reports
-(`crates/eggpack-cli/src/main.rs351-414`), returning an error naming byte
+(`crates/eggpack-cli/src/main.rs:880-944`), returning an error naming byte
 counts and first difference. `eggpack ci generate` is the only writer, writes
 only the explicit `--output` path, and rejects a symlink target
-(`crates/eggpack-cli/src/main.rs294-348`; `atomic_write` at
-`crates/eggpack-cli/src/main.rs262-263`).
+(`crates/eggpack-cli/src/main.rs:823-878`; `atomic_write` at
+`crates/eggpack-cli/src/main.rs:653-654`).
 
 Tests pin both directions: identical bytes and a CRLF-converted copy both report
 a match while a one-token change to `contents: read` is drift
-(`crates/eggpack-ci/src/lib.rs4914-4933`); the five-target matrix renders and
-checks with no drift (`:8971`); rendering twice is asserted equal
-(`:4834-4835`).
+(`crates/eggpack-ci/src/tests.rs:225-244`); the five-target matrix renders and
+checks with no drift (`crates/eggpack-ci/src/tests.rs:5117-5125`); rendering twice is asserted equal
+(`crates/eggpack-ci/src/tests.rs:174-175`).
 
 ## Round-trip stability
 
 `ReleaseManifest::to_json` validates, clones, canonically sorts the clone, and
-serializes (`crates/eggpack-manifest/src/lib.rs:239-255`). Sorting a *clone* is
+serializes (`crates/eggpack-manifest/src/lib.rs:324-340`). Sorting a *clone* is
 what makes the guarantee hold regardless of how the value was built: a caller
 who reverses `targets` or bundle entries gets the same bytes, which
 `canonical_order_is_independent_of_input_order` proves by reversing both and
-asserting equality (`crates/eggpack-manifest/src/lib.rs:702-721`). The doc
+asserting equality (`crates/eggpack-manifest/src/lib.rs:831`). The doc
 comment is precise about the claim's strength — "stable application
-serialization, not signing-grade canonical JSON" (`:237-238`). There is no
+serialization, not signing-grade canonical JSON" (`:322-323`). There is no
 number canonicalization, no Unicode normalization, and no signature, consistent
 with the workspace's integrity-is-not-authenticity rule.
 
 Round-trip is asserted directly: `direct_round_trip_stable` compares `to_json`
 output against a hard-coded literal and re-encodes the decoded manifest to the
-same bytes (`crates/eggpack-manifest/src/lib.rs:384-400`);
+same bytes (`crates/eggpack-manifest/src/lib.rs:513`);
 `bundle_pairing_round_trip` and `archive_relationship_round_trip` assert
-structural round-trips (`:402-437`).
+structural round-trips (`:531`, `:550`).
 
 The same check runs at every boundary where a manifest crosses into consumer
 space: the CLI re-encodes and fails if the round-trip is not byte-identical
 before writing `release-manifest.json` beside the finalized root
-(`crates/eggpack-cli/src/main.rs970-988`, test at `:1678-1684`); staging does
+(`crates/eggpack-cli/src/main.rs:1450-1462`, test at `crates/eggpack-cli/src/main.rs:2141-2155`); staging does
 the same for the manifest it writes
-(`crates/eggpack-github/src/lib.rs:774-790`, `:1443-1459`);
+(`crates/eggpack-github/src/lib.rs:1272-1292`);
 `eggpack-github` re-sorts the payload clone on every `to_json`
-(`crates/eggpack-github/src/lib.rs:246-247`); `CIPlan` validates canonical
-ordering on parse (`crates/eggpack-ci/src/lib.rs:242-249`, ordering at `:309`)
-and round-trips in tests (`:4837-4842`); the contract has a golden TOML
+(`crates/eggpack-github/src/lib.rs:332-333`); `CIPlan` validates canonical
+ordering on parse (`crates/eggpack-ci/src/planning.rs:224-231`, ordering at
+`crates/eggpack-ci/src/planning.rs:264`)
+and round-trips in tests (`crates/eggpack-ci/src/tests.rs:177-178`); the contract has a golden TOML
 round-trip (`crates/eggpack-contract/src/lib.rs:2283-2291`).
 
 ## Limits: where determinism is not claimed
@@ -323,7 +328,7 @@ Read-only:
 - Confirm the archive constants at
   `crates/eggpack-core/src/finalization.rs:423-442`.
 - Confirm `normalize_newlines` is still the byte-wise `\r\n` → `\n` transform
-  (`crates/eggpack-ci/src/lib.rs:1818-1831`) and that the drift entry points
+  (`crates/eggpack-ci/src/drift.rs:72-85`) and that the drift entry points
   stay read-only.
 
 Executable:

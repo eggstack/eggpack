@@ -362,7 +362,7 @@ if !validate_release_inventory(&expected, &inventory, ExtrasPolicy::Exact).is_co
 }
 ```
 
-That is the pattern at `crates/eggpack-core/src/lib.rs:166-191`. Every step is pure: parsing,
+That is the pattern at `crates/eggpack-core/src/lib.rs:353-366`. Every step is pure: parsing,
 resolving, expanding, comparing names.
 
 Contract M003 added the crate's one consumer-facing entry point, which is a CLI
@@ -376,7 +376,7 @@ eggpack contract expand --contract <file> --release-id <opaque> \
 It delegates to `parse_toml_str` and `expand` and adds no template grammar, no target or alias
 resolution, and no serialized expansion document. The one judgement it makes — `canonical-target`
 answers for every asset form, while `asset`/`sidecar`/`install` fail closed for bundle and archive
-targets — is stated at `crates/eggpack-cli/src/main.rs:246-287`. See
+targets — is stated at `crates/eggpack-cli/src/main.rs:296-336`. See
 [cli.md](cli.md) for the argument contract and the deliberately absent capabilities. No consumer may
 read consumer policy (latest/exact selection, Cargo fallback, install destination, updater,
 compatibility floors) out of this output; the crate has no opinion about any of it. Anything needing the outside world — listing a release,
@@ -402,8 +402,8 @@ Dependents, each by path plus `version = "0.1.0"`: `eggpack-core`
 (`crates/eggpack-bootstrap/Cargo.toml:15`), `eggpack-ci` (`crates/eggpack-ci/Cargo.toml:15`),
 `eggpack-github` (`crates/eggpack-github/Cargo.toml:15`), and `eggpack-cli`
 (`crates/eggpack-cli/Cargo.toml:19`). `eggpack-manifest` does **not** depend on this crate; it has
-no `eggpack-*` path dependency and instead mirrors fixture values in a comment
-(`crates/eggpack-manifest/src/lib.rs:503`, `:533`).
+no `eggpack-*` path dependency and instead mirrors the contract fixture values in its
+own tests (`crates/eggpack-manifest/src/lib.rs:615-642`).
 
 Verification: `scripts/check-local.sh:7`
 (`test -p eggpack-contract --all-targets --all-features --locked`), plus

@@ -401,7 +401,8 @@ Deliberately **not** enforced here, listed honestly:
   is no `tracing`/`log` call in `lib.rs`.
 - **`--clobber` is not a flag in this crate at all**; it is a workspace-level
   non-goal guarded statically in `eggpack-ci`
-  (`crates/eggpack-ci/src/lib.rs:4213`, `:7308`).
+  (`crates/eggpack-ci/src/render_release.rs:1314-1315`,
+  `crates/eggpack-ci/src/tests.rs:2236-2237`).
 - **No authenticity, signature, or provenance claim.** Digests in the payload,
   the upload responses and the receipt are SHA-256 integrity facts only
   (`1789-1820`, `1978-1981`, `2062-2072`).
@@ -461,8 +462,9 @@ Dependents: `eggpack-cli` is a hard dependency
 `eggpack-ci` depends on this crate **for dev only**
 (`crates/eggpack-ci/Cargo.toml:25`, under `[dev-dependencies]`), to assert the
 rendered workflow invokes exactly those two runner commands and never publishes
-or clobbers (`crates/eggpack-ci/src/lib.rs:1038`, `:1059`, `:1242`, `:1278`,
-`:3763-3775`).
+or clobbers (`crates/eggpack-ci/src/runner.rs:41-49`, `crates/eggpack-ci/src/runner.rs:71-82`,
+`crates/eggpack-ci/src/runner.rs:135-137`,
+`crates/eggpack-ci/src/tests.rs:1062-1065`, `crates/eggpack-ci/src/tests.rs:4640`).
 
 ## Related deep dives
 

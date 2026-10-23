@@ -32,79 +32,93 @@ Their reason is inferable from surrounding code but is nowhere stated.
 
 Two topologies coexist.
 
-**Inline `mod tests`.** Ten modules declared inside `src/*.rs`:
-`bootstrap/src/lib.rs:1051`, `ci/src/lib.rs4710`, `cli/src/main.rs1156`,
-`contract/src/lib.rs:1727`, `core/src/lib.rs:586`, `core/src/builder.rs950`,
-`core/src/finalization.rs:508`, `core/src/qualification.rs1247`,
-`manifest/src/lib.rs:350`, and `github/src/lib.rs3025` (the only one that
-declares `mod tests;` out of line).
+**Inline `mod tests`.** Eight modules declared inside `src/*.rs`:
+`bootstrap/src/lib.rs:1066`, `cli/src/main.rs:1628`, `contract/src/lib.rs:1780`,
+`core/src/lib.rs:770`, `core/src/builder.rs:1216`, `core/src/finalization.rs:491`,
+`core/src/qualification.rs:1314`, and `manifest/src/lib.rs:424`.
 
 What this buys: tests can reach `pub(crate)` and private items without widening
 visibility, which matters for crates that keep internal invariants private
 (`qualification.rs` reaches `qualify_target_for_host` internals directly). The
-cost is review burden. `eggpack-ci` carries 59 unit tests starting at
-`crates/eggpack-ci/src/lib.rs4710` inside a 10256-line `lib.rs` — roughly 5500
-lines of test code in one file, with golden-rewriting tools and assertions
-interleaved. `eggpack-cli` puts 12 tests in a 2940-line `main.rs`, which also
-means the binary's tests only run through the binary target, never as a library.
+cost is review burden. `eggpack-ci` no longer carries its tests inline: the
+crate is a module tree, and its 79 unit tests live in
+`crates/eggpack-ci/src/tests.rs` (7538 lines), declared out of line by the
+`#[cfg(test)] mod tests;` at `crates/eggpack-ci/src/lib.rs:18-19`.
+`eggpack-cli` puts 27 tests in a 4531-line `main.rs`, which also means the
+binary's tests only run through the binary target, never as a library.
 
-**A test *support* module, not a `#[test]` host.**
-`crates/eggpack-github/src/tests.rs` is 1848 lines that host no tests of their
-own; it is helpers plus assertions built on `FixtureGithub`. Notably,
-`FixtureGithub` itself is declared at `crates/eggpack-github/src/lib.rs2661`,
+**Out-of-line test modules.** Two crates declare `mod tests;` rather than an
+inline module: `crates/eggpack-ci/src/lib.rs:18-19` and
+`crates/eggpack-github/src/lib.rs:2952`. `crates/eggpack-github/src/tests.rs` is
+2059 lines and hosts 14 tests of its own, built on `FixtureGithub`. Notably,
+`FixtureGithub` itself is declared at `crates/eggpack-github/src/lib.rs:2553`,
 which is **not** `#[cfg(test)]`-gated — the only `#[cfg(test)]` in that file is
-the `mod tests;` at line 3018. The in-memory GitHub double, including its fault
+the `mod tests;` at line 2952. The in-memory GitHub double, including its fault
 injectors (`upload_rename_next`, `upload_digest_mismatch_next`,
 `upload_size_mismatch_next`, `upload_fail_502_create_starter`,
-`upload_fail_502_next`, `upload_fail_422_next`, around lines 2645-2651), is part
+`upload_fail_502_next`, `upload_fail_422_next`, at lines 2522-2528), is part
 of the crate's public API rather than test-only code.
 
-**Separate integration targets.** Only `eggpack-contract` has them:
-`tests/conformance.rs` (11 tests) and `tests/fixtures.rs` (4 tests). Both load
-fixtures through `env!("CARGO_MANIFEST_DIR")` + `tests/fixtures/`
-(`conformance.rs:9-12`, `fixtures.rs:5-9`). Because they link the crate as an
-external consumer, they can only reach the public surface — which is precisely
-what makes them a useful check on the public API shape, and why the contract
-validators are pinned there rather than inline.
+**Separate integration targets.** `eggpack-contract` and `eggpack-cli` have
+them: `tests/conformance.rs` (12 tests) and `tests/fixtures.rs` (5 tests) in the
+contract crate, and `tests/contract_expand.rs` (8 tests) and
+`tests/operator_commands.rs` (18 tests) in the CLI crate. The contract
+integration tests load fixtures through `env!("CARGO_MANIFEST_DIR")` +
+`tests/fixtures/` (`conformance.rs:8-12`, `fixtures.rs:5-9`). Because they link
+the crate as an external consumer, they can only reach the public surface —
+which is precisely what makes them a useful check on the public API shape, and
+why the contract validators are pinned there rather than inline.
 
 ## The ignored tests
 
-All seven are `#[ignore]`d inside inline test modules. An ignored test is an
-unproven claim: it compiles but never runs in the default gate. Each one now
-carries a written reason, so the `#[ignore]` can be read as intentional rather
-than as missing coverage — but a comment is not execution, and none of the seven
-runs in the default gate.
+All nine are `#[ignore]`d — six inside inline test modules and three in
+`crates/eggpack-ci/src/tests.rs`. An ignored test is an unproven claim: it
+compiles but never runs in the default gate. Each one now carries a written
+reason, so the `#[ignore]` can be read as intentional rather than as missing
+coverage — but a comment is not execution, and none of the nine runs in the
+default gate.
 
 **`eggpack-core/src/qualification.rs` — 4 self-invoking child targets**
 
 | Test | Line | Reason written in code? |
 |---|---|---|
-| `qualification_child_target` | 2334 | Yes: shared block comment above the group (2325-2331) |
-| `qualification_child_sleep` | 2339 | Yes: "outruns the caller's timeout to prove process-group kill" (2335) |
-| `qualification_child_output` | 2346 | Yes: "overruns the retained-output bound" (2342) |
-| `qualification_child_nonzero` | 2353 | Yes: "exits nonzero to prove nonzero classification" (2349) |
+| `qualification_child_target` | 2406 | Yes: shared block comment above the group (2399-2403) |
+| `qualification_child_sleep` | 2411 | Yes: "outruns the caller's timeout to prove process-group kill" (2408) |
+| `qualification_child_output` | 2418 | Yes: "overruns the retained-output bound" (2415) |
+| `qualification_child_nonzero` | 2425 | Yes: "exits nonzero to prove nonzero classification" (2422) |
 
 The reason is structural: they are not tests, they are *child programs*. A shared
 comment above the group now records that, naming `run_native_child` as the only
 caller and `#[ignore]` as the reason a normal run must not invoke them. The
-harness `run_native_child` (`qualification.rs:2357`) copies the test binary to a
+harness `run_native_child` (`qualification.rs:2429`) copies the test binary to a
 candidate path, then re-executes it with
 `--exact qualification::tests::<name> --ignored --nocapture`. Running them
 directly would either sleep 30 seconds, print 16 KiB, or `std::process::exit(7)`.
 They are driven by
 `native_smoke_failure_timeout_cancellation_and_output_limit_are_typed`
-(line 2416), and `qualification_child_target` is additionally used as a
-trivially-succeeding argv target at lines 1704, 1795, and 2004.
+(line 2488), and `qualification_child_target` is additionally used as a
+trivially-succeeding argv target at lines 1773, 1866, and 2075.
 
-**`eggpack-ci/src/lib.rs` — 3 golden regenerators**
+**`eggpack-core/src/builder.rs` — 2 child fixtures**
 
 | Test | Line | Reason written in code? |
 |---|---|---|
-| `m002a_regenerate_goldens` | 6200 | Yes: "Regenerate checked-in M002a goldens … Run explicitly with `cargo test -p eggpack-ci --lib -- --ignored`", plus a comment above the attribute |
-| `m003b_regenerate_goldens` | 6810 | Yes: "rewrites checked-in goldens in place, so it must never run as part of a normal test pass" (6807-6808) |
-| `m005_regenerate_m001_multitarget_golden` | 10179 | Yes: "Regenerate the M001 multitarget golden after the M005 exact-Zig check", plus a comment above the attribute |
+| `builder_child_leaves_parked_descendant` | 1789 | Yes: shared comment above the group (1779-1782), plus a second comment below the attribute (1785-1787) |
+| `builder_child_holds_stdout` | 1804 | Yes: "Child fixture: outlives its parent, holding the inherited pipe open" (1801) |
 
-All three call the `write_golden` helper (`crates/eggpack-ci/src/lib.rs4847`,
+They are not standalone coverage: they are the child process fixtures that
+`parked_drain_reader_cannot_outlive_the_deadline` re-executes in this test
+binary to prove the drain reader cannot outlive the deadline.
+
+**`eggpack-ci/src/tests.rs` — 3 golden regenerators**
+
+| Test | Line | Reason written in code? |
+|---|---|---|
+| `m002a_regenerate_goldens` | 1508 | Yes: "Regenerate checked-in M002a goldens … Run explicitly with `cargo test -p eggpack-ci --lib -- --ignored`", plus a comment above the attribute |
+| `m003b_regenerate_goldens` | 2113 | Yes: "rewrites checked-in goldens in place, so it must never run as part of a normal test pass" (2110-2111) |
+| `m005_regenerate_m001_multitarget_golden` | 6289 | Yes: "Regenerate the M001 multitarget golden after the M005 exact-Zig check", plus a comment above the attribute |
+
+All three call the `write_golden` helper (`crates/eggpack-ci/src/tests.rs:158-161`,
 annotated `#[allow(dead_code)]`), which overwrites checked-in `.yml` files
 under `tests/fixtures/`. They are ignored because they *write* into the source
 tree — a default `cargo test` run must never mutate tracked files. All three now
@@ -114,7 +128,7 @@ siblings.
 
 ## Fixture corpora
 
-**Declared contracts** — `crates/eggpack-contract/tests/fixtures/*.toml`, 7 files.
+**Declared contracts** — `crates/eggpack-contract/tests/fixtures/*.toml`, 8 files.
 Three shape the layouts exercised by tests: `simple-direct.toml` (Direct),
 `codegg-bundle.toml` (Bundle, 3 entries), `egress-archive.toml` (Archive, 2
 members, `.tar.gz`). `eggsact-direct-targets.toml` is an additional input used
@@ -133,7 +147,7 @@ inventory to prove `ExtrasPolicy::AllowExtras` behaviour, `conformance.rs:36-45`
 files: `m002-{direct,mixed,bundle,archive}.yml`,
 `m003b-{direct,bundle,archive}-staging.yml`, `native-direct.yml`,
 `native-direct-multitarget.yml`, plus one input `mixed-direct-targets.toml`.
-These are golden files: `assert_golden` (`crates/eggpack-ci/src/lib.rs4840-4842`)
+These are golden files: `assert_golden` (`crates/eggpack-ci/src/tests.rs:151-153`)
 compares rendered output with exact string equality after normalising CRLF to
 LF. CI workflow rendering is therefore pinned against expected output, and any
 renderer change surfaces as a diff against these nine files rather than as a
@@ -173,8 +187,8 @@ fail-closed validation — and lighter exactly where the portability lanes take
 over:
 
 - **No real network.** The `GithubApi` trait boundary
-  (`crates/eggpack-github/src/lib.rs:1674`) is implemented by `FixtureGithub`
-  (2818) only. `api.github.com` is never contacted, so HTTP semantics, real
+  (`crates/eggpack-github/src/lib.rs:1517`) is implemented by `FixtureGithub`
+  (`crates/eggpack-github/src/lib.rs:2733`) only. `api.github.com` is never contacted, so HTTP semantics, real
   pagination, and real rate limiting are unproven. What *is* proven is the
   draft-only tag discipline and upload/digest/size mismatch handling, because
   the fixture can inject each of those faults.
@@ -224,9 +238,9 @@ outputs, so running them twice buys nothing.
 | `ilammy/msvc-dev-cmd@v1` (arch x64) | 43-46 | Rust's MSVC toolchain needs an initialized developer environment before any Cargo build; without it `link.exe` is absent and the real-Cargo tests fail with a linker error, not a code failure |
 | Verify initialized MSVC linker environment | 47-56 | Fails fast and legibly: throws if `VCToolsInstallDir` is unset, and throws if `link.exe` resolves *outside* that directory. Guards against silently picking up a different `link.exe` on `PATH` |
 | Windows builder real Cargo candidate smoke | 57-59 | `real_local_cargo_fixture_builds_a_direct_candidate`; the only lane that proves a real Cargo build links on Windows |
-| Process-group timeout and cancellation | 60-62 | `timeout_kills_and_waits_for_the_process_group` (`builder.rs1285`); process-group/job semantics differ most on Windows |
+| Process-group timeout and cancellation | 60-62 | `timeout_kills_and_waits_for_the_process_group` (`crates/eggpack-core/src/builder.rs:1659`); process-group/job semantics differ most on Windows |
 | Core tests serialized for diagnosis | 63-65 | `-- --test-threads=1`. A serialization workaround: the suite exhibits nondeterministic failures under parallel execution on Windows, so the Windows lane trades coverage speed for signal |
-| Windows CI crate tests | 66-68 | `-p eggpack-ci` on Windows — the renderer has `cfg(windows)` branches at 4033, 4245, 4349, 7729, 7887, 7917 that are dead code on Linux |
+| Windows CI crate tests | 66-68 | `-p eggpack-ci` on Windows — the CI crate has no `#[cfg(windows)]` block left; its Windows paths are runtime target checks (`crates/eggpack-ci/src/render_github.rs:230`, `crates/eggpack-ci/src/handoff.rs:380`) plus `cfg!(windows)` (`crates/eggpack-ci/src/consumer_validator.rs:220`), which Linux never exercises |
 | Verify pwsh 7 + `tar.exe` | 69-75 | `tar.exe` ships in the Windows image but is not guaranteed; the archive qualification lane requires both, so prerequisite failure is separated from test failure |
 | Focused PowerShell archive runtime | 76-78 | `m002a_powershell_archive_runtime`; on Windows it must assert, never skip |
 | Generated-orchestration end-to-end | 79-81 | `m002a_generated_orchestration_executes_end_to_end`; shell-out paths that Linux does not exercise |

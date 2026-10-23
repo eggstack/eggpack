@@ -280,18 +280,18 @@ change-control signals are already present: `#[non_exhaustive]` on
 
 | Not done here | Evidence |
 | --- | --- |
-| No filesystem, network, or process access | Crate doc `:4`; dependencies are `serde` + `serde_json` only (`crates/eggpack-manifest/Cargo.toml:19-21`). |
-| No hashing | The only digest code is hex *decoding* (`decode_sha256` `:303-319`) and format checks (`:268-277`, `:290-299`). No hash function and no `sha2` dependency; digests are computed upstream and consumed here. |
+| No filesystem, network, or process access | Crate doc `:4`; dependencies are `serde` + `serde_json` only (`crates/eggpack-manifest/Cargo.toml:23-24`). |
+| No hashing | The only digest code is hex *decoding* (`decode_sha256` `:376-394`) and format checks (`:98-112`). No hash function and no `sha2` dependency; digests are computed upstream and consumed here. |
 | No build, compile, or archive extraction | No toolchain, process, or archive dependency; no code path outside parse/validate/sort/serialize. |
-| No release selection or target aliasing | `target()` is exact match only (`:157-163`), pinned by `:1337-1352`. |
-| No origin, mirror, or URL fields | No such field in any wire struct (`:59-153`). |
+| No release selection or target aliasing | `target()` is exact match only (`:221-227`), pinned by `:760-765`. |
+| No origin, mirror, or URL fields | No such field in any wire struct (`:122-215`). |
 | No authenticity, signature, or provenance | See `ByteEvidence` above. |
 | No installed-state modeling | Owned by Eggup; see [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md). |
 | `unsafe` | Forbidden crate-wide (`:1`). |
 
 ## Dependencies / dependents
 
-Leaf: `serde` (derive) + `serde_json` (`crates/eggpack-manifest/Cargo.toml:19-21`).
+Leaf: `serde` (derive) + `serde_json` (`crates/eggpack-manifest/Cargo.toml:23-24`).
 It depends on no other workspace crate and no `eggpack-contract` type, which is
 what keeps it usable by an external consumer without pulling in the layout
 authority.

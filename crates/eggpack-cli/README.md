@@ -76,7 +76,7 @@ option, a positional argument, or a missing required flag is an error, and the
 missing flags are listed in sorted order:
 
 ```text
-eggpack: missing required --build-bindings, --pack-config, --qualification-bindings, --release-id, --selected, --source-revision
+eggpack: missing required --build-bindings, --contract, --pack-config, --qualification-bindings, --release-id, --selected, --source-revision
 ```
 
 **Input bounds.** Every input document is read through the shared bounded
@@ -501,7 +501,7 @@ eggpack contract expand \
   --release-id v1.2.7 \
   --target linux-x64 \
   --field asset
-# eggsact-x86_64-unknown-linux-gnu
+# eggsact-v1.2.7-x86_64-unknown-linux-gnu
 ```
 
 - **Local file input only.** One contract path, read through the CLI's bounded

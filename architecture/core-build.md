@@ -269,20 +269,21 @@ cases (`:1792-1848`); a real local Cargo fixture producing a direct candidate
 
 ## Dependencies / dependents
 
-- Own dependencies used here: `command-group 5.0.1` (`Cargo.toml:30`, process groups), `toml
-  0.8` (`Cargo.toml:29`, `from_toml` at `builder.rs:303`), `serde` derive (`Cargo.toml:18`),
-  `eggpack-contract` (`Cargo.toml:16`, `DistributionContract` + `ExpandedAssets` at
+- Own dependencies used here: `command-group 5.0.1` (`Cargo.toml:21`, process groups), `toml
+  0.8` (`Cargo.toml:20`, `from_toml` at `builder.rs:303`), `serde` derive (`Cargo.toml:17`),
+  `eggpack-contract` (`Cargo.toml:15`, `DistributionContract` + `ExpandedAssets` at
   `builder.rs:5`), and `std` process/thread/IO primitives. `sha2` is a **crate-level**
   dependency but is not used in this file (it is used by the digest authority in
   `src/digest.rs`).
-- In-crate dependents: `qualification.rs:3-8` imports `run_qualification_process`,
+- In-crate dependents: `qualification.rs:3-11` imports `run_qualification_process`,
   `run_qemu_process`, `CommandSpec`, `CandidateArtifact`, `BuildAttempt`, `BuildBindingsV1`,
   and `BuildCancellation`; `finalization.rs:4` imports `BuildAttempt`, `CandidateArtifact`,
   and `LogicalOutputSelector`.
 - External dependents: `eggpack-ci` calls `cargo_command` to render the build command into
-  generated workflows and its drift check (`eggpack-ci/src/lib.rs:221`, `:405`), and
+  generated workflows and its drift check (`crates/eggpack-ci/src/planning.rs:146`,
+  `crates/eggpack-ci/src/drift.rs:68`), and
   reconstructs `BuildAttempt` / `CandidateArtifact` in memory from CI handoff data rather
-  than executing a build (`eggpack-ci/src/lib.rs:2010`, `:2034`). `eggpack-github` and
+  than executing a build (`crates/eggpack-ci/src/handoff.rs:186`). `eggpack-github` and
   `eggpack-cli` depend on `eggpack-core` transitively.
 
 ## Sibling deep dives

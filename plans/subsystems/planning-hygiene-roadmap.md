@@ -74,11 +74,11 @@ Implementation plan:
 
 `plans/implementation/planning-hygiene/003-post-implementation-review-baseline-reconciliation.md`
 
-Status: ready.
+Status: closed.
 
-Closure record: — (to be written at `plans/closure/planning-hygiene/003-status.md`).
+Closure record: `plans/closure/planning-hygiene/003-status.md`.
 
-Outcome: docs/evidence-only. It re-bases the `architecture/` citation set and the per-crate line-count table **by symbol name**, against a measured baseline, closing the `ci-consumer-seam.md` stale anchors and the residual `cli.md` drift that `architecture/overview.md` already names as outstanding. It rewrites the `AGENTS.md` current-handoff paragraph so it names CI M003k as the in-progress milestone and the review chain registered alongside it, completes `crates/eggpack-cli/README.md` into the full command reference that `docs/README.md` and `docs/quickstart.md` already promise, and registers ADR-0006 and the seven review-chain milestones in the registry, the ADR index, and the affected subsystem roadmaps. It changes no file under `crates/**` and rewrites no closure record.
+Outcome: docs/evidence-only. It re-based the `architecture/` citation set and the per-crate line-count table **by symbol name**, against the measured tree SHA `fa82486`, closing the `ci-consumer-seam.md` stale anchors and the residual `cli.md` drift that `architecture/overview.md` named as outstanding. It rewrote the `AGENTS.md` current-handoff paragraph so it is a single statement sourced from `plans/registry.md`, completed `crates/eggpack-cli/README.md` into the full command reference that `docs/README.md` and `docs/quickstart.md` already promise, and registered ADR-0006 and the seven review-chain milestones in the registry, the ADR index, and the affected subsystem roadmaps. It changed no file under `crates/**` and rewrote no closure record.
 
 ## 5. Completion definition
 
@@ -90,4 +90,4 @@ The planning-hygiene line is complete when active control surfaces no longer con
 |---|---|---|---|---|
 | M001 current evidence baseline + blocker reconciliation | closed | `plans/implementation/planning-hygiene/001-current-evidence-baseline-and-blocker-reconciliation.md` | `plans/closure/planning-hygiene/001-status.md` | none; docs/evidence-only, zero production/package/workflow delta |
 | M002 post-M003a cross-repository handoff reconciliation | closed | `plans/implementation/planning-hygiene/002-post-m003a-cross-repository-handoff-reconciliation.md` | `plans/closure/planning-hygiene/002-status.md` | none; docs/evidence-only, empty production/package/workflow diff, handoff bound to exact paired-plan paths |
-| M003 post-implementation-review baseline reconciliation | ready | `plans/implementation/planning-hygiene/003-post-implementation-review-baseline-reconciliation.md` | — | none; docs/evidence-only. Re-bases `architecture/` citations by symbol name, rewrites the `AGENTS.md` handoff, completes the CLI command reference, and registers the review chain |
+| M003 post-implementation-review baseline reconciliation | closed | `plans/implementation/planning-hygiene/003-post-implementation-review-baseline-reconciliation.md` | `plans/closure/planning-hygiene/003-status.md` | none; docs/evidence-only. `architecture/` citations and line counts re-based by symbol name against tree SHA `fa82486`, the `ci-consumer-seam.md` and residual `cli.md` drift closed, the `AGENTS.md` handoff rewritten from the registry, the CLI command reference verified, and the review chain registered. Empty production/package/workflow diff |

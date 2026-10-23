@@ -38,7 +38,7 @@ Required targets may not be finalized without passing evidence.
   `Failed(QualificationFailure)` and `Deferred` on a `Required` target — returns
   `target qualification does not permit finalization`.
 - Evidence must already match the build: `QualificationEvidence::validate_for`
-  (`:191-194`, implemented in `qualification.rs:318`) rejects mismatched
+  (`:191-194`, implemented in `qualification.rs:331`) rejects mismatched
   `release_id`/`source_revision`/target/classification/support, selector
   mismatch, unsorted evidence, and `Passed` without a smoke selector for
   `Native | DeferredNative | Emulated`.
@@ -55,7 +55,7 @@ Fail-closed shape: there is no partial-release path. Any rejection unwinds to
 `finalize_release`, which removes the root it created and returns `Err` with no
 `FinalizedRelease` (`:141-144`). Every `CoreError` payload is a fixed string
 (`err(...)`); paths, digests, and file contents never appear in errors
-(`lib.rs:69-80`).
+(`lib.rs:72-80`).
 
 ## Output-root safety rules
 
@@ -84,7 +84,7 @@ here, in this file:
   the parent must be caller-secured/private because the ACL is inherited. That
   is an explicit caller obligation, not code enforcement.
 - On error only the root created by this invocation is removed (`:142`);
-  candidate sources and the parent are untouched (test `:855-856`).
+  candidate sources and the parent are untouched (test `:856-857`).
 
 Temporary archive-member staging uses `root/.eggpack-members` (`:169`,
 `:236-240`), i.e. inside the owned root, and is removed before returning
@@ -95,10 +95,10 @@ staging directory never enters the manifest.
 
 `release-manifest.json` is **not** written by this file — the manifest is
 returned in memory as a value (`:309-312`). Serialization to a file beside the
-finalized root happens in `eggpack-cli` (`crates/eggpack-cli/src/main.rs983-988`
-and the M003a handoff at `:1674-1686`, which asserts the file is absent inside
+finalized root happens in `eggpack-cli` (`crates/eggpack-cli/src/main.rs:1450-1462`
+and the M003a handoff at `crates/eggpack-cli/src/main.rs:2141-2155`, which asserts the file is absent inside
 the root) and, for staging, in `eggpack-github`
-(`crates/eggpack-github/src/lib.rs:31`, `FIXED_MANIFEST_NAME`). The
+(`crates/eggpack-github/src/lib.rs:32`, `FIXED_MANIFEST_NAME`). The
 "beside, never inside" rule is therefore enforced by those crates, not here.
 
 ## Archive assembly
@@ -114,7 +114,7 @@ the root) and, for staging, in `eggpack-github`
   contract `source`, never the staging file name `member-{index}`
   (`:242-260`). The exact member set is additionally enforced by
   `validate_layout_selectors` (`:370-393`) against the layout and by
-  `build_manifest` (`lib.rs:245-247`).
+  `build_manifest` (`lib.rs:341-343`).
 - Determinism: `GzBuilder::new().mtime(0)` (`:432-434`),
   `tar::HeaderMode::Deterministic` (`:436`), `Header::new_gnu()` with entry type
   `Regular`, mode `0o755`, `uid 0`, `gid 0`, `mtime 0`, and `set_cksum()`
@@ -128,8 +128,8 @@ the root) and, for staging, in `eggpack-github`
 `eggpack-core` has exactly **one** file-digest implementation: `file_digest`
 (`crates/eggpack-core/src/digest.rs:102-114`), with a typed refusal reason for
 every way a digest can be refused (`DigestError`, `digest.rs:31-46`). Manifest
-aggregation (`lib.rs:209-210`, `lib.rs:256-257`), finalization
-(`:316-323`), and candidate qualification (`qualification.rs:1138-1141`) all
+aggregation (`lib.rs:372`, `lib.rs:419`), finalization
+(`:316-323`), and candidate qualification (`qualification.rs:1218-1221`) all
 route through it, and `eggpack-ci` / `eggpack-github` consume the same public
 helper rather than re-implementing one. This section states the rule once; the
 other sections of this document only name the helper.
@@ -179,31 +179,31 @@ the manifest (`:302`) with no trust meaning.
 
 ## Manifest aggregation
 
-`build_manifest` (`lib.rs:178-288`) is called with the finalized file map per
+`build_manifest` (`lib.rs:341-451`) is called with the finalized file map per
 target (`:297-304`). The manifest is a value at this point, and the caller
 decides whether to serialize it.
 
 - Digests are re-computed at this stage, not copied from candidate or
   qualification claims: the file-digest authority over the finalized paths
-  (`lib.rs:209-210`, `lib.rs:256-257`) after `copy_verified` has already
+  (`lib.rs:372`, `lib.rs:419`) after `copy_verified` has already
   re-verified each copy against evidence (`:419-422`). The same authority
   re-inspects each path after the read, so a file swapped mid-read fails
   instead of being recorded.
 - Targets are sorted by canonical triple (`:296`) and the whole document is
-  re-validated against schema-v1 bounds before return (`lib.rs:284-286`).
+  re-validated against schema-v1 bounds before return (`lib.rs:447-449`).
 - Bounds come from `eggpack-manifest`: `MAX_TARGETS = 256`, `MAX_RECORDS = 256`,
   `MAX_EVIDENCE_REFERENCES = 64`, `MAX_DOCUMENT_BYTES = 1_048_576`
-  (`crates/eggpack-manifest/src/lib.rs:12-16`); `finalization.rs` independently
+  (`crates/eggpack-manifest/src/lib.rs:12-18`); `finalization.rs` independently
   caps plan and request target counts at 256 (`:77-80`).
 - Collision rules: release-artifact filename uniqueness is **manifest-global**
   (enforced by `ReleaseManifest::validate`; also reflected here by
   `create_new` on the shared root), while `install` name uniqueness is
   **target-local** (`manifest.md`, "Namespace rule"). This file never computes
   install names — they come from contract expansion inside `build_manifest`
-  (`lib.rs:224`, `lib.rs:238`, `lib.rs:260`).
+  (`lib.rs:387`, `lib.rs:401`, `lib.rs:423`).
 - `release_files` for a direct/bundle target must be empty of archive members
-  (`lib.rs:219-221`, `lib.rs:228-230`), and an archive target's member map must
-  match the contract member count exactly (`lib.rs:245-247`).
+  (`lib.rs:382-383`, `lib.rs:391-392`), and an archive target's member map must
+  match the contract member count exactly (`lib.rs:408-410`).
 
 ## Key types / functions (with `file:line`)
 
@@ -223,7 +223,7 @@ decides whether to serialize it.
 | `create_tar_gzip` | `:426-470` | deterministic tar+gzip assembly |
 | `write_checksum` | `:472-489` | `{digest}  {name}` sidecar from final bytes |
 | `file_digest` | `digest.rs:102-114` | the single producer file-digest authority |
-| inline tests | `:492-927` | direct/bundle inventory, archive determinism, negative cases, concurrency |
+| inline tests | `:492-928` | direct/bundle inventory, archive determinism, negative cases, concurrency |
 
 ## Boundaries / non-goals
 
@@ -234,7 +234,7 @@ decides whether to serialize it.
 - No signature, provenance, or authenticity production.
 - No archive extraction, no installer rendering, no platform-install logic.
 - No CLI surface: the CLI reaches this stage through `eggpack-ci`
-  (`crates/eggpack-ci/src/lib.rs2666-2700`, `:2795-2832`).
+  (`crates/eggpack-ci/src/release_plan.rs:621`, `crates/eggpack-ci/src/release_plan.rs:484`).
 - Consumer-script validation happens before this stage, not here.
 
 ## Dependencies / dependents

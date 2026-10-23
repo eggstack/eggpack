@@ -18,17 +18,17 @@ Operationally, "fail-closed" means four things in this workspace:
 1. **Parse or reject, never salvage.** Every entry point returns
    `Result<T, E>`; there is no tolerant or defaulted variant.
    `DistributionContract::parse_toml_str`
-   (`crates/eggpack-contract/src/lib.rs:261`), `PackConfig::from_toml`
-   (`crates/eggpack-core/src/lib.rs:502`), `ReleaseManifest::from_json`
-   (`crates/eggpack-manifest/src/lib.rs:163`), `CIPlan::from_json`
-   (`crates/eggpack-ci/src/lib.rs:242`) and
+   (`crates/eggpack-contract/src/lib.rs:283`), `PackConfig::from_toml`
+   (`crates/eggpack-core/src/lib.rs:678`), `ReleaseManifest::from_json`
+   (`crates/eggpack-manifest/src/lib.rs:229`), `CIPlan::from_json`
+   (`crates/eggpack-ci/src/planning.rs:224`) and
    `BootstrapInstallPolicyV1::from_toml`
    (`crates/eggpack-bootstrap/src/lib.rs:302`) all propagate the underlying
    deserializer error or a fixed generic string and construct nothing.
 2. **A partially-valid document does not become a value.** Constructors that
    build owned values (`ReleaseInventory::new`,
-   `crates/eggpack-contract/src/lib.rs:1085`; `ArchiveMemberInventory::new`,
-   `:1206`) return `Err` on the first invalid entry rather than skipping it.
+   `crates/eggpack-contract/src/lib.rs:1125`; `ArchiveMemberInventory::new`,
+   `:1246`) return `Err` on the first invalid entry rather than skipping it.
 3. **Identity is never guessed.** Where a name could plausibly match more than
    one artifact, the code compares for equality and errors otherwise; see
    [Exact-match resolution](#exact-match-resolution).
@@ -50,12 +50,12 @@ given, line numbers are in that crate's `src/lib.rs`.
 
 | Crate | Types carrying `deny_unknown_fields` |
 | --- | --- |
-| contract | `ProductIdentity` `:133`, `ChecksumSpec` `:144`, `BundleEntry` `:153`, `ArchiveMember` `:163`, raw shapes `RawContract` `:222`, `RawTarget` `:230`, `RawAsset` `:240` |
-| manifest | `ReleaseManifest` `:59`, `TargetRecord` `:78`, `ArtifactRecord` `:113`, `BundleRecord` `:125`, `ArchiveMemberRecord` `:135`, `ByteEvidence` `:148`, tagged `ArtifactForm` `:88` |
-| core | `HostRequirement` `lib.rs:370`, `ToolchainRequirement` `lib.rs:385`, `TargetPolicy` `lib.rs:419`, `PackConfig` `lib.rs:448`, `BuildBinding` `builder.rs71`, `BuildBindingsV1` `builder.rs83`, tagged `LogicalOutputSelector` `builder.rs53`, `CandidateSmokeBinding` `qualification.rs:44`, `TargetQualificationBinding` `qualification.rs:61`, `QualificationBindingsV1` `qualification.rs:70`, `QualifiedCandidateEvidence` `qualification.rs:258`, `QualificationProcessEvidence` `qualification.rs:278`, `QualificationEvidence` `qualification.rs:290` |
+| contract | `ProductIdentity` `:154`, `ChecksumSpec` `:165`, `BundleEntry` `:174`, `ArchiveMember` `:184`, raw shapes `RawContract` `:244`, `RawTarget` `:252`, `RawAsset` `:262` |
+| manifest | `ReleaseManifest` `:122`, `TargetRecord` `:141`, tagged `ArtifactForm` `:151`, `ArtifactRecord` `:176`, `BundleRecord` `:188`, `ArchiveMemberRecord` `:198`, `ByteEvidence` `:211` |
+| core | `HostRequirement` `lib.rs:517`, `ToolchainRequirement` `lib.rs:532`, tagged `CompatibilityFloor` `lib.rs:545`, `TargetPolicy` `lib.rs:566`, `PackConfig` `lib.rs:595`, `BuildBinding` `builder.rs:93`, `BuildBindingsV1` `builder.rs:105`, tagged `LogicalOutputSelector` `builder.rs:75`, `CandidateSmokeBinding` `qualification.rs:43`, `TargetQualificationBinding` `qualification.rs:60`, `QualificationBindingsV1` `qualification.rs:69`, `QualifiedCandidateEvidence` `qualification.rs:260`, `QualificationProcessEvidence` `qualification.rs:280`, `QualificationEvidence` `qualification.rs:292` |
 | bootstrap | `:267`, `:279` |
-| ci | `:41`, `:57`, `:73`, `:93`, `:452`, `:467`, `:486`, `:502`, `:727`, `:780`, `:815`, `:850`, `:870`, `:1843`, `:1861`, `:2209`, `:2233`, `:2259`, `:2292`, `:2310`, `:3874`, `:3969`, `:4453`, `:4473` |
-| github | `:56`, `:187`, `:205`, `:297`, `:975`, `:985`, `:1112` |
+| ci | `consumer_validator.rs`: `ConsumerValidatorV1` `:42`, `ConsumerValidationEvidenceV1` `:137`; `handoff.rs`: `BuildHandoffOutput` `:24`, `BuildHandoffV1` `:42`; `identity.rs`: `ShapeStagingIntentV1` `:44`, `ReleaseWorkflowShapeV1` `:64`; `planning.rs`: `CIPlan` `:23`, `TargetJob` `:39`, `QualificationIntent` `:55`, `BuildOutput` `:75`; `policy.rs`: `ActionPin` `:14`, `RunnerMapping` `:29`, `ZigOfficialArchiveV1` `:48`, `CrossToolProvisioningV1` `:64`, `GitHubPolicy` `:314`, `EggpackToolPolicy` `:371`, `GitHubReleaseInputsV1` `:406`, `GitHubStagingInputsV1` `:441`, `GitHubStagingPolicyV1` `:461`; `release_plan.rs`: `QualificationJob` `:27`, `AggregateJob` `:51`, `FinalizationSettings` `:77`, `StagingJob` `:110`, `ReleaseCIPlanV1` `:128` |
+| github | `GitHubDraftPolicyV1` `:95`, `StagingAsset` `:273`, `StagingPayloadV1` `:291`, `GitHubDraftReceiptV1` `:383`, `InstallerPresentationV1` `:732`, tagged `InstallerPresentationModeV1` `:742`, `ProductWrapperSourcesV1` `:752`, `GitHubDraftTemplateV1` `:879` |
 
 Contract parsing attaches its strictness to private `Raw*` mirror types
 (`crates/eggpack-contract/src/lib.rs:208-251`) rather than to the public
@@ -71,11 +71,12 @@ to types that are not part of an untrusted document's own surface:
   (`crates/eggpack-core/src/qualification.rs:278`), which does carry the
   attribute. Serde's attribute is not inherited by nested structs, so an extra
   key inside a `process` object is accepted.
-- `ReleasePlan` (`crates/eggpack-core/src/lib.rs:456`) and `PlannedTarget`
-  (`:467`) derive both traits with no `deny_unknown_fields`. I found no
+- `ReleasePlan` (`crates/eggpack-core/src/lib.rs:605`) and `PlannedTarget`
+  (`:618`) derive both traits with no `deny_unknown_fields`. I found no
   non-test call site that deserializes a `ReleasePlan` from a string; they are
-  constructed in code (`crates/eggpack-core/src/lib.rs:576`,
-  `crates/eggpack-ci/src/lib.rs:116`, `:4551`).
+  constructed in code (`crates/eggpack-core/src/lib.rs:761`,
+  `crates/eggpack-ci/src/identity.rs:202-204`,
+  `crates/eggpack-ci/src/planning.rs:98-105`).
 - Unit-variant enums such as `QualificationMethod`
   (`crates/eggpack-core/src/qualification.rs:180`) and `QualificationStatus`
   (`:196`) carry no struct body, so there is nothing for the attribute to
@@ -108,15 +109,15 @@ be a breaking change to that document only.
 
 | Crate | Enforcing sites |
 | --- | --- |
-| core | `lib.rs:490`, `lib.rs:504`, `lib.rs:533`, `builder.rs238`, `qualification.rs:138`, `qualification.rs:325`, `qualification.rs:574` |
+| core | `lib.rs:654`, `lib.rs:680`, `lib.rs:716`, `builder.rs:310`, `builder.rs:1029`, `finalization.rs:74`, `qualification.rs:138`, `qualification.rs:337`, `qualification.rs:593` |
 | bootstrap | `lib.rs:323`, `lib.rs:409` |
-| ci | `lib.rs:209`, `:253`, `:1897`, `:2011`, `:2353`, `:3912`, `:4011`, `:4514`, `:4613` |
-| github | `lib.rs:124`, `:253`, `:347`, `:1025`, `:1162` |
+| ci | `consumer_validator.rs:80`, `:184`, `handoff.rs:78`, `:192`, `identity.rs:105`, `:199`, `planning.rs:191`, `:235`, `release_plan.rs:171` |
+| github | `lib.rs:175`, `:339`, `:433`, `:792`, `:929` |
 
 Version checking is therefore duplicated roughly twenty times, and the
 consistency is enforced by tests rather than by a shared constant: for example
-`crates/eggpack-manifest/src/lib.rs:446` and
-`crates/eggpack-bootstrap/src/lib.rs:2041` assert that a document with
+`crates/eggpack-manifest/src/lib.rs:575` and
+`crates/eggpack-bootstrap/src/lib.rs:2057` assert that a document with
 `schema_version` set to 2 is rejected.
 
 ## Bounds
@@ -207,9 +208,9 @@ evidence: candidate count must equal the attempt's count unless the status is
 selector with every field matching (`:352-359`), candidates must be strictly
 ascending by selector (`:369-372`), and the classification-to-method pairing is a
 closed allowlist (`:383-393`). `project_ci_plan`
-(`crates/eggpack-ci/src/lib.rs:110-141`) closes the loop from the other
+(`crates/eggpack-ci/src/planning.rs:92-123`) closes the loop from the other
 direction: it reconstructs a `PackConfig` from the plan, re-resolves it, and
-rejects the plan if the resolution differs (`:137-140`).
+rejects the plan if the resolution differs (`crates/eggpack-ci/src/planning.rs:119-123`).
 
 ## The extras policy
 
@@ -304,9 +305,9 @@ Errors are typed per crate and never cross a crate boundary as a generic string.
   likewise `#[non_exhaustive]`.
 - Four crates use single-field newtypes: `CoreError`
   (`crates/eggpack-core/src/lib.rs:74`), `BuildError`
-  (`crates/eggpack-core/src/builder.rs92`), `QualificationError`
+  (`crates/eggpack-core/src/builder.rs:115`), `QualificationError`
   (`crates/eggpack-core/src/qualification.rs:30`), `CiError`
-  (`crates/eggpack-ci/src/lib.rs:28`), `GithubError`
+  (`crates/eggpack-ci/src/error.rs:7`), `GithubError`
   (`crates/eggpack-github/src/lib.rs:40`), and `BootstrapError`
   (`crates/eggpack-bootstrap/src/lib.rs:20`) — six types across four crates.
   These are opaque at the type level; only the message string varies, and the
@@ -337,22 +338,22 @@ to `MAX_DETAIL_LEN` (512), applied on every construction path including
 Four findings, all verified above, none of them a claim about intent.
 
 1. **`deny_unknown_fields` does not reach nested structs.**
-   `ProcessEvidence` (`crates/eggpack-core/src/builder.rs183`) has no
+   `ProcessEvidence` (`crates/eggpack-core/src/builder.rs:256`) has no
    attribute, so unknown keys inside a `QualificationProcessEvidence.process`
    object are accepted, even though the containing type
    (`crates/eggpack-core/src/qualification.rs:277-285`) is strict. `ReleasePlan`
-   (`crates/eggpack-core/src/lib.rs:456`) and `PlannedTarget` (`:467`) are also
+   (`crates/eggpack-core/src/lib.rs:604`) and `PlannedTarget` (`:617`) are also
    unannotated. In practice the first is reachable from a serialized evidence
    document; the latter two are constructed in code today.
 2. **The two-tier `PackConfig` gap is a real hole in the invariant.** A
-   successful `PackConfig::from_toml` (`:502`) proves only shape. Every rule in
-   `validate_policy` (`:105-163`) is unevaluated until `resolve` (`:541`) is
+   successful `PackConfig::from_toml` (`:678`) proves only shape. Every rule in
+   `validate_policy` (`:208-266`) is unevaluated until `resolve` (`:709`) is
    called. The workspace's own callers comply, but the type does not make that
    obligation visible to a future consumer.
 3. **The parse-tier predicate short-circuits.** The `.any()` at
-   `crates/eggpack-core/src/lib.rs:513-522` stops at the first failing target, so
+   `crates/eggpack-core/src/lib.rs:696-705` stops at the first failing target, so
    a document with several problems reports one generic message
-   ("invalid or duplicate PackConfig target", `:521`), and the `seen` set is
+   ("invalid or duplicate PackConfig target", `:704`), and the `seen` set is
    only partially populated. Rejection is still fail-closed — the effect is
    diagnostic quality, not acceptance.
 4. **Host matching is string-prefix matching, not parsed-triple matching.**
@@ -368,10 +369,11 @@ Four findings, all verified above, none of them a claim about intent.
 
 One further observation, offered as a bound rather than a defect: the
 distribution contract has no upper bound on the number of targets it declares.
-`from_raw` rejects an empty target list (`crates/eggpack-contract/src/lib.rs:384`)
+`from_raw` rejects an empty target list (`crates/eggpack-contract/src/lib.rs:399`)
 and rejects duplicates, but I found no `MAX_TARGETS`-style ceiling in that crate,
-while `manifest` (`:14`), `core` (`crates/eggpack-core/src/lib.rs:173`),
-`ci` (`:256`), and `bootstrap` (`crates/eggpack-bootstrap/src/lib.rs:323`) each
+while `manifest` (`:14`), `core` (`crates/eggpack-core/src/lib.rs:687`),
+`ci` (`crates/eggpack-ci/src/planning.rs:195`), and `bootstrap`
+(`crates/eggpack-bootstrap/src/lib.rs:323`) each
 cap their own target count at 256. The contract is producer-authored rather
 than remotely supplied, so this is a consistency gap in the bounds table rather
 than an untrusted-input exposure.
@@ -394,10 +396,11 @@ recorded in `plans/implementation/ci-release-orchestration/003l-producer-rule-au
 The consumers, and nothing else:
 
 - **`eggpack-ci`** applies the core rules. `CIPlan::validate`
-  (`crates/eggpack-ci/src/lib.rs:282`) calls `validate_policy` and
-  `validate_floor_applicability`; `validate_sha256_hex`
-  (`crates/eggpack-ci/src/lib.rs:589`) delegates to the manifest rule through
-  core's re-export (`crates/eggpack-core/src/lib.rs:18`); and the exact-tag
+  (`crates/eggpack-ci/src/planning.rs:234`) calls `validate_policy` and
+  `validate_floor_applicability` (`crates/eggpack-ci/src/planning.rs:254-260`);
+  `validate_sha256_hex`
+  (`crates/eggpack-ci/src/policy.rs:161-163`) delegates to the manifest rule through
+  core's re-export (`crates/eggpack-core/src/lib.rs:20`); and the exact-tag
   check calls `validate_exact_tag_safety`. Each call site keeps its own
   diagnostic wording.
 - **`eggpack-github`** applies the manifest and core rules. `validate_sha256`
