@@ -3,9 +3,11 @@
 //! Producer-side release planning and finalized artifact evidence.
 
 mod builder;
+pub mod digest;
 mod finalization;
 mod qualification;
 pub use builder::*;
+pub use digest::*;
 pub use finalization::*;
 pub use qualification::*;
 
@@ -18,14 +20,9 @@ use eggpack_manifest::{
     TargetRecord,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    fmt,
-    fs::{self, File},
-    io::{BufReader, Read},
-    path::{Path, PathBuf},
-};
+#[cfg(test)]
+use std::fs;
+use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 #[cfg(test)]
 pub(crate) fn test_temp_dir(label: &str) -> PathBuf {
@@ -209,7 +206,8 @@ pub fn build_manifest(
                 .release_files
                 .get(name)
                 .ok_or_else(|| err("required artifact path missing"))?;
-            let (size, sha256) = digest_file(path)?;
+            let (size, sha256) = file_digest(path)
+                .map_err(|error| err(format!("finalized file {}", error.reason())))?;
             Ok(ArtifactRecord {
                 name: name.to_string(),
                 size,
@@ -255,7 +253,8 @@ pub fn build_manifest(
                             .archive_members
                             .get(&m.source)
                             .ok_or_else(|| err("required archive member path missing"))?;
-                        let (size, sha256) = digest_file(p)?;
+                        let (size, sha256) = file_digest(p)
+                            .map_err(|error| err(format!("finalized file {}", error.reason())))?;
                         Ok(ArchiveMemberRecord {
                             source: m.source.clone(),
                             install: m.install_name.clone(),
@@ -286,41 +285,6 @@ pub fn build_manifest(
         .validate()
         .map_err(|_| err("constructed manifest violates schema-v1 bounds"))?;
     Ok(manifest)
-}
-
-fn digest_file(path: &Path) -> Result<(u64, String), CoreError> {
-    // The symlink rejection is a property of the path policy, so it stays a
-    // path observation. The read then happens through the handle that was
-    // opened, and the evidence recorded is of those bytes: a path replaced
-    // between the check and the open can no longer make the digest describe
-    // some other file than the one that was inspected.
-    let link_metadata =
-        fs::symlink_metadata(path).map_err(|_| err("finalized file is unavailable"))?;
-    if !link_metadata.file_type().is_file() {
-        return Err(err("finalized input is not a regular non-symlink file"));
-    }
-    let file = File::open(path).map_err(|_| err("finalized file cannot be opened"))?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut size = 0u64;
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|_| err("finalized file read failed"))?;
-        if n == 0 {
-            break;
-        }
-        size = size
-            .checked_add(n as u64)
-            .ok_or_else(|| err("file size overflow"))?;
-        hasher.update(&buf[..n]);
-    }
-    if size == 0 {
-        return Err(err("finalized files must be non-empty"));
-    }
-    let digest = hasher.finalize();
-    Ok((size, digest.iter().map(|b| format!("{b:02x}")).collect()))
 }
 
 /// Explicit finite build strategy. Planning never executes either strategy.
@@ -984,6 +948,84 @@ support="required"
                 install: "eggsact".into()
             }
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn manifest_builder_refuses_artifacts_that_are_not_regular_non_empty_files() {
+        // The manifest path routes through the crate's single file-digest
+        // authority, so it inherits its fail-closed policy: a non-regular,
+        // symlinked, empty, or missing artifact is refused rather than
+        // recorded. The authority's post-read re-check — which refuses a path
+        // that changes while it is read — cannot be staged deterministically
+        // on the supported platforms, so it is asserted directly in
+        // `digest.rs` instead of being raced here.
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let dir = test_temp_dir("core-digest-policy");
+        let names = [
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256",
+        ];
+        let mut files = BTreeMap::new();
+        for name in names {
+            let path = dir.join(name);
+            fs::write(&path, b"abc").unwrap();
+            files.insert(name.to_string(), path);
+        }
+        let input = FinalizedReleaseInput {
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![FinalizedTargetInput {
+                target: "linux-x64".into(),
+                release_files: files,
+                archive_members: BTreeMap::new(),
+            }],
+            evidence_references: vec![],
+        };
+        assert!(build_manifest(&contract, &input).is_ok());
+        fs::write(dir.join(names[0]), b"").unwrap();
+        assert!(build_manifest(&contract, &input).is_err());
+        fs::remove_file(dir.join(names[0])).unwrap();
+        assert!(build_manifest(&contract, &input).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn manifest_builder_refuses_a_symlinked_artifact() {
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let dir = test_temp_dir("core-digest-symlink");
+        let names = [
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256",
+        ];
+        let mut files = BTreeMap::new();
+        for name in names {
+            let path = dir.join(name);
+            fs::write(&path, b"abc").unwrap();
+            files.insert(name.to_string(), path);
+        }
+        let input = FinalizedReleaseInput {
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![FinalizedTargetInput {
+                target: "linux-x64".into(),
+                release_files: files,
+                archive_members: BTreeMap::new(),
+            }],
+            evidence_references: vec![],
+        };
+        let artifact = dir.join(names[0]);
+        let real = dir.join("real-artifact");
+        fs::rename(&artifact, &real).unwrap();
+        std::os::unix::fs::symlink(&real, &artifact).unwrap();
+        assert!(build_manifest(&contract, &input).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]

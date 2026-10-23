@@ -1,7 +1,7 @@
 # `eggpack-core` — Deep Dive
 
 Crate-level orientation for `eggpack-core`: the producer pipeline. This file
-explains how the four source files divide the work and what flows between them.
+explains how the five source files divide the work and what flows between them.
 It does not restate the per-file detail — each stage has its own deep dive.
 
 `eggpack-core` is the only crate that writes **release artifacts** (finalized
@@ -22,16 +22,17 @@ instead of owning a second, weaker spawn path. See
 `bootstrap` and `ci` derive documents from core's outputs, `github` consumes
 core's finalized release, and `cli` wires all of it.
 
-Code baseline `fc072af`; 5827 lines across four files.
+Code baseline `fc072af`; the working tree measures 6618 lines across five files.
 
 ## File map
 
 | File | Lines | Owns | Deep dive |
 |---|---|---|---|
-| `src/lib.rs` | 1056 | policy vocabulary, `PackConfig` -> `ReleasePlan`, `build_manifest` | [core-planning.md](core-planning.md) |
-| `src/builder.rs` | 1301 | build bindings, command construction, bounded execution, candidate discovery | [core-build.md](core-build.md) |
-| `src/qualification.rs` | 2610 | qualification bindings, method taxonomy, host matching, evidence | [core-qualification.md](core-qualification.md) |
-| `src/finalization.rs` | 860 | qualification gate, output root, archives, sidecars, manifest | [core-finalization.md](core-finalization.md) |
+| `src/lib.rs` | 1128 | policy vocabulary, `PackConfig` -> `ReleasePlan`, `build_manifest` | [core-planning.md](core-planning.md) |
+| `src/builder.rs` | 1663 | build bindings, command construction, bounded execution, candidate discovery | [core-build.md](core-build.md) |
+| `src/qualification.rs` | 2606 | qualification bindings, method taxonomy, host matching, evidence | [core-qualification.md](core-qualification.md) |
+| `src/finalization.rs` | 927 | qualification gate, output root, archives, sidecars, manifest | [core-finalization.md](core-finalization.md) |
+| `src/digest.rs` | 294 | the single producer-side file-digest authority | [core-finalization.md](core-finalization.md) |
 
 Read them in pipeline order. The rough size split is itself informative:
 qualification is the most intricate part of the producer, and finalization is
@@ -102,6 +103,14 @@ the reason the stages cannot be collapsed:
 - **Fail-closed everywhere.** A missing input, an unknown field, an out-of-bounds
   count, or an unmatched identity is an error. There is no tolerant or
   best-effort path in this crate.
+- **One file-digest authority.** `file_digest` (`src/digest.rs`) is the only
+  file-digest implementation in the crate: manifest aggregation, finalization,
+  and candidate qualification all route through it, and `eggpack-ci` /
+  `eggpack-github` consume the same public helper instead of re-implementing
+  one. A refused digest is a hard failure of the enclosing operation, never a
+  warning and never a placeholder record. The refusal rules — symlinks, empty
+  and non-regular files, and files that change while they are read — are stated
+  once in [core-finalization.md](core-finalization.md).
 
 ## Boundaries
 

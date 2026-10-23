@@ -1,16 +1,15 @@
 //! Qualification-gated local finalization and manifest aggregation.
 
 use crate::{
-    build_manifest, err, BuildAttempt, CandidateArtifact, CoreError, LogicalOutputSelector,
-    QualificationEvidence, QualificationStatus, ReleasePlan, SupportTier,
+    build_manifest, err, file_digest, BuildAttempt, CandidateArtifact, CoreError,
+    LogicalOutputSelector, QualificationEvidence, QualificationStatus, ReleasePlan, SupportTier,
 };
 use eggpack_contract::{expected_release_files, DistributionContract, ExpandedAssets};
 use flate2::{Compression, GzBuilder};
-use sha2::Digest;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -313,6 +312,16 @@ fn finalize_into(
     })
 }
 
+/// Digest candidate bytes with the candidate-file diagnostic subject.
+fn digest_candidate_bytes(path: &Path) -> Result<(u64, String), CoreError> {
+    file_digest(path).map_err(|error| err(format!("candidate file {}", error.reason())))
+}
+
+/// Digest finalized bytes with the finalized-file diagnostic subject.
+fn digest_finalized_bytes(path: &Path) -> Result<(u64, String), CoreError> {
+    file_digest(path).map_err(|error| err(format!("finalized file {}", error.reason())))
+}
+
 fn validated_candidates<'a>(
     attempt: &'a BuildAttempt,
     qualification: &crate::QualificationEvidence,
@@ -330,7 +339,7 @@ fn validated_candidates<'a>(
         let evidence = qualified
             .get(&candidate.selector)
             .ok_or_else(|| err("candidate has no qualification byte evidence"))?;
-        let (size, digest) = digest_regular(&candidate.path)?;
+        let (size, digest) = digest_candidate_bytes(&candidate.path)?;
         if evidence.package != candidate.package
             || evidence.binary != candidate.binary
             || evidence.size != candidate.size
@@ -407,7 +416,7 @@ fn copy_verified(
         .flush()
         .map_err(|_| err("finalized file flush failed"))?;
     drop(target);
-    let (size, digest) = digest_regular(&destination)?;
+    let (size, digest) = digest_finalized_bytes(&destination)?;
     if size != evidence.size || digest != evidence.sha256 {
         return Err(err("candidate changed while being finalized"));
     }
@@ -426,7 +435,7 @@ fn create_tar_gzip(path: &Path, members: &[(&str, &CandidateArtifact)]) -> Resul
     let mut archive = tar::Builder::new(encoder);
     archive.mode(tar::HeaderMode::Deterministic);
     for (member_name, candidate) in members {
-        let (size, _) = digest_regular(&candidate.path)?;
+        let (size, _) = digest_candidate_bytes(&candidate.path)?;
         let mut source = File::open(&candidate.path)
             .map_err(|_| err("archive member candidate could not be opened"))?;
         let mut header = tar::Header::new_gnu();
@@ -461,7 +470,7 @@ fn create_tar_gzip(path: &Path, members: &[(&str, &CandidateArtifact)]) -> Resul
 }
 
 fn write_checksum(artifact: &Path, filename: &str, root: &Path) -> Result<(), CoreError> {
-    let (_, digest) = digest_regular(artifact)?;
+    let (_, digest) = digest_finalized_bytes(artifact)?;
     let sidecar = root.join(filename);
     let mut file = OpenOptions::new()
         .write(true)
@@ -479,49 +488,18 @@ fn write_checksum(artifact: &Path, filename: &str, root: &Path) -> Result<(), Co
     Ok(())
 }
 
-fn digest_regular(path: &Path) -> Result<(u64, String), CoreError> {
-    let metadata = fs::symlink_metadata(path).map_err(|_| err("candidate file is unavailable"))?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() || metadata.len() == 0 {
-        return Err(err("candidate must be a non-empty regular file"));
-    }
-    let mut file = File::open(path).map_err(|_| err("candidate file cannot be opened"))?;
-    let mut size = 0u64;
-    let mut hasher = sha2::Sha256::new();
-    let mut buffer = [0u8; 65536];
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|_| err("candidate file read failed"))?;
-        if count == 0 {
-            break;
-        }
-        size = size
-            .checked_add(count as u64)
-            .ok_or_else(|| err("candidate size overflow"))?;
-        hasher.update(&buffer[..count]);
-    }
-    let after = fs::symlink_metadata(path).map_err(|_| err("candidate changed during read"))?;
-    if after.file_type().is_symlink() || !after.is_file() || after.len() != size {
-        return Err(err("candidate changed during read"));
-    }
-    let digest = hasher.finalize();
-    Ok((
-        size,
-        digest.iter().map(|byte| format!("{byte:02x}")).collect(),
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{
-        ArtifactForm, BuildStrategy, CandidateArchitecture, CandidateFormat, CommandOutcome,
-        CompatibilityFloor, HostArch, HostOs, HostRequirement, PackConfig, Qualification,
-        QualificationMethod, QualifiedCandidateEvidence, SupportTier, TargetPolicy,
+        ArtifactForm, ArtifactRecord, BuildStrategy, CandidateArchitecture, CandidateFormat,
+        CommandOutcome, CompatibilityFloor, HostArch, HostOs, HostRequirement, PackConfig,
+        Qualification, QualificationMethod, QualifiedCandidateEvidence, SupportTier, TargetPolicy,
         ToolchainRequirement,
     };
     use eggpack_contract::DistributionContract;
     use sha2::Digest;
+    use std::io::Read;
 
     fn elf() -> Vec<u8> {
         let mut bytes = vec![0; 64];
@@ -537,6 +515,13 @@ mod tests {
             .iter()
             .map(|byte| format!("{byte:02x}"))
             .collect()
+    }
+
+    /// The manifest record must describe the bytes that are on disk.
+    fn assert_artifact_bytes(root: &Path, artifact: &ArtifactRecord) {
+        let bytes = fs::read(root.join(&artifact.name)).unwrap();
+        assert_eq!(artifact.size, bytes.len() as u64);
+        assert_eq!(artifact.sha256, digest(&bytes));
     }
 
     fn fixture(
@@ -763,6 +748,81 @@ mod tests {
             matches!(&first.manifest.targets[0].form, ArtifactForm::Archive { members, .. } if members.len() == 2)
         );
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn finalization_refuses_a_symlinked_candidate() {
+        let parent = crate::test_temp_dir("finalize-symlink");
+        let (contract, plan, request, source_root) = fixture(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "linux-x64",
+            "1.2.6",
+            &parent,
+        );
+        let candidate = request.targets[0].attempt.candidates[0].path.clone();
+        let real = candidate.with_extension("real");
+        fs::rename(&candidate, &real).unwrap();
+        std::os::unix::fs::symlink(&real, &candidate).unwrap();
+        let output = parent.join("release");
+        let error = finalize_release(&contract, &plan, &request, &output).unwrap_err();
+        assert!(error.to_string().contains("non-symlink"), "{error}");
+        assert!(!output.exists());
+        assert!(source_root.exists());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn manifest_records_agree_with_the_finalized_bytes_for_every_artifact() {
+        for (name, fixture_text, target, release) in [
+            (
+                "direct",
+                include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+                "linux-x64",
+                "1.2.6",
+            ),
+            (
+                "bundle",
+                include_str!("../../eggpack-contract/tests/fixtures/codegg-bundle.toml"),
+                "linux-x64",
+                "2.4.0",
+            ),
+            (
+                "archive",
+                include_str!("../../eggpack-contract/tests/fixtures/egress-archive.toml"),
+                "linux-x64",
+                "3.1.0",
+            ),
+        ] {
+            let parent = crate::test_temp_dir(name);
+            let (contract, plan, request, _) = fixture(fixture_text, target, release, &parent);
+            let output = parent.join("release");
+            let finalized = finalize_release(&contract, &plan, &request, &output).unwrap();
+            let mut checked = 0usize;
+            match &finalized.manifest.targets[0].form {
+                ArtifactForm::Direct { artifact, .. } => {
+                    assert_artifact_bytes(&finalized.root, artifact);
+                    checked += 1;
+                }
+                ArtifactForm::Bundle { entries } => {
+                    for entry in entries {
+                        assert_artifact_bytes(&finalized.root, &entry.artifact);
+                        checked += 1;
+                    }
+                }
+                ArtifactForm::Archive { artifact, members } => {
+                    assert_artifact_bytes(&finalized.root, artifact);
+                    checked += 1;
+                    for member in members {
+                        assert_eq!(member.bytes.size, elf().len() as u64);
+                        assert_eq!(member.bytes.sha256, digest(&elf()));
+                        checked += 1;
+                    }
+                }
+            }
+            assert!(checked > 0);
+            fs::remove_dir_all(parent).unwrap();
+        }
     }
 
     #[test]

@@ -5,12 +5,11 @@ use crate::{
         run_qemu_process, run_qualification_process, CandidateArtifact, CommandSpec,
         ProcessEvidence,
     },
-    BuildAttempt, BuildBindingsV1, BuildCancellation, HostArch, HostOs, HostRequirement,
-    LogicalOutputSelector, PlannedTarget, Qualification, ReleasePlan, SupportTier,
+    file_digest, BuildAttempt, BuildBindingsV1, BuildCancellation, DigestError, HostArch, HostOs,
+    HostRequirement, LogicalOutputSelector, PlannedTarget, Qualification, ReleasePlan, SupportTier,
 };
 use eggpack_contract::DistributionContract;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -1133,23 +1132,13 @@ fn inspect_candidate(
     if format_arch != (expected_format, expected_arch) {
         return Err(QualificationFailure::StructuralMismatch);
     }
-    let mut file =
-        File::open(&canonical).map_err(|_| QualificationFailure::InvalidRuntimeEnvironment)?;
-    let mut hasher = Sha256::new();
-    let mut size = 0u64;
-    let mut buffer = [0u8; 65536];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| QualificationFailure::InvalidRuntimeEnvironment)?;
-        if read == 0 {
-            break;
-        }
-        size = size
-            .checked_add(read as u64)
-            .ok_or(QualificationFailure::InvalidRuntimeEnvironment)?;
-        hasher.update(&buffer[..read]);
-    }
+    // The candidate bytes are digested by the crate's single file-digest
+    // authority, so qualification evidence and the release manifest describe
+    // the same bytes under the same rules.
+    let (size, sha256) = file_digest(&canonical).map_err(|error| match error {
+        DigestError::ChangedDuringRead => QualificationFailure::CandidateChanged,
+        _ => QualificationFailure::InvalidRuntimeEnvironment,
+    })?;
     let after = fs::symlink_metadata(&candidate.path)
         .map_err(|_| QualificationFailure::CandidateChanged)?;
     if size != metadata.len()
@@ -1165,11 +1154,7 @@ fn inspect_candidate(
         package: candidate.package.clone(),
         binary: candidate.binary.clone(),
         size,
-        sha256: hasher
-            .finalize()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect(),
+        sha256,
         format: expected_format,
         architecture: expected_arch,
     })
