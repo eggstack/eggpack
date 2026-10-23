@@ -108,3 +108,31 @@ Runner labels and action commit pins are policy inputs rather than CIPlan data.
 Cross-build runners must declare preinstalled cargo-zigbuild and Zig; generated
 build jobs check the configured cargo-zigbuild version and never install tools.
 Qualification and finalization jobs install the pinned `eggpack-cli` tool and verify it before use; no unpinned binary, arbitrary repository, or curl-pipe-shell is allowed.
+
+## Module map
+
+The crate is a module tree under `src/`. `src/lib.rs` holds the crate
+documentation, the module declarations, and the `pub use` re-exports; every
+public item is reachable through the crate root exactly as it was when the
+crate was a single file, so no consumer changes an import.
+
+| Module | Responsibility |
+|---|---|
+| `src/lib.rs` | crate documentation, module declarations, public re-exports |
+| `src/error.rs` | the bounded `CiError` type and its single constructor |
+| `src/validate.rs` | bounded identifier, metadata, and release-identity string validators |
+| `src/planning.rs` | the provider-neutral `CIPlan`: schema-v1 graph types, projection, validation |
+| `src/policy.rs` | provider policy: action pins, runner mappings, tool provisioning, workflow policy documents |
+| `src/runner.rs` | the provider-neutral `RunnerCommand` and its deterministic argument rendering |
+| `src/render_github.rs` | the build workflow renderer and the rendering helpers it shares with the release renderers |
+| `src/drift.rs` | the one workflow drift comparison and the three public check functions that use it |
+| `src/handoff.rs` | the build handoff document: projection, artifact validation, staging |
+| `src/release_plan.rs` | the release CI graph: schema-v1 projection, the qualification gate, aggregation, staging intent |
+| `src/render_release.rs` | the release workflow renderers and the emission helpers that build their bytes |
+| `src/consumer_validator.rs` | the consumer-owned exact-candidate validator: configuration, evidence, bounded interpreter run |
+| `src/identity.rs` | the static workflow shape and the runtime release identity it resolves to |
+| `src/tests.rs` | the crate's test module |
+
+Items that cross a module boundary are `pub(crate)`; nothing that was private
+became publicly reachable. The crate's public API surface is pinned by
+`m003n_public_api_surface_is_unchanged` in `src/tests.rs`.

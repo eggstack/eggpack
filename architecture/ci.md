@@ -1,9 +1,12 @@
 # `eggpack-ci` — Deep Dive
 
 Crate-level orientation for `eggpack-ci`: the largest component in the workspace
-at 12219 lines in a single `src/lib.rs`. This file explains how that file divides
-and what flows through it. It does not restate per-area detail — three deep
-dives cover the parts.
+split across a thirteen-file module tree under `crates/eggpack-ci/src/`. This
+file explains how that tree divides and what flows through it. It does not
+restate per-area detail — three deep dives cover the parts.
+
+Line references of the form `module.rs:line` are relative to
+`crates/eggpack-ci/src/`.
 
 `eggpack-ci` depends on `eggpack-contract` and `eggpack-core` only. It never
 executes a release itself: it *plans* the release as a job graph, *renders* that
@@ -16,11 +19,11 @@ Code baseline `fc072af`.
 
 ## The three deep dives
 
-| Deep dive | Owns | Approximate region of `src/lib.rs` |
+| Deep dive | Owns | Modules of `crates/eggpack-ci/src/` |
 |---|---|---|
-| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:1066-2100`, `:3132-4301` |
-| [ci-consumer-seam.md](ci-consumer-seam.md) | the external consumer validator, runtime identity, artifact handoff formats | `:1844-2209`, `:3847-4432`, `:4432-4596` |
-| this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `:42-453`, `:2220-2752`, `:2753-2935` |
+| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `policy.rs`, `runner.rs`, `render_github.rs`, `render_release.rs`, `drift.rs` |
+| [ci-consumer-seam.md](ci-consumer-seam.md) | the external consumer validator, runtime identity, artifact handoff formats | `handoff.rs`, `consumer_validator.rs`, `identity.rs` |
+| this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `planning.rs`, `release_plan.rs`, `error.rs`, `validate.rs` |
 
 Read this file first, then follow exactly one of the other two.
 
@@ -44,20 +47,20 @@ ReleasePlan                      (eggpack-core: intent, canonically sorted)
         |
         |  project_ci_plan(contract, plan, build_bindings, qualification_bindings)
         v
-CIPlan                           (:42   provider-neutral build graph)
-        |                        targets: Vec<TargetJob>  (:58)
-        |                        required_aggregation_dependencies (:52)
+CIPlan                           (planning.rs:24   provider-neutral build graph)
+        |                        targets: Vec<TargetJob>  (planning.rs:32)
+        |                        required_aggregation_dependencies (planning.rs:34)
         |
-        |  project_release_plan(...)            (:2460)
-        |  project_release_plan_with_consumer(...) (:2536)
+        |  project_release_plan(...)            (release_plan.rs:280)
+        |  project_release_plan_with_consumer(...) (release_plan.rs:356)
         v
-ReleaseCIPlanV1                  (:2309 executable release graph)
-                                 qualifications: Vec<QualificationJob> (:2315)
-                                 gate_job_id                      (:2317)
-                                 aggregate: AggregateJob          (:2319)
-                                 finalization: FinalizationSettings (:2321)
-                                 staging: Option<StagingJob>     (:2403)
-                                 consumer_validators: BTreeMap   (:2407)
+ReleaseCIPlanV1                  (release_plan.rs:129 executable release graph)
+                                 qualifications: Vec<QualificationJob> (release_plan.rs:135)
+                                 gate_job_id                      (release_plan.rs:137)
+                                 aggregate: AggregateJob          (release_plan.rs:139)
+                                 finalization: FinalizationSettings (release_plan.rs:141)
+                                 staging: Option<StagingJob>     (release_plan.rs:144)
+                                 consumer_validators: BTreeMap   (release_plan.rs:148)
         |
         |  render_release_github / render_reusable_release_github
         v
@@ -74,10 +77,10 @@ the checked-out commit, and only the manifest/artifact identity uses the
 unprefixed version. Exact-tag workflows retain their prior serialization and
 rendered bytes when the field is absent.
 
-`ReleaseCIPlanV1::validate` (`:2431`) is the structural gate on this graph: exact
+`ReleaseCIPlanV1::validate` (`release_plan.rs:170`) is the structural gate on this graph: exact
 qualification/target count agreement, the fixed `required_gate` and `aggregate`
 job ids, handoff-name bounds, canonical ordering, and `schema_version == 1`.
-`from_json` (`:2420`) additionally bounds the document against
+`from_json` (`release_plan.rs:159`) additionally bounds the document against
 `MAX_RELEASE_PLAN_JSON` before parsing. A malformed or reordered graph is
 rejected rather than rendered.
 
@@ -85,35 +88,35 @@ rejected rather than rendered.
 
 | Job | Type | Role |
 |---|---|---|
-| build (one per target) | `TargetJob` (`:58`) | builds candidate bytes; carries `outputs: Vec<BuildOutput>` (`:94`) mapping contract logical slots to an explicit Cargo package + binary |
-| qualification (one per target) | `QualificationJob` (`:2210`) | runs the target's smoke binding and records evidence |
-| required gate | id fixed to `required_gate` (`:2359`) | fails the release unless every required target's evidence passes |
-| aggregate | `AggregateJob` (`:2234`) | finalizes, producing the manifest and the final handoff |
-| staging (optional) | `StagingJob` (`:2293`) | materializes the staging payload and stages a draft; `Option`, so graphs without staging are valid |
-| consumer validation (optional) | `ConsumerValidatorV1` (`:3875`) | per-target external validator, keyed by canonical target triple |
+| build (one per target) | `TargetJob` (`planning.rs:40`) | builds candidate bytes; carries `outputs: Vec<BuildOutput>` (`planning.rs:50`) mapping contract logical slots to an explicit Cargo package + binary |
+| qualification (one per target) | `QualificationJob` (`release_plan.rs:28`) | runs the target's smoke binding and records evidence |
+| required gate | id fixed to `required_gate` (`release_plan.rs:334`) | fails the release unless every required target's evidence passes |
+| aggregate | `AggregateJob` (`release_plan.rs:52`) | finalizes, producing the manifest and the final handoff |
+| staging (optional) | `StagingJob` (`release_plan.rs:111`) | materializes the staging payload and stages a draft; `Option`, so graphs without staging are valid |
+| consumer validation (optional) | `ConsumerValidatorV1` (`consumer_validator.rs:43`) | per-target external validator, keyed by canonical target triple |
 
 Two distinctions are load-bearing:
 
 - **Qualification is intent in `CIPlan`, execution in `ReleaseCIPlanV1`.**
-  `QualificationState` (`:86`) has exactly one variant, `Unresolved`, and
-  `QualificationIntent` (`:74`) is documented as never reporting a pass. A
+  `QualificationState` (`planning.rs:68`) has exactly one variant, `Unresolved`, and
+  `QualificationIntent` (`planning.rs:56`) is documented as never reporting a pass. A
   `CIPlan` therefore cannot claim that anything was qualified. Evidence appears
   only after the qualification jobs run — see `core-qualification.md`.
 - **Staging is optional and additive.** `staging` and `consumer_validators` are
-  `#[serde(default, skip_serializing_if = ...)]` (`:2325`, `:2329`), so a graph
+  `#[serde(default, skip_serializing_if = ...)]` (`release_plan.rs:143`, `release_plan.rs:147`), so a graph
   that does not stage is a valid, smaller graph rather than a special case.
 
 ## Gates and aggregation
 
-- `evaluate_gate` (`:2743`) and `evaluate_gate_with_consumer` (`:2602`) decide
+- `evaluate_gate` (`release_plan.rs:561`) and `evaluate_gate_with_consumer` (`release_plan.rs:420`) decide
   whether required targets passed. This is the CI-layer expression of the same
   fail-closed rule core enforces at finalization: missing or failing required
   evidence is a failure, never a pass and never a skip.
-- `aggregate_finalize` (`:2803`) and `aggregate_finalize_with_consumer`
-  (`:2666`) drive the aggregate job, producing the final handoff artifact.
-- `with_github_draft_staging` (`:2709`) attaches the staging job to a graph.
-- `AggregateOutcome` (`:2246`), `FinalizationSettings` (`:2260`), and
-  `ArchiveEncodingWrapper` (`:2272`) describe what the aggregate job is
+- `aggregate_finalize` (`release_plan.rs:621`) and `aggregate_finalize_with_consumer`
+  (`release_plan.rs:484`) drive the aggregate job, producing the final handoff artifact.
+- `with_github_draft_staging` (`release_plan.rs:527`) attaches the staging job to a graph.
+- `AggregateOutcome` (`release_plan.rs:64`), `FinalizationSettings` (`release_plan.rs:78`), and
+  `ArchiveEncodingWrapper` (`release_plan.rs:90`) describe what the aggregate job is
   permitted to do. The archive wrapper exists so the CI layer can constrain
   finalization to the allowed encodings without redefining them — `TarGzip`
   only, per `core-finalization.md`.
@@ -129,21 +132,21 @@ a fixed set of file names and JSON documents:
 
 | Constant | Value | Role |
 |---|---|---|
-| `BUILD_HANDOFF_FILE` (`:941`) | `build-handoff.json` | build step output consumed by qualification |
-| `CANDIDATES_DIR` (`:945`) | `candidates` | candidate bytes directory |
-| `QUALIFICATION_EVIDENCE_FILE` (`:943`) | `evidence.json` | per-target qualification evidence |
-| `GATE_OUTCOME_FILE` (`:947`) | `gate-outcome.json` | gate decision consumed by aggregate |
-| `CONSUMER_EVIDENCE_FILE` (`:3847`) | `consumer-evidence.json` | external validator output |
-| `RUNTIME_IDENTITY_DIR` (`:4432`) | `eggpack-runtime` | reusable-workflow runtime identity directory |
-| `RUNTIME_RELEASE_PLAN` (`:4434`) | `eggpack-runtime/release-plan.json` | runtime-resolved plan |
-| `RUNTIME_CI_PLAN` (`:4436`) | `eggpack-runtime/release-ci-plan.json` | runtime-resolved CI plan |
-| `RUNTIME_GITHUB_POLICY` (`:4438`) | `eggpack-runtime/github-draft.json` | runtime-resolved draft policy |
+| `BUILD_HANDOFF_FILE` (`policy.rs:537`) | `build-handoff.json` | build step output consumed by qualification |
+| `CANDIDATES_DIR` (`policy.rs:543`) | `candidates` | candidate bytes directory |
+| `QUALIFICATION_EVIDENCE_FILE` (`policy.rs:540`) | `evidence.json` | per-target qualification evidence |
+| `GATE_OUTCOME_FILE` (`policy.rs:546`) | `gate-outcome.json` | gate decision consumed by aggregate |
+| `CONSUMER_EVIDENCE_FILE` (`consumer_validator.rs:12`) | `consumer-evidence.json` | external validator output |
+| `RUNTIME_IDENTITY_DIR` (`identity.rs:17`) | `eggpack-runtime` | reusable-workflow runtime identity directory |
+| `RUNTIME_RELEASE_PLAN` (`identity.rs:20`) | `eggpack-runtime/release-plan.json` | runtime-resolved plan |
+| `RUNTIME_CI_PLAN` (`identity.rs:23`) | `eggpack-runtime/release-ci-plan.json` | runtime-resolved CI plan |
+| `RUNTIME_GITHUB_POLICY` (`identity.rs:26`) | `eggpack-runtime/github-draft.json` | runtime-resolved draft policy |
 
-The encode/decode pairs (`encode_qualification_evidence` `:2727`,
-`decode_qualification_evidence` `:2732`, `decode_consumer_evidence` `:2588`,
-`reconstruct_attempt` `:2005`, `validate_build_artifact_dir` `:2062`,
-`validate_qualification_artifact_dir` `:2111`, `stage_build_artifact_dir`
-`:2152`) are what make the two processes agree. Each is a fail-closed
+The encode/decode pairs (`encode_qualification_evidence` `release_plan.rs:545`,
+`decode_qualification_evidence` `release_plan.rs:550`, `decode_consumer_evidence` `release_plan.rs:406`,
+`reconstruct_attempt` `handoff.rs:186`, `validate_build_artifact_dir` `handoff.rs:243`,
+`validate_qualification_artifact_dir` `handoff.rs:292`, `stage_build_artifact_dir`
+`handoff.rs:333`) are what make the two processes agree. Each is a fail-closed
 validation of a document read from disk, not a trust boundary — see
 `ci-consumer-seam.md`.
 
@@ -163,16 +166,16 @@ versioned processes, and it will fail at CI runtime rather than at compile time.
 - **No redefinition of upstream vocabulary.** Job graph types reference
   `eggpack-core` and `eggpack-contract` types (`PlannedTarget`,
   `LogicalOutputSelector`, `Qualification`, `HostRequirement`) rather than
-  restating them. `BuildOutput` (`:94`) is the one place where Cargo-level
+  restating them. `BuildOutput` (`planning.rs:76`) is the one place where Cargo-level
   detail enters, and it is explicit: package and binary are named, never
   inferred.
 - **No producer rule of its own.** The host/target match, the compatibility
   floor, the exact-tag safety rule, the SHA-256 hex acceptance set, and the
   file digest each have one owner outside this crate. `CIPlan::validate`
-  (`:282`) calls `eggpack_core::validate_policy` and
+  (`planning.rs:234`) calls `eggpack_core::validate_policy` and
   `eggpack_core::validate_floor_applicability` instead of re-deriving the
   toolchain, floor, or native-qualification host rules;
-  `validate_sha256_hex` (`:589`) delegates to the manifest rule through core's
+  `validate_sha256_hex` (`policy.rs:161`) delegates to the manifest rule through core's
   re-export; the exact-tag check calls
   `eggpack_core::validate_exact_tag_safety`; and candidate hashing calls
   `eggpack_core::file_digest`, whose refusal is a typed error rather than a
@@ -193,7 +196,7 @@ without a network.
 
 Notably absent: `command-group` and any YAML emitter. The process-execution
 contract is nevertheless **shared**: the consumer validator runs through
-`eggpack_core::run_interpreter_bounded` (`crates/eggpack-ci/src/lib.rs:5056`),
+`eggpack_core::run_interpreter_bounded` (`crates/eggpack-ci/src/consumer_validator.rs:535`),
 so the crate gets core's process-group (or job-object) termination, bounded
 reader-thread joins, the shared environment allowlist, and the shared output
 bounds without taking a `command-group` dependency of its own. See
