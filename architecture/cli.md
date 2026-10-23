@@ -209,7 +209,7 @@ goes through the same atomic writer the `ci` family uses.
 | `manifest` | contract, release plan, the finalized tree's bytes | `--output` (manifest JSON) | `manifest: ok` (`operator.rs:728`) |
 
 Three naming and placement details are worth stating plainly, because they are
-where a reader's expectation and the implementation differ:
+easy to get wrong:
 
 - **`--artifacts-dir` is the per-target artifact root**, not the
   `candidates/` directory inside it. `qualify` reads

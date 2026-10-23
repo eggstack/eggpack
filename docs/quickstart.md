@@ -46,6 +46,13 @@ mkdir -p eggdemo/out && cd eggdemo
 git init -q && git config user.email doc@example.com && git config user.name doc
 ```
 
+Create `eggdemo` **outside the Eggpack checkout** — for example as a sibling of
+it, not inside it. Cargo treats a package directory inside the Eggpack workspace
+as a workspace member that was never declared, and the `package` step below
+then fails with `current package believes it's in a workspace when it's not`.
+The scratch project is not part of Eggpack and must not be a member of its
+workspace.
+
 Write these five input files (exact bytes matter — validation is fail-closed
 with `deny_unknown_fields` and `schema_version == 1` everywhere):
 
