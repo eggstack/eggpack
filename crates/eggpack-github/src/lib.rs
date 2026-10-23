@@ -654,6 +654,11 @@ fn ensure_absent_private_dir(path: &Path, label: &str) -> Result<(), GithubError
 /// The finalized root is revalidated against the contract and manifest; exact
 /// finalized assets are copied into a private staging directory alongside a
 /// standalone `release-manifest.json` and deterministic bootstrap installers.
+///
+/// This is the generated-default installer presentation. It is the same
+/// single implementation that serves
+/// [`prepare_staging_payload_with_presentation`], with the presentation
+/// selected as an argument.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_staging_payload(
     contract: &DistributionContract,
@@ -663,363 +668,24 @@ pub fn prepare_staging_payload(
     install_policy: &BootstrapInstallPolicyV1,
     output_dir: &Path,
 ) -> Result<StagingPayloadV1, GithubError> {
-    policy.validate()?;
-    manifest
-        .validate()
-        .map_err(|_| fail("invalid release manifest"))?;
-    if contract.product.id != manifest.product_id {
-        return Err(fail("contract and manifest product mismatch"));
-    }
-    if policy.release_identity_mode.is_some() && manifest.release_id != policy.resolved_release_id()
-    {
-        return Err(fail(
-            "manifest release id differs from draft identity policy",
-        ));
-    }
-    if policy
-        .source_revision
-        .as_deref()
-        .is_some_and(|revision| revision != manifest.source_revision)
-    {
-        return Err(fail(
-            "manifest source revision differs from draft identity policy",
-        ));
-    }
-    reject_symlink_dir(finalized_root, "finalized root")?;
-
-    // Collect expected inventory from contract expansion plus manifest facts.
-    let mut expected: BTreeMap<String, (bool, u64, String)> = BTreeMap::new();
-    for target in &manifest.targets {
-        let expanded = contract
-            .expand(&target.target, &manifest.release_id)
-            .map_err(|_| fail("manifest target is not supported by contract"))?;
-        match (&expanded.assets, &target.form) {
-            (
-                ExpandedAssets::Direct(direct),
-                eggpack_manifest::ArtifactForm::Direct { artifact, .. },
-            ) => {
-                if direct.asset_file != artifact.name {
-                    return Err(fail("contract and manifest direct asset differ"));
-                }
-                if expected
-                    .insert(
-                        artifact.name.clone(),
-                        (true, artifact.size, artifact.sha256.clone()),
-                    )
-                    .is_some()
-                {
-                    return Err(fail("duplicate release asset name"));
-                }
-                if expected
-                    .insert(direct.sidecar_file.clone(), (false, 0, String::new()))
-                    .is_some()
-                {
-                    return Err(fail("duplicate release asset name"));
-                }
-            }
-            (
-                ExpandedAssets::Bundle(bundle),
-                eggpack_manifest::ArtifactForm::Bundle { entries },
-            ) => {
-                if bundle.entries.len() != entries.len() {
-                    return Err(fail("bundle contract and manifest entry counts differ"));
-                }
-                let mut expanded_map = BTreeMap::new();
-                for entry in &bundle.entries {
-                    if expanded_map
-                        .insert(entry.asset_file.clone(), entry.sidecar_file.clone())
-                        .is_some()
-                    {
-                        return Err(fail("duplicate bundle asset"));
-                    }
-                }
-                for entry in entries {
-                    let sidecar = expanded_map
-                        .get(&entry.artifact.name)
-                        .ok_or_else(|| fail("bundle contract and manifest entries differ"))?;
-                    if expected
-                        .insert(
-                            entry.artifact.name.clone(),
-                            (true, entry.artifact.size, entry.artifact.sha256.clone()),
-                        )
-                        .is_some()
-                    {
-                        return Err(fail("duplicate release asset name"));
-                    }
-                    if expected
-                        .insert(sidecar.clone(), (false, 0, String::new()))
-                        .is_some()
-                    {
-                        return Err(fail("duplicate release asset name"));
-                    }
-                }
-            }
-            (
-                ExpandedAssets::Archive(archive),
-                eggpack_manifest::ArtifactForm::Archive { artifact, .. },
-            ) => {
-                if archive.archive_file != artifact.name {
-                    return Err(fail("contract and manifest archive filenames differ"));
-                }
-                if expected
-                    .insert(
-                        artifact.name.clone(),
-                        (true, artifact.size, artifact.sha256.clone()),
-                    )
-                    .is_some()
-                {
-                    return Err(fail("duplicate release asset name"));
-                }
-                if expected
-                    .insert(archive.sidecar_file.clone(), (false, 0, String::new()))
-                    .is_some()
-                {
-                    return Err(fail("duplicate release asset name"));
-                }
-            }
-            _ => return Err(fail("contract and manifest forms differ for target")),
-        }
-    }
-
-    // Auxiliary collision guard.
-    for name in expected.keys() {
-        let lower = name.to_ascii_lowercase();
-        if lower == FIXED_MANIFEST_NAME
-            || lower == FIXED_POSIX_NAME
-            || lower == FIXED_POWERSHELL_NAME
-        {
-            return Err(fail("release asset collides with staging auxiliary name"));
-        }
-    }
-
-    // Inventory of the finalized root.
-    let mut observed: BTreeMap<String, PathBuf> = BTreeMap::new();
-    let entries =
-        std::fs::read_dir(finalized_root).map_err(|_| fail("finalized root cannot be listed"))?;
-    for entry in entries {
-        let entry = entry.map_err(|_| fail("finalized root entry unavailable"))?;
-        let file_type = entry
-            .file_type()
-            .map_err(|_| fail("finalized entry type unavailable"))?;
-        if file_type.is_symlink() || !file_type.is_file() {
-            return Err(fail("finalized root must contain only regular files"));
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        validate_asset_name(&name)?;
-        if observed.insert(name.clone(), entry.path()).is_some() {
-            return Err(fail("duplicate finalized file"));
-        }
-    }
-    let expected_names: BTreeSet<String> = expected.keys().cloned().collect();
-    let observed_names: BTreeSet<String> = observed.keys().cloned().collect();
-    if expected_names != observed_names {
-        return Err(fail("finalized root files do not exactly match manifest"));
-    }
-
-    // Verify artifact bytes and sidecar contents.
-    for (name, (is_artifact, size, sha)) in &expected {
-        let path = observed
-            .get(name)
-            .ok_or_else(|| fail("finalized file missing"))?;
-        if *is_artifact {
-            let (actual_size, actual_sha) = digest_file(path)?;
-            if actual_size != *size || actual_sha != *sha {
-                return Err(fail("finalized file differs from manifest"));
-            }
-        }
-    }
-    for (name, (is_artifact, _, _)) in &expected {
-        if *is_artifact {
-            continue;
-        }
-        // Sidecar: "<sha>  <file>\n" for its artifact sibling is validated
-        // by locating the artifact that shares the sidecar stem. The exact
-        // sidecar filename mapping comes from contract expansion; here we
-        // verify content shape and matching digest without trusting names.
-        let path = observed
-            .get(name)
-            .ok_or_else(|| fail("finalized file missing"))?;
-        let text = std::fs::read_to_string(path).map_err(|_| fail("sidecar cannot be read"))?;
-        if text.len() > 4096 {
-            return Err(fail("sidecar exceeds bound"));
-        }
-        let trimmed = text.trim_end_matches(['\n', '\r']);
-        let mut parts = trimmed.splitn(2, "  ");
-        let sha = parts
-            .next()
-            .ok_or_else(|| fail("sidecar content invalid"))?;
-        let file = parts
-            .next()
-            .ok_or_else(|| fail("sidecar content invalid"))?;
-        validate_sha256(sha)?;
-        validate_asset_name(file)?;
-        let artifact_path = finalized_root.join(file);
-        if !observed.contains_key(file) {
-            return Err(fail("sidecar references unknown artifact"));
-        }
-        let (actual_size, actual_sha) = digest_file(&artifact_path)?;
-        if actual_sha != sha {
-            return Err(fail("sidecar digest differs from artifact"));
-        }
-        let _ = actual_size;
-        // Sidecar filename must end with the artifact name plus .sha256
-        // for the fixtures used here; contract templates already bound the
-        // exact names above, so this is a consistency check only.
-        if !name.ends_with(".sha256") {
-            return Err(fail("sidecar filename invalid"));
-        }
-    }
-
-    ensure_absent_private_dir(output_dir, "staging output")?;
-    let cleanup = |_: ()| {
-        let _ = std::fs::remove_dir_all(output_dir);
-    };
-
-    // Copy exact finalized assets.
-    for (name, path) in &observed {
-        let dest = output_dir.join(name);
-        std::fs::copy(path, &dest).map_err(|_| {
-            cleanup(());
-            fail("staging copy failed")
-        })?;
-    }
-
-    // Standalone manifest handoff.
-    let manifest_json = manifest
-        .to_json()
-        .map_err(|_| fail("manifest encode failed"))?;
-    let manifest_path = output_dir.join(FIXED_MANIFEST_NAME);
-    std::fs::write(&manifest_path, manifest_json.as_bytes()).map_err(|_| {
-        cleanup(());
-        fail("staging manifest write failed")
-    })?;
-    let roundtrip = ReleaseManifest::from_json(&manifest_json).map_err(|_| {
-        cleanup(());
-        fail("staging manifest roundtrip failed")
-    })?;
-    let roundtrip_json = roundtrip.to_json().map_err(|_| {
-        cleanup(());
-        fail("staging manifest roundtrip failed")
-    })?;
-    if roundtrip_json != manifest_json {
-        cleanup(());
-        return Err(fail("staging manifest does not decode to exact manifest"));
-    }
-
-    // Deterministic bootstrap installers with exact-tag origin.
-    let origin = policy.download_origin();
-    let spec = BootstrapSpec {
-        origin,
-        fixture_http: false,
-    };
-    let posix =
-        eggpack_bootstrap::render_posix_with_policy(contract, manifest, &spec, install_policy)
-            .map_err(|_| {
-                cleanup(());
-                fail("posix installer generation failed")
-            })?;
-    let powershell =
-        eggpack_bootstrap::render_powershell_with_policy(contract, manifest, &spec, install_policy)
-            .map_err(|_| {
-                cleanup(());
-                fail("powershell installer generation failed")
-            })?;
-    // Exact-tag origin only; never latest/download.
-    if posix.contains("latest/download") || powershell.contains("latest/download") {
-        cleanup(());
-        return Err(fail("installer uses unsupported latest origin"));
-    }
-    std::fs::write(output_dir.join(FIXED_POSIX_NAME), posix.as_bytes()).map_err(|_| {
-        cleanup(());
-        fail("posix installer write failed")
-    })?;
-    std::fs::write(
-        output_dir.join(FIXED_POWERSHELL_NAME),
-        powershell.as_bytes(),
+    prepare_staging_payload_with_presentation_inner(
+        contract,
+        manifest,
+        finalized_root,
+        policy,
+        install_policy,
+        &InstallerPresentationV1::generated_default(),
+        None,
+        output_dir,
     )
-    .map_err(|_| {
-        cleanup(());
-        fail("powershell installer write failed")
-    })?;
-
-    // Build deterministic payload records.
-    let mut assets = Vec::new();
-    let mut staged_names: BTreeSet<String> = BTreeSet::new();
-    let mut staged_entries: Vec<(String, StagingAssetKind, String)> = Vec::new();
-    for name in observed.keys() {
-        let is_artifact = expected
-            .get(name)
-            .map(|(is_artifact, _, _)| *is_artifact)
-            .unwrap_or(false);
-        let (kind, media) = if is_artifact {
-            (
-                StagingAssetKind::FinalizedArtifact,
-                "application/octet-stream".to_owned(),
-            )
-        } else {
-            (StagingAssetKind::ChecksumSidecar, "text/plain".to_owned())
-        };
-        staged_entries.push((name.clone(), kind, media));
-    }
-    staged_entries.push((
-        FIXED_MANIFEST_NAME.to_owned(),
-        StagingAssetKind::ReleaseManifest,
-        "application/json".to_owned(),
-    ));
-    staged_entries.push((
-        FIXED_POSIX_NAME.to_owned(),
-        StagingAssetKind::PosixInstaller,
-        "text/x-shellscript".to_owned(),
-    ));
-    staged_entries.push((
-        FIXED_POWERSHELL_NAME.to_owned(),
-        StagingAssetKind::PowershellInstaller,
-        "text/x-powershell".to_owned(),
-    ));
-    for (name, kind, media) in staged_entries {
-        if !staged_names.insert(name.to_ascii_lowercase()) {
-            cleanup(());
-            return Err(fail("duplicate staging asset name"));
-        }
-        let (size, sha) = digest_file(&output_dir.join(&name)).map_err(|_| {
-            cleanup(());
-            fail("staged file digest failed")
-        })?;
-        assets.push(StagingAsset {
-            name: name.clone(),
-            path: name,
-            size,
-            sha256: sha,
-            media_type: media,
-            kind,
-        });
-    }
-    assets.sort_by(|a, b| a.name.cmp(&b.name));
-
-    let payload = StagingPayloadV1 {
-        schema_version: 1,
-        product_id: manifest.product_id.clone(),
-        release_id: manifest.release_id.clone(),
-        source_revision: manifest.source_revision.clone(),
-        owner: policy.owner.clone(),
-        repository: policy.repository.clone(),
-        tag: policy.tag.clone(),
-        title: policy.title.clone(),
-        prerelease: policy.prerelease,
-        body: policy.body.clone(),
-        assets,
-    };
-    payload.validate().map_err(|_| {
-        cleanup(());
-        fail("staging payload invalid")
-    })?;
-    Ok(payload)
 }
 
 /// Materialize a staging payload with an explicit installer presentation.
 ///
-/// `GeneratedDefault` delegates to [`prepare_staging_payload`] with
-/// byte-identical behavior.
+/// The presentation selects only the installer surface. Every other step —
+/// validation, inventory construction, sidecars, installers, digest loop,
+/// canonical sort, and payload assembly — is one implementation, shared with
+/// [`prepare_staging_payload`].
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_staging_payload_with_presentation(
     contract: &DistributionContract,
@@ -1031,29 +697,16 @@ pub fn prepare_staging_payload_with_presentation(
     source_root: &Path,
     output_dir: &Path,
 ) -> Result<StagingPayloadV1, GithubError> {
-    presentation.validate()?;
-    match &presentation.mode {
-        InstallerPresentationModeV1::GeneratedDefault => prepare_staging_payload(
-            contract,
-            manifest,
-            finalized_root,
-            policy,
-            install_policy,
-            output_dir,
-        ),
-        InstallerPresentationModeV1::ProductWrappers(_) => {
-            prepare_staging_payload_with_presentation_inner(
-                contract,
-                manifest,
-                finalized_root,
-                policy,
-                install_policy,
-                presentation,
-                Some(source_root),
-                output_dir,
-            )
-        }
-    }
+    prepare_staging_payload_with_presentation_inner(
+        contract,
+        manifest,
+        finalized_root,
+        policy,
+        install_policy,
+        presentation,
+        Some(source_root),
+        output_dir,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1349,6 +1002,12 @@ impl GitHubDraftTemplateV1 {
     }
 }
 
+/// Materialize a staging payload for one installer presentation.
+///
+/// This is the single staging-payload builder. The presentation selects only
+/// the installer surface; every other step — validation, inventory
+/// construction, sidecars, installers, digest loop, canonical sort, and
+/// payload assembly — is implemented exactly once.
 #[allow(clippy::too_many_arguments)]
 fn prepare_staging_payload_with_presentation_inner(
     contract: &DistributionContract,
@@ -1361,13 +1020,25 @@ fn prepare_staging_payload_with_presentation_inner(
     output_dir: &Path,
 ) -> Result<StagingPayloadV1, GithubError> {
     presentation.validate()?;
-    let sources = match &presentation.mode {
-        InstallerPresentationModeV1::GeneratedDefault => {
-            return Err(fail("presentation dispatch mismatch"));
-        }
-        InstallerPresentationModeV1::ProductWrappers(sources) => sources,
+    let (sources, source_root) = match &presentation.mode {
+        InstallerPresentationModeV1::GeneratedDefault => (None, None),
+        InstallerPresentationModeV1::ProductWrappers(sources) => (
+            Some(sources),
+            Some(source_root.ok_or_else(|| fail("product wrappers require a source root"))?),
+        ),
     };
-    let source_root = source_root.ok_or_else(|| fail("product wrappers require a source root"))?;
+    // The generated exact installers are the public install surface in the
+    // default presentation; product wrappers move them to distinct names.
+    let (generated_posix_name, generated_powershell_name) = match sources {
+        Some(sources) => (
+            sources.generated_posix_name.clone(),
+            sources.generated_powershell_name.clone(),
+        ),
+        None => (
+            FIXED_POSIX_NAME.to_owned(),
+            FIXED_POWERSHELL_NAME.to_owned(),
+        ),
+    };
     policy.validate()?;
     manifest
         .validate()
@@ -1490,8 +1161,8 @@ fn prepare_staging_payload_with_presentation_inner(
     // names: neither contract assets nor generated names may collide
     // (case-insensitively) with reserved staging names or each other.
     let generated_names = [
-        sources.generated_posix_name.clone(),
-        sources.generated_powershell_name.clone(),
+        generated_posix_name.clone(),
+        generated_powershell_name.clone(),
     ];
     for name in expected.keys() {
         let lower = name.to_ascii_lowercase();
@@ -1546,6 +1217,10 @@ fn prepare_staging_payload_with_presentation_inner(
         if *is_artifact {
             continue;
         }
+        // Sidecar: "<sha>  <file>\n" for its artifact sibling is validated
+        // by locating the artifact that shares the sidecar stem. The exact
+        // sidecar filename mapping comes from contract expansion; here we
+        // verify content shape and matching digest without trusting names.
         let path = observed
             .get(name)
             .ok_or_else(|| fail("finalized file missing"))?;
@@ -1572,6 +1247,9 @@ fn prepare_staging_payload_with_presentation_inner(
             return Err(fail("sidecar digest differs from artifact"));
         }
         let _ = actual_size;
+        // Sidecar filename must end with the artifact name plus .sha256
+        // for the fixtures used here; contract templates already bound the
+        // exact names above, so this is a consistency check only.
         if !name.ends_with(".sha256") {
             return Err(fail("sidecar filename invalid"));
         }
@@ -1636,45 +1314,56 @@ fn prepare_staging_payload_with_presentation_inner(
         cleanup(());
         return Err(fail("installer uses unsupported latest origin"));
     }
-    // Product wrappers are the public surface; generated exact installers
-    // keep distinct non-colliding names as qualified-bootstrap evidence.
-    let posix_wrapper = read_wrapper_source(source_root, &sources.posix_source).map_err(|_| {
-        cleanup(());
-        fail("product posix wrapper is unavailable")
-    })?;
-    let powershell_wrapper =
-        read_wrapper_source(source_root, &sources.powershell_source).map_err(|_| {
-            cleanup(());
-            fail("product powershell wrapper is unavailable")
-        })?;
-    std::fs::write(
-        output_dir.join(&sources.generated_posix_name),
-        posix.as_bytes(),
-    )
-    .map_err(|_| {
+    // The generated exact installers are staged under the presentation's
+    // names. Product wrappers additionally become the public install surface
+    // under the fixed names.
+    let (posix_wrapper, powershell_wrapper) = match (sources, source_root) {
+        (Some(sources), Some(source_root)) => {
+            // Product wrappers are the public surface; generated exact
+            // installers keep distinct non-colliding names as
+            // qualified-bootstrap evidence.
+            let posix_wrapper =
+                read_wrapper_source(source_root, &sources.posix_source).map_err(|_| {
+                    cleanup(());
+                    fail("product posix wrapper is unavailable")
+                })?;
+            let powershell_wrapper = read_wrapper_source(source_root, &sources.powershell_source)
+                .map_err(|_| {
+                cleanup(());
+                fail("product powershell wrapper is unavailable")
+            })?;
+            (Some(posix_wrapper), Some(powershell_wrapper))
+        }
+        _ => (None, None),
+    };
+    std::fs::write(output_dir.join(&generated_posix_name), posix.as_bytes()).map_err(|_| {
         cleanup(());
         fail("posix installer write failed")
     })?;
     std::fs::write(
-        output_dir.join(&sources.generated_powershell_name),
+        output_dir.join(&generated_powershell_name),
         powershell.as_bytes(),
     )
     .map_err(|_| {
         cleanup(());
         fail("powershell installer write failed")
     })?;
-    std::fs::write(output_dir.join(FIXED_POSIX_NAME), posix_wrapper.as_slice()).map_err(|_| {
-        cleanup(());
-        fail("product posix wrapper write failed")
-    })?;
-    std::fs::write(
-        output_dir.join(FIXED_POWERSHELL_NAME),
-        powershell_wrapper.as_slice(),
-    )
-    .map_err(|_| {
-        cleanup(());
-        fail("product powershell wrapper write failed")
-    })?;
+    if let (Some(posix_wrapper), Some(powershell_wrapper)) = (posix_wrapper, powershell_wrapper) {
+        std::fs::write(output_dir.join(FIXED_POSIX_NAME), posix_wrapper.as_slice()).map_err(
+            |_| {
+                cleanup(());
+                fail("product posix wrapper write failed")
+            },
+        )?;
+        std::fs::write(
+            output_dir.join(FIXED_POWERSHELL_NAME),
+            powershell_wrapper.as_slice(),
+        )
+        .map_err(|_| {
+            cleanup(());
+            fail("product powershell wrapper write failed")
+        })?;
+    }
 
     // Build deterministic payload records.
     let mut assets = Vec::new();
@@ -1701,25 +1390,27 @@ fn prepare_staging_payload_with_presentation_inner(
         "application/json".to_owned(),
     ));
     staged_entries.push((
-        sources.generated_posix_name.clone(),
+        generated_posix_name.clone(),
         StagingAssetKind::PosixInstaller,
         "text/x-shellscript".to_owned(),
     ));
     staged_entries.push((
-        sources.generated_powershell_name.clone(),
+        generated_powershell_name.clone(),
         StagingAssetKind::PowershellInstaller,
         "text/x-powershell".to_owned(),
     ));
-    staged_entries.push((
-        FIXED_POSIX_NAME.to_owned(),
-        StagingAssetKind::ProductPosixWrapper,
-        "text/x-shellscript".to_owned(),
-    ));
-    staged_entries.push((
-        FIXED_POWERSHELL_NAME.to_owned(),
-        StagingAssetKind::ProductPowershellWrapper,
-        "text/x-powershell".to_owned(),
-    ));
+    if sources.is_some() {
+        staged_entries.push((
+            FIXED_POSIX_NAME.to_owned(),
+            StagingAssetKind::ProductPosixWrapper,
+            "text/x-shellscript".to_owned(),
+        ));
+        staged_entries.push((
+            FIXED_POWERSHELL_NAME.to_owned(),
+            StagingAssetKind::ProductPowershellWrapper,
+            "text/x-powershell".to_owned(),
+        ));
+    }
     for (name, kind, media) in staged_entries {
         if !staged_names.insert(name.to_ascii_lowercase()) {
             cleanup(());
@@ -3327,5 +3018,422 @@ mod m003l_rule_convergence_tests {
         // A canonical version tag and a multi-segment tag stay accepted.
         assert!(validate_tag("v1.2.3").is_ok());
         assert!(validate_tag("release/v1.2.3").is_ok());
+    }
+}
+
+/// M003n: the staging payload has exactly one builder.
+///
+/// Both public entry points and both installer presentations are covered by
+/// byte-exact evidence, so a divergence between the presentation-specific
+/// work and the shared algorithm fails loudly.
+#[cfg(test)]
+mod m003n_consolidation_tests {
+    use super::*;
+    use eggpack_manifest::{ArtifactForm, ArtifactRecord, ReleaseManifest, TargetRecord};
+
+    /// Byte-exact golden for the generated-default staging payload.
+    const M003N_GOLDEN_GENERATED_DEFAULT: &str = r#"{"schema_version":1,"product_id":"eggsact","release_id":"1.2.6","source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","owner":"acme","repository":"widget","tag":"v1.2.3","title":"widget 1.2.3","prerelease":false,"body":"notes","assets":[{"name":"eggsact-1.2.6-aarch64-apple-darwin","path":"eggsact-1.2.6-aarch64-apple-darwin","size":4,"sha256":"230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5","media_type":"application/octet-stream","kind":"finalized_artifact"},{"name":"eggsact-1.2.6-aarch64-apple-darwin.sha256","path":"eggsact-1.2.6-aarch64-apple-darwin.sha256","size":101,"sha256":"4f071dece3fa37c30e0dd043b1a797ac4ad3a667797416b86021874a38b796a2","media_type":"text/plain","kind":"checksum_sidecar"},{"name":"eggsact-1.2.6-x86_64-unknown-linux-gnu","path":"eggsact-1.2.6-x86_64-unknown-linux-gnu","size":4,"sha256":"230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5","media_type":"application/octet-stream","kind":"finalized_artifact"},{"name":"eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256","path":"eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256","size":105,"sha256":"c9529680b9d3bff4dc33c13385829307e2d18683c5dd23f0e62075d8bfd8c706","media_type":"text/plain","kind":"checksum_sidecar"},{"name":"install.ps1","path":"install.ps1","size":2409,"sha256":"a58fd2089f7f93d77b49b095be040eb5d1ac0c6d3fcd6d8795a0f37e8b36c00c","media_type":"text/x-powershell","kind":"powershell_installer"},{"name":"install.sh","path":"install.sh","size":2990,"sha256":"d31c315d6a2ada9087f6206437b427765cad3333c5fc1358df3faadfe9fdd8ce","media_type":"text/x-shellscript","kind":"posix_installer"},{"name":"release-manifest.json","path":"release-manifest.json","size":587,"sha256":"6fdc51ab9a646b8b219eeba7b83ced5768ea704d1317dbb47d2fc07bf26dd9dd","media_type":"application/json","kind":"release_manifest"}]}"#;
+
+    /// Byte-exact golden for the product-wrappers staging payload.
+    const M003N_GOLDEN_PRODUCT_WRAPPERS: &str = r#"{"schema_version":1,"product_id":"eggsact","release_id":"1.2.6","source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","owner":"acme","repository":"widget","tag":"v1.2.3","title":"widget 1.2.3","prerelease":false,"body":"notes","assets":[{"name":"eggsact-1.2.6-aarch64-apple-darwin","path":"eggsact-1.2.6-aarch64-apple-darwin","size":4,"sha256":"230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5","media_type":"application/octet-stream","kind":"finalized_artifact"},{"name":"eggsact-1.2.6-aarch64-apple-darwin.sha256","path":"eggsact-1.2.6-aarch64-apple-darwin.sha256","size":101,"sha256":"4f071dece3fa37c30e0dd043b1a797ac4ad3a667797416b86021874a38b796a2","media_type":"text/plain","kind":"checksum_sidecar"},{"name":"eggsact-1.2.6-x86_64-unknown-linux-gnu","path":"eggsact-1.2.6-x86_64-unknown-linux-gnu","size":4,"sha256":"230d8358dc8e8890b4c58deeb62912ee2f20357ae92a5cc861b98e68fe31acb5","media_type":"application/octet-stream","kind":"finalized_artifact"},{"name":"eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256","path":"eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256","size":105,"sha256":"c9529680b9d3bff4dc33c13385829307e2d18683c5dd23f0e62075d8bfd8c706","media_type":"text/plain","kind":"checksum_sidecar"},{"name":"install-exact.ps1","path":"install-exact.ps1","size":2409,"sha256":"a58fd2089f7f93d77b49b095be040eb5d1ac0c6d3fcd6d8795a0f37e8b36c00c","media_type":"text/x-powershell","kind":"powershell_installer"},{"name":"install-exact.sh","path":"install-exact.sh","size":2990,"sha256":"d31c315d6a2ada9087f6206437b427765cad3333c5fc1358df3faadfe9fdd8ce","media_type":"text/x-shellscript","kind":"posix_installer"},{"name":"install.ps1","path":"install.ps1","size":37,"sha256":"3f078877b9c699b15c410e783e6bb6ca3da1b7881ac673f12ebaf7440adc9c64","media_type":"text/x-powershell","kind":"product_powershell_wrapper"},{"name":"install.sh","path":"install.sh","size":31,"sha256":"61a73587bfb5acdc2e718bfad3797b35f971cfa40d053d187792b07b6e095ffe","media_type":"text/x-shellscript","kind":"product_posix_wrapper"},{"name":"release-manifest.json","path":"release-manifest.json","size":587,"sha256":"6fdc51ab9a646b8b219eeba7b83ced5768ea704d1317dbb47d2fc07bf26dd9dd","media_type":"application/json","kind":"release_manifest"}]}"#;
+
+    fn temp_root(label: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        loop {
+            let id = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "eggpack-gh-m003n-{label}-{}-{id}",
+                std::process::id()
+            ));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return path,
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create temp: {error}"),
+            }
+        }
+    }
+
+    fn sha_hex(bytes: &[u8]) -> String {
+        use sha2::Digest;
+        sha2::Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    fn test_policy() -> GitHubDraftPolicyV1 {
+        GitHubDraftPolicyV1 {
+            schema_version: 1,
+            owner: "acme".to_owned(),
+            repository: "widget".to_owned(),
+            tag: "v1.2.3".to_owned(),
+            release_identity_schema_version: None,
+            release_identity_mode: None,
+            release_id: None,
+            source_revision: None,
+            title: "widget 1.2.3".to_owned(),
+            body: "notes".to_owned(),
+            prerelease: false,
+            token_env: "GITHUB_TOKEN".to_owned(),
+            request_timeout_secs: 30,
+            max_metadata_bytes: 1_000_000,
+            max_list_pages: 5,
+        }
+    }
+
+    fn direct_contract() -> DistributionContract {
+        DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap()
+    }
+
+    fn direct_manifest(release: &str, source: &str) -> ReleaseManifest {
+        let mk = |target: &str| TargetRecord {
+            target: target.to_owned(),
+            form: ArtifactForm::Direct {
+                artifact: ArtifactRecord {
+                    name: format!("eggsact-{release}-{target}"),
+                    size: 4,
+                    sha256: sha_hex(b"body"),
+                },
+                install: "eggsact".to_owned(),
+            },
+        };
+        ReleaseManifest {
+            schema_version: 1,
+            product_id: "eggsact".to_owned(),
+            release_id: release.to_owned(),
+            source_revision: source.to_owned(),
+            targets: vec![mk("aarch64-apple-darwin"), mk("x86_64-unknown-linux-gnu")],
+            evidence_references: Vec::new(),
+        }
+    }
+
+    fn write_finalized_root(
+        contract: &DistributionContract,
+        manifest: &ReleaseManifest,
+        root: &Path,
+    ) {
+        std::fs::create_dir(root).unwrap();
+        let mut files: BTreeMap<String, bool> = BTreeMap::new();
+        for target in &manifest.targets {
+            let expanded = contract
+                .expand(&target.target, &manifest.release_id)
+                .unwrap();
+            match expanded.assets {
+                ExpandedAssets::Direct(direct) => {
+                    files.insert(direct.asset_file, true);
+                    files.insert(direct.sidecar_file, false);
+                }
+                ExpandedAssets::Bundle(bundle) => {
+                    for entry in bundle.entries.into_iter() {
+                        files.insert(entry.asset_file, true);
+                        files.insert(entry.sidecar_file, false);
+                    }
+                }
+                ExpandedAssets::Archive(archive) => {
+                    files.insert(archive.archive_file, true);
+                    files.insert(archive.sidecar_file, false);
+                }
+            }
+        }
+        for (name, is_artifact) in files {
+            if is_artifact {
+                std::fs::write(root.join(&name), b"body").unwrap();
+            } else {
+                let artifact = name.strip_suffix(".sha256").unwrap().to_owned();
+                let content = format!("{}  {artifact}\n", sha_hex(b"body"));
+                std::fs::write(root.join(&name), content).unwrap();
+            }
+        }
+    }
+
+    fn wrapper_presentation() -> InstallerPresentationV1 {
+        InstallerPresentationV1 {
+            schema_version: 1,
+            mode: InstallerPresentationModeV1::ProductWrappers(ProductWrapperSourcesV1 {
+                posix_source: "packaging/install.sh".to_owned(),
+                powershell_source: "packaging/install.ps1".to_owned(),
+                generated_posix_name: "install-exact.sh".to_owned(),
+                generated_powershell_name: "install-exact.ps1".to_owned(),
+            }),
+        }
+    }
+
+    fn write_wrapper_sources(root: &Path, posix: &[u8], powershell: &[u8]) {
+        std::fs::create_dir_all(root.join("packaging")).unwrap();
+        std::fs::write(root.join("packaging/install.sh"), posix).unwrap();
+        std::fs::write(root.join("packaging/install.ps1"), powershell).unwrap();
+    }
+
+    /// The staged file inventory of one materialized payload, with the exact
+    /// bytes of every staged file.
+    fn staged_inventory(staged: &Path) -> BTreeMap<String, Vec<u8>> {
+        let mut inventory = BTreeMap::new();
+        for entry in std::fs::read_dir(staged).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let bytes = std::fs::read(entry.path()).unwrap();
+            inventory.insert(name, bytes);
+        }
+        inventory
+    }
+
+    /// Materialize the generated-default payload.
+    fn materialize_default(
+        parent: &Path,
+        contract: &DistributionContract,
+        manifest: &ReleaseManifest,
+        policy: &GitHubDraftPolicyV1,
+        install_policy: &BootstrapInstallPolicyV1,
+        finalized: &Path,
+        label: &str,
+    ) -> (StagingPayloadV1, PathBuf) {
+        let staged = parent.join(label);
+        let payload = prepare_staging_payload(
+            contract,
+            manifest,
+            finalized,
+            policy,
+            install_policy,
+            &staged,
+        )
+        .unwrap();
+        (payload, staged)
+    }
+
+    /// Materialize the product-wrappers payload.
+    fn materialize_wrappers(
+        parent: &Path,
+        contract: &DistributionContract,
+        manifest: &ReleaseManifest,
+        policy: &GitHubDraftPolicyV1,
+        install_policy: &BootstrapInstallPolicyV1,
+        finalized: &Path,
+        label: &str,
+    ) -> (StagingPayloadV1, PathBuf) {
+        let source_root = parent.join("consumer");
+        write_wrapper_sources(
+            &source_root,
+            b"#!/bin/sh\n# product wrapper v1\n",
+            b"# product wrapper v1\r\nWrite-Host hi\r\n",
+        );
+        let staged = parent.join(label);
+        let payload = prepare_staging_payload_with_presentation(
+            contract,
+            manifest,
+            finalized,
+            policy,
+            install_policy,
+            &wrapper_presentation(),
+            &source_root,
+            &staged,
+        )
+        .unwrap();
+        (payload, staged)
+    }
+
+    #[test]
+    fn m003n_generated_default_payload_matches_golden() {
+        let contract = direct_contract();
+        let manifest = direct_manifest("1.2.6", &"a".repeat(40));
+        let install_policy = BootstrapInstallPolicyV1::empty();
+        let policy = test_policy();
+        let parent = temp_root("golden-default");
+        let finalized = parent.join("finalized");
+        write_finalized_root(&contract, &manifest, &finalized);
+        let (payload, staged) = materialize_default(
+            &parent,
+            &contract,
+            &manifest,
+            &policy,
+            &install_policy,
+            &finalized,
+            "staging",
+        );
+        assert_eq!(payload.to_json().unwrap(), M003N_GOLDEN_GENERATED_DEFAULT);
+        // The staged files are the golden ones, byte for byte.
+        let inventory = staged_inventory(&staged);
+        assert_eq!(inventory.len(), 7);
+        assert_eq!(
+            inventory.get("install.sh").map(|b| b.len()),
+            Some(2990),
+            "the generated POSIX installer changed size"
+        );
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003n_product_wrappers_payload_matches_golden() {
+        let contract = direct_contract();
+        let manifest = direct_manifest("1.2.6", &"a".repeat(40));
+        let install_policy = BootstrapInstallPolicyV1::empty();
+        let policy = test_policy();
+        let parent = temp_root("golden-wrappers");
+        let finalized = parent.join("finalized");
+        write_finalized_root(&contract, &manifest, &finalized);
+        let (payload, staged) = materialize_wrappers(
+            &parent,
+            &contract,
+            &manifest,
+            &policy,
+            &install_policy,
+            &finalized,
+            "staging",
+        );
+        assert_eq!(payload.to_json().unwrap(), M003N_GOLDEN_PRODUCT_WRAPPERS);
+        let inventory = staged_inventory(&staged);
+        assert_eq!(inventory.len(), 9);
+        assert_eq!(inventory.get("install.sh").map(|b| b.len()), Some(31));
+        assert_eq!(
+            inventory.get("install-exact.sh").map(|b| b.len()),
+            Some(2990)
+        );
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003n_both_staging_entry_points_produce_byte_identical_payloads() {
+        let contract = direct_contract();
+        let manifest = direct_manifest("1.2.6", &"a".repeat(40));
+        let install_policy = BootstrapInstallPolicyV1::empty();
+        let policy = test_policy();
+        let parent = temp_root("entry-points");
+        let finalized = parent.join("finalized");
+        write_finalized_root(&contract, &manifest, &finalized);
+        let (legacy, legacy_dir) = materialize_default(
+            &parent,
+            &contract,
+            &manifest,
+            &policy,
+            &install_policy,
+            &finalized,
+            "legacy",
+        );
+        let modern_dir = parent.join("modern");
+        let modern = prepare_staging_payload_with_presentation(
+            &contract,
+            &manifest,
+            &finalized,
+            &policy,
+            &install_policy,
+            &InstallerPresentationV1::generated_default(),
+            &parent,
+            &modern_dir,
+        )
+        .unwrap();
+        // The two entry points are one implementation: byte-identical
+        // payloads and byte-identical staged files.
+        assert_eq!(
+            legacy.to_json().unwrap(),
+            modern.to_json().unwrap(),
+            "the two staging entry points diverged"
+        );
+        let legacy_files = staged_inventory(&legacy_dir);
+        let modern_files = staged_inventory(&modern_dir);
+        assert_eq!(
+            legacy_files.keys().collect::<Vec<_>>(),
+            modern_files.keys().collect::<Vec<_>>(),
+            "the two staging entry points staged different files"
+        );
+        for (name, bytes) in &legacy_files {
+            assert_eq!(
+                bytes,
+                modern_files.get(name).unwrap(),
+                "staged bytes differ for {name}"
+            );
+        }
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003n_shared_algorithm_regions_are_identical_across_presentations() {
+        let contract = direct_contract();
+        let manifest = direct_manifest("1.2.6", &"a".repeat(40));
+        let install_policy = BootstrapInstallPolicyV1::empty();
+        let policy = test_policy();
+        let parent = temp_root("shared-regions");
+        let finalized = parent.join("finalized");
+        write_finalized_root(&contract, &manifest, &finalized);
+        let (default_payload, default_dir) = materialize_default(
+            &parent,
+            &contract,
+            &manifest,
+            &policy,
+            &install_policy,
+            &finalized,
+            "default",
+        );
+        let (wrappers_payload, wrappers_dir) = materialize_wrappers(
+            &parent,
+            &contract,
+            &manifest,
+            &policy,
+            &install_policy,
+            &finalized,
+            "wrappers",
+        );
+        // The payload metadata is presentation-independent.
+        assert_eq!(default_payload.product_id, wrappers_payload.product_id);
+        assert_eq!(default_payload.release_id, wrappers_payload.release_id);
+        assert_eq!(
+            default_payload.source_revision,
+            wrappers_payload.source_revision
+        );
+        assert_eq!(default_payload.owner, wrappers_payload.owner);
+        assert_eq!(default_payload.repository, wrappers_payload.repository);
+        assert_eq!(default_payload.tag, wrappers_payload.tag);
+        assert_eq!(default_payload.title, wrappers_payload.title);
+        assert_eq!(default_payload.prerelease, wrappers_payload.prerelease);
+        assert_eq!(default_payload.body, wrappers_payload.body);
+        // Every non-installer asset is identical: the same name, path, size,
+        // digest, media type, and kind.
+        let shared = |payload: &StagingPayloadV1| {
+            payload
+                .assets
+                .iter()
+                .filter(|asset| {
+                    !matches!(
+                        asset.kind,
+                        StagingAssetKind::PosixInstaller
+                            | StagingAssetKind::PowershellInstaller
+                            | StagingAssetKind::ProductPosixWrapper
+                            | StagingAssetKind::ProductPowershellWrapper
+                    )
+                })
+                .map(|asset| {
+                    (
+                        asset.name.clone(),
+                        asset.path.clone(),
+                        asset.size,
+                        asset.sha256.clone(),
+                        asset.media_type.clone(),
+                        format!("{:?}", asset.kind),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            shared(&default_payload),
+            shared(&wrappers_payload),
+            "the shared inventory regions diverged across presentations"
+        );
+        // The staged finalized assets and the standalone manifest are the
+        // same bytes in both presentations.
+        let default_files = staged_inventory(&default_dir);
+        let wrappers_files = staged_inventory(&wrappers_dir);
+        for (name, bytes) in &default_files {
+            if name == "install.sh" || name == "install.ps1" {
+                continue;
+            }
+            assert_eq!(
+                bytes,
+                wrappers_files.get(name).unwrap(),
+                "shared staged bytes differ for {name}"
+            );
+        }
+        std::fs::remove_dir_all(parent).unwrap();
     }
 }

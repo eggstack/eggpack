@@ -25,6 +25,17 @@ step/permission drift.
 
 `render_github` and `render_release_github` are pure. `check_github` and `check_release_github` compare deterministic bytes after CRLF-to-LF normalization and report drift without changing files.
 
+`check_github`, `check_release_github`, and `check_reusable_release_github` share one
+comparison: each renders its own artifact and then delegates to the same private
+comparison, so the size bound, the CRLF-to-LF-only normalization, and the
+first-difference offset are defined once and every check function behaves
+identically on identical inputs. The release renderer is likewise one
+implementation: `render_release_github_inner` validates, then delegates to named
+private helpers for policy and shape validation, release-identity resolution,
+trigger and input cross-checks, tool-pin and emulated-runtime validation, the
+workflow header and permissions, each job, each step, and the static output
+guards. None of this changes a rendered byte.
+
 Staging-enabled workflows resolve one release source for every job. `RefName`
 uses the GitHub ref and authorizes staging only for tag pushes. `DispatchInput`
 requires `workflow_dispatch.inputs.release_tag`, uses it for all release

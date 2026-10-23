@@ -1,7 +1,7 @@
 # `eggpack-ci` — Deep Dive
 
 Crate-level orientation for `eggpack-ci`: the largest component in the workspace
-at 10772 lines in a single `src/lib.rs`. This file explains how that file divides
+at 12219 lines in a single `src/lib.rs`. This file explains how that file divides
 and what flows through it. It does not restate per-area detail — three deep
 dives cover the parts.
 
@@ -18,9 +18,9 @@ Code baseline `fc072af`.
 
 | Deep dive | Owns | Approximate region of `src/lib.rs` |
 |---|---|---|
-| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:1066-2100`, `:3080-4005` |
+| [ci-rendering.md](ci-rendering.md) | policy types, `RunnerCommand`, the three renderers, drift checks | `:1066-2100`, `:3132-4301` |
 | [ci-consumer-seam.md](ci-consumer-seam.md) | the external consumer validator, runtime identity, artifact handoff formats | `:1844-2209`, `:3847-4432`, `:4432-4596` |
-| this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `:42-453`, `:2210-2742`, `:2743-2925` |
+| this file | crate orientation, the projection model, job vocabulary, gates, aggregation | `:42-453`, `:2220-2752`, `:2753-2935` |
 
 Read this file first, then follow exactly one of the other two.
 
@@ -56,8 +56,8 @@ ReleaseCIPlanV1                  (:2309 executable release graph)
                                  gate_job_id                      (:2317)
                                  aggregate: AggregateJob          (:2319)
                                  finalization: FinalizationSettings (:2321)
-                                 staging: Option<StagingJob>     (:2324)
-                                 consumer_validators: BTreeMap   (:2328)
+                                 staging: Option<StagingJob>     (:2403)
+                                 consumer_validators: BTreeMap   (:2407)
         |
         |  render_release_github / render_reusable_release_github
         v
@@ -193,7 +193,7 @@ without a network.
 
 Notably absent: `command-group` and any YAML emitter. The process-execution
 contract is nevertheless **shared**: the consumer validator runs through
-`eggpack_core::run_interpreter_bounded` (`crates/eggpack-ci/src/lib.rs:4892`),
+`eggpack_core::run_interpreter_bounded` (`crates/eggpack-ci/src/lib.rs:5056`),
 so the crate gets core's process-group (or job-object) termination, bounded
 reader-thread joins, the shared environment allowlist, and the shared output
 bounds without taking a `command-group` dependency of its own. See

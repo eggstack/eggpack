@@ -6,8 +6,8 @@ two bounded jobs: turn a finalized release into a local, inspectable
 `StagingPayloadV1`, and reconcile that payload into a **draft** release on an
 exact pre-existing tag. It never publishes.
 
-`crates/eggpack-github/src/lib.rs` (3025 lines), tests in `src/tests.rs`
-(1848 lines). `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]` at
+`crates/eggpack-github/src/lib.rs` (3431 lines), tests in `src/tests.rs`
+(2059 lines). `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]` at
 `lib.rs:9-10`, so every public item carries a doc comment. All citations below
 are to `crates/eggpack-github/src/lib.rs` unless another path is given.
 
@@ -59,13 +59,13 @@ draft to published.
 
 | Item | Line | Description |
 | --- | --- | --- |
-| `read_token` | `493` | Reads the credential from the environment; the env name must be exactly `GITHUB_TOKEN`. |
-| `prepare_staging_payload` | `652` | Materializes the default staging payload from contract + manifest + finalized root + policy. |
-| `prepare_staging_payload_with_presentation` | `1018` | Same, with an explicit presentation; `GeneratedDefault` delegates to the default function. |
-| `MAX_WRAPPER_BYTES` | `950` | `1 MiB` per product wrapper source. |
-| `InstallerPresentationV1` | `966` | `schema_version` + `mode`; `generated_default()` and validation follow this type. |
-| `InstallerPresentationModeV1` | `976` | `GeneratedDefault` or `ProductWrappers(ProductWrapperSourcesV1)`. |
-| `ProductWrapperSourcesV1` | `986` | Wrapper source paths plus the staged names for the generated exact installers. |
+| `read_token` | `583` | Reads the credential from the environment; the env name must be exactly `GITHUB_TOKEN`. |
+| `prepare_staging_payload` | `663` | Materializes the default staging payload from contract + manifest + finalized root + policy. |
+| `prepare_staging_payload_with_presentation` | `690` | Same, with an explicit presentation; the presentation selects only the installer surface. |
+| `MAX_WRAPPER_BYTES` | `717` | `1 MiB` per product wrapper source. |
+| `InstallerPresentationV1` | `733` | `schema_version` + `mode`; `generated_default()` and validation follow this type. |
+| `InstallerPresentationModeV1` | `743` | `GeneratedDefault` or `ProductWrappers(ProductWrapperSourcesV1)`. |
+| `ProductWrapperSourcesV1` | `753` | Wrapper source paths plus the staged names for the generated exact installers. |
 | `GitHubDraftTemplateV1` | `1244` | Identity-independent draft template; must not carry release id, revision, tag, GitHub id, or digests. |
 | `.resolve(tag)` / `.resolve_with_identity(...)` | `1302` / `1326` | Legacy resolver keeps exact-tag behavior; the identity resolver carries the finite checked-in mapped ID and source revision for opt-in mode. No templating language. |
 | `verify_tag_source` | `1922` | Bounded annotated-tag peel (≤ 8) down to the exact source revision. |
@@ -157,53 +157,65 @@ truncation and duplicate-tag creation are both reachable in tests.
 
 ## Staging payload materialization
 
-`prepare_staging_payload` (`559-903`) turns a finalized root plus contract,
-manifest and policy into an inspectable directory and payload:
+There is one staging-payload builder.
+`prepare_staging_payload_with_presentation_inner` (`1012-1449`) implements the
+whole algorithm and takes the installer presentation as a parameter;
+`prepare_staging_payload` (`663-681`) and
+`prepare_staging_payload_with_presentation` (`690-710`) are thin entry points
+into it. The presentation selects only the installer surface: the names the
+generated exact installers are staged under, and whether the product wrappers
+become the public install surface. Every other step — validation, inventory
+construction, sidecars, installers, digest loop, canonical sort, and payload
+assembly — exists once.
+
+`prepare_staging_payload_with_presentation_inner` (`1012-1449`) turns a finalized
+root plus contract, manifest and policy into an inspectable directory and
+payload:
 
 1. Validate policy and manifest, require `contract.product.id ==
-   manifest.product_id` (`567-573`), reject a symlinked finalized root (`574`).
+   manifest.product_id` (`1044-1050`), reject a symlinked finalized root (`1066`).
 2. Build the expected inventory from `contract.expand` per manifest target and
-   cross-check it against the manifest form — Direct (`582-605`), Bundle (entry
-   count and name set, `606-642`), Archive (`643-665`); any other pairing fails
-   (`666`).
+   cross-check it against the manifest form — Direct (`1076-1098`), Bundle (entry
+   count and name set, `1099-1135`), Archive (`1136-1157`); any other pairing fails
+   (`1158`).
 3. Reject any release asset colliding case-insensitively with
-   `release-manifest.json`, `install.sh` or `install.ps1` (`670-679`).
+   `release-manifest.json`, `install.sh` or `install.ps1` (`1163-1177`).
 4. Require the finalized root to hold only regular non-symlink files with flat
-   names (`685-698`) and to match the expected inventory by **exact set
-   equality** — missing and extra both fail (`699-703`).
-5. Re-verify artifact size and SHA-256 (`706-716`), and verify each sidecar's
+   names (`1180-1198`) and to match the expected inventory by **exact set
+   equality** — missing and extra both fail (`1199-1203`).
+5. Re-verify artifact size and SHA-256 (`1205-1219`), and verify each sidecar's
    `sha256  filename` content against the artifact it names, bounded at 4 KiB
-   and required to end `.sha256` (`717-757`).
+   and required to end `.sha256` (`1220-1255`).
 6. Create the output directory only if absent, require a real non-symlink parent,
-   and set `0700` on unix (`759`, `533-551`). Every later failure calls the
-   `cleanup` closure, which removes the whole output directory (`760-762`).
-7. Copy the finalized files exactly (`765-771`); write `release-manifest.json`
-   and prove it round-trips to identical bytes (`774-793`).
+   and set `0700` on unix (`1257`, `533-551`). Every later failure calls the
+   `cleanup` closure, which removes the whole output directory (`1258-1260`).
+7. Copy the finalized files exactly (`1262-1271`); write `release-manifest.json`
+   and prove it round-trips to identical bytes (`1272-1295`).
 8. Render deterministic installers with `BootstrapSpec { origin, fixture_http:
-   false }` (`796-812`) and reject any `latest/download` origin (`814-817`).
+   false }` (`1297-1310`) and reject any `latest/download` origin (`1311-1315`).
 9. Assign media types and kinds, digest each staged file, sort by name
-   (`840-883`); finalize and validate the payload (`885-902`).
+   (`1365-1435`); finalize and validate the payload (`1436-1448`).
 
 The payload is deliberately a **separate materialized artifact** rather than an
 implicit side effect of uploading. It is a bounded, strictly validated JSON
 document, and the adapter re-validates it and re-verifies every local file's
 size and digest against it before touching the network (`verify_file`,
-`1915-1946`). Preparation and staging are separate CLI subcommands, so the exact
+`1789-1820`). Preparation and staging are separate CLI subcommands, so the exact
 byte set, ordering, digests and kinds are reviewable before any remote object
 exists. Determinism is preserved by sorting assets by name in both construction
-(`883`) and serialization (`247`).
+(`1435`) and serialization (`333`).
 
 ## Reconciliation: the remote state machine
 
-`stage_with_source` (`1965-2211`) is the whole remote state machine;
-`stage_with_bytes` (`1949-1963`) and `stage_with_dir` (`2214-2251`) are thin
+`stage_with_source` (`1839-2082`) is the whole remote state machine;
+`stage_with_bytes` (`1823-1837`) and `stage_with_dir` (`2085-2122`) are thin
 adapters over it.
 
-1. Validate the token shape **before any I/O** (`1975-1977`).
+1. Validate the token shape **before any I/O** (`1849-1851`).
 2. Validate payload and policy; require exact agreement on owner, repository,
-   tag, title, prerelease and body (`1978-1988`).
+   tag, title, prerelease and body (`1852-1868`).
 3. `verify_tag_source` — the tag must already exist and peel to
-   `payload.source_revision` (`1990-1997`, implementation `1778-1814`).
+   `payload.source_revision` (`1870-1877`, implementation `1618-1654`).
 4. Paginated release lookup over pages `1..=max_list_pages`
    (`list_all_releases`), then `find_exact_release`, which fails on more than one
    same-tag record. A full page on the last permitted page fails closed with
@@ -211,16 +223,16 @@ adapters over it.
    read as "this tag has no release", which would turn into a duplicate-tag
    creation attempt for a tag that already has one.
 5. If absent, `create_release`, then assert the tag matches and the release is a
-   mutable draft (`2016-2030`). If present, assert it is a mutable draft
-   (`2032`), the tag matches (`2035`), and title, prerelease and body all match
-   (`2038-2043`).
-6. `check_upload_url` (`2047-2052`) pins the release's `upload_url` to `https`,
+   mutable draft (`1887-1900`). If present, assert it is a mutable draft
+   (`1903-1905`), the tag matches (`1906-1908`), and title, prerelease and body all match
+   (`1909-1914`).
+6. `check_upload_url` (`1918-1923`) pins the release's `upload_url` to `https`,
    host `uploads.github.com`, the exact
    `/repos/<owner>/<repo>/releases/<id>/assets` path, and no userinfo,
-   fragment, or query, port 443 or unset (`1832-1852`).
-7. Pre-flight `list_all_assets` (`2061`): reject a case-insensitive duplicate
-   remote name (`2065`) and any asset not in the payload (`2068-2069`).
-8. For each payload asset in name order (`2080`): absent remotely →
+   fragment, or query, port 443 or unset (`1672-1692`).
+7. Pre-flight `list_all_assets` (`1932`): reject a case-insensitive duplicate
+   remote name (`1936-1938`) and any asset not in the payload (`1939-1941`).
+8. For each payload asset in name order (`1926`): absent remotely →
    `verify_file` the local bytes against the payload, then `upload_asset`
    (`2083-2095`), rejecting a response whose `name`, `state`, `size` or `digest`
    disagrees (`2098-2111`); a `422` fails with no recovery (`2117-2119`); a `502`
@@ -298,13 +310,13 @@ Eggpack-generated *exact* installer is staged beside it under a distinct name
 `src/tests.rs:1402-1407`). Per the comment at `1487-1488`, the wrapper is the
 friendly public surface while the generated exact installer remains available as
 qualified-bootstrap evidence. The crate never parses, interpolates into, or
-executes a wrapper — `read_wrapper_source` (`1084-1101`) returns raw bytes,
-written unchanged at `1514-1525`.
+executes a wrapper — `read_wrapper_source` (`851-868`) returns raw bytes,
+written unchanged at `1324-1363`.
 
-The mode is opt-in. `generated_default()` (`999-1004`) selects
-`GeneratedDefault`, and `prepare_staging_payload_with_presentation` delegates
-that mode to `prepare_staging_payload` with no behavioural difference
-(`922-929`); `generated_default_preserves_exact_m003a_behavior`
+The mode is opt-in. `generated_default()` (`766-771`) selects
+`GeneratedDefault`, and `prepare_staging_payload_with_presentation` routes that
+mode into the one builder with no behavioural difference (`690-710`);
+`generated_default_preserves_exact_m003a_behavior`
 (`src/tests.rs:1418-1458`) asserts byte-identical payloads and identical file
 inventories. Only an explicit `ProductWrappers` policy changes the public
 surface, and even then the exact generated installers are still staged and still
@@ -341,16 +353,16 @@ per-tag policies.
 
 | Property | Enforced where | Citation |
 | --- | --- | --- |
-| Created release must be a mutable draft | post-create assertion | `2026-2028` |
-| Published / immutable release is never adopted | draft + `!immutable` gate | `2032-2034` |
-| Tag must already exist and match the source revision | bounded peel, pre and post | `1778-1814`, `1990-1997`, `2185-2192` |
-| No tag creation or mutation | no such trait method; no `target_commitish` | `1674-1734`, `2483-2490` |
-| Exact-tag origin only, no `latest/download` | installer content guard | `814-817`, `1483-1486` |
-| Local bytes match the payload before upload | size + streamed digest | `1915-1946`, `2084` |
-| Upload response name must match | post-upload check | `2098-2100` |
-| Upload response state must be `uploaded` | post-upload check | `2101-2103` |
-| Fail closed on upload size mismatch | post-upload check | `2104-2106` |
-| Fail closed on upload digest mismatch | `sha256:<hex>` comparison | `2107-2111` |
+| Created release must be a mutable draft | post-create assertion | `1896-1899` |
+| Published / immutable release is never adopted | draft + `!immutable` gate | `1902-1905` |
+| Tag must already exist and match the source revision | bounded peel, pre and post | `1618-1654`, `1870-1877`, `2056-2063` |
+| No tag creation or mutation | no such trait method; no `target_commitish` | `1514-1576`, `2266-2270` |
+| Exact-tag origin only, no `latest/download` | installer content guard | `1311-1315` |
+| Local bytes match the payload before upload | size + streamed digest | `1789-1820`, `2112` |
+| Upload response name must match | post-upload check | `1969-1971` |
+| Upload response state must be `uploaded` | post-upload check | `1972-1974` |
+| Fail closed on upload size mismatch | post-upload check | `1975-1977` |
+| Fail closed on upload digest mismatch | `sha256:<hex>` comparison | `1978-1981` |
 | Reuse requires matching state, size and digest | reuse branch | `2141-2156` |
 | Duplicate-name 422 fails with no recovery | error branch | `2117-2119` |
 | Unexpected remote asset fails closed | pre-flight inventory | `2068-2069` |
@@ -389,10 +401,10 @@ Deliberately **not** enforced here, listed honestly:
   is no `tracing`/`log` call in `lib.rs`.
 - **`--clobber` is not a flag in this crate at all**; it is a workspace-level
   non-goal guarded statically in `eggpack-ci`
-  (`crates/eggpack-ci/src/lib.rs3777`, `:6901`).
+  (`crates/eggpack-ci/src/lib.rs:4213`, `:7308`).
 - **No authenticity, signature, or provenance claim.** Digests in the payload,
   the upload responses and the receipt are SHA-256 integrity facts only
-  (`1915-1946`, `2107-2111`, `2176-2181`).
+  (`1789-1820`, `1978-1981`, `2062-2072`).
 
 ## Boundaries / non-goals
 

@@ -1851,17 +1851,17 @@ pub struct DriftReport {
     pub first_difference: Option<usize>,
 }
 
-/// Compare existing workflow bytes with deterministic output without writing files.
-pub fn check_github(
-    plan: &CIPlan,
-    policy: &GitHubPolicy,
-    existing: &[u8],
-) -> Result<DriftReport, CiError> {
-    let expected = render_github(plan, policy)?;
+/// Compare already-rendered expected bytes with existing workflow bytes.
+///
+/// The size bound, the CRLF-to-LF-only normalization, and the
+/// first-difference computation are defined once here, so every check
+/// function behaves identically on identical inputs. The expected bytes are
+/// already rendered by the caller: this function never renders.
+fn compare_workflow_bytes(expected: &[u8], existing: &[u8]) -> Result<DriftReport, CiError> {
     if existing.len() > MAX_WORKFLOW_BYTES {
         return Err(fail("existing workflow exceeds size bound"));
     }
-    let expected = normalize_newlines(expected.as_bytes());
+    let expected = normalize_newlines(expected);
     let existing = normalize_newlines(existing);
     let matches = expected == existing;
     let first_difference = if matches {
@@ -1881,6 +1881,16 @@ pub fn check_github(
         actual_bytes: existing.len(),
         first_difference,
     })
+}
+
+/// Compare existing workflow bytes with deterministic output without writing files.
+pub fn check_github(
+    plan: &CIPlan,
+    policy: &GitHubPolicy,
+    existing: &[u8],
+) -> Result<DriftReport, CiError> {
+    let expected = render_github(plan, policy)?;
+    compare_workflow_bytes(expected.as_bytes(), existing)
 }
 fn normalize_newlines(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
@@ -3249,38 +3259,68 @@ pub fn check_reusable_release_github(
     existing: &[u8],
 ) -> Result<DriftReport, CiError> {
     let expected = render_reusable_release_github(contract, shape, policy)?;
-    if existing.len() > MAX_WORKFLOW_BYTES {
-        return Err(fail("existing workflow exceeds size bound"));
-    }
-    let expected = normalize_newlines(expected.as_bytes());
-    let existing = normalize_newlines(existing);
-    let matches = expected == existing;
-    let first_difference = if matches {
-        None
-    } else {
-        Some(
-            expected
-                .iter()
-                .zip(&existing)
-                .position(|(a, b)| a != b)
-                .unwrap_or_else(|| expected.len().min(existing.len())),
-        )
-    };
-    Ok(DriftReport {
-        matches,
-        expected_bytes: expected.len(),
-        actual_bytes: existing.len(),
-        first_difference,
-    })
+    compare_workflow_bytes(expected.as_bytes(), existing)
 }
 
-fn render_release_github_inner(
+/// Validated release-render inputs shared by every job and step emitter.
+///
+/// The context is built once, after all fail-closed validation, so the
+/// emitters never re-derive a policy decision.
+struct ReleaseRenderContext<'a> {
+    /// Projected release CI graph (intent, not evidence).
+    graph: &'a ReleaseCIPlanV1,
+    /// Caller-supplied GitHub policy.
+    policy: &'a GitHubPolicy,
+    /// Runtime render configuration; `Some` only for reusable workflows.
+    runtime: Option<&'a RuntimeRender>,
+    /// Pinned Eggpack tool policy.
+    tool: &'a EggpackToolPolicy,
+    /// Pinned `actions/download-artifact` action.
+    download_pin: &'a ActionPin,
+    /// Explicit release input paths.
+    inputs: &'a GitHubReleaseInputsV1,
+    /// Explicit consumer validator map path, when the graph has validators.
+    validator_map: Option<String>,
+    /// Whether the graph carries a staging intent.
+    staging_enabled: bool,
+}
+
+impl ReleaseRenderContext<'_> {
+    /// Whether this is the reusable (runtime) rendering.
+    fn is_runtime(&self) -> bool {
+        self.runtime.is_some()
+    }
+
+    /// The frozen source SHA expression for release-producing jobs.
+    fn frozen_sha(&self) -> &'static str {
+        frozen_source_sha_expression(self.is_runtime())
+    }
+
+    /// The frozen source SHA expression, but only when staging pins the
+    /// checkout to a resolved revision.
+    fn frozen_sha_opt(&self) -> Option<&'static str> {
+        self.staging_enabled.then_some(self.frozen_sha())
+    }
+}
+
+/// Validate the projected release graph and the caller-supplied policy.
+fn validate_release_render_policy(
     graph: &ReleaseCIPlanV1,
     policy: &GitHubPolicy,
-    runtime: Option<&RuntimeRender>,
-) -> Result<String, CiError> {
+) -> Result<(), CiError> {
     graph.validate()?;
     policy.validate(&graph.ci_plan)?;
+    Ok(())
+}
+
+/// Resolve the release-identity mode for a release render.
+///
+/// A mapped identity is only expressible in the reusable workflow, and only
+/// in the mapped stable-semver mode; every other combination fails closed.
+fn validate_release_identity_mode(
+    policy: &GitHubPolicy,
+    runtime: Option<&RuntimeRender>,
+) -> Result<(), CiError> {
     if policy.release_identity_mode.is_some() && runtime.is_none() {
         return Err(fail(
             "release identity mapping requires reusable workflow rendering",
@@ -3290,6 +3330,16 @@ fn render_release_github_inner(
         if mode != ReleaseIdentityMode::VPrefixedStableSemver {
             return Err(fail("explicit exact-tag mode must be omitted"));
         }
+    }
+    Ok(())
+}
+
+/// Cross-check the staging tag source against the workflow triggers.
+///
+/// A mapped identity is resolved from exactly one event shape: a tag push
+/// for `RefName`, an explicit dispatch input for `DispatchInput`.
+fn validate_staging_trigger_match(policy: &GitHubPolicy) -> Result<(), CiError> {
+    if policy.release_identity_mode.is_some() {
         let staging = policy
             .staging
             .as_ref()
@@ -3306,6 +3356,14 @@ fn render_release_github_inner(
             }
         }
     }
+    Ok(())
+}
+
+/// Validate the pinned Eggpack tool, the pinned download action, and the
+/// explicit release input paths.
+fn validate_release_tool_pins(
+    policy: &GitHubPolicy,
+) -> Result<(&EggpackToolPolicy, &ActionPin, &GitHubReleaseInputsV1), CiError> {
     let tool = policy
         .eggpack_tool
         .as_ref()
@@ -3321,8 +3379,15 @@ fn render_release_github_inner(
         .as_ref()
         .ok_or_else(|| fail("M002a release rendering requires explicit release input paths"))?;
     inputs.validate()?;
-    // Emulated qualification requires an explicit finite provider runtime
-    // policy; never silently invoke M003 with an empty runtime.
+    Ok((tool, download_pin, inputs))
+}
+
+/// Emulated qualification requires an explicit finite provider runtime
+/// policy; never silently invoke M003 with an empty runtime.
+fn validate_emulated_runtime_policy(
+    graph: &ReleaseCIPlanV1,
+    policy: &GitHubPolicy,
+) -> Result<(), CiError> {
     for qual in &graph.qualifications {
         let planned = graph
             .ci_plan
@@ -3342,22 +3407,57 @@ fn render_release_github_inner(
             }
         }
     }
-    // Consumer validators require an explicit checked-in validator map path;
-    // never resolve validator scripts by discovery.
-    let validator_map =
-        if graph.consumer_validators.is_empty() {
-            None
-        } else {
-            Some(inputs.consumer_validators.clone().ok_or_else(|| {
-                fail("consumer validators require an explicit validator map path")
-            })?)
-        };
+    Ok(())
+}
 
-    // Header mirrors M001 build rendering (deterministic, read-only, pinned).
-    // When staging is enabled, workflow_dispatch carries an explicit
-    // release_tag input (exact existing tag; no latest/branch default).
-    let staging_enabled = graph.staging.is_some();
-    let mut out = String::from("name: Eggpack candidate builds\n'on':\n");
+/// Consumer validators require an explicit checked-in validator map path;
+/// never resolve validator scripts by discovery.
+fn resolve_consumer_validator_map(
+    graph: &ReleaseCIPlanV1,
+    inputs: &GitHubReleaseInputsV1,
+) -> Result<Option<String>, CiError> {
+    if graph.consumer_validators.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(inputs.consumer_validators.clone().ok_or_else(
+        || fail("consumer validators require an explicit validator map path"),
+    )?))
+}
+
+/// Emit the source checkout step for a release-producing job.
+fn emit_source_checkout_step(
+    out: &mut String,
+    ctx: &ReleaseRenderContext<'_>,
+    source_sha: Option<&str>,
+) {
+    checkout_snippet(out, ctx.policy, source_sha);
+}
+
+/// Emit the runtime identity download step for a release-producing job.
+fn emit_runtime_identity_download_step(out: &mut String, ctx: &ReleaseRenderContext<'_>) {
+    runtime_identity_download_step(out, ctx.download_pin, ctx.is_runtime());
+}
+
+/// Emit the pinned tool install and the source verification that follows it.
+///
+/// M003e: the pinned tool is installed before any Eggpack invocation. Source
+/// verification runs here — after the toolchain the install relies on, before
+/// any release work — instead of ahead of the tool.
+fn emit_tool_install_and_verify_steps(out: &mut String, ctx: &ReleaseRenderContext<'_>) {
+    out.push_str(&tool_install_snippet(ctx.tool));
+    source_verify_snippet(out, ctx.inputs, ctx.staging_enabled, ctx.policy);
+}
+
+/// Emit the release workflow header: name, triggers, permissions, and
+/// concurrency.
+///
+/// The header mirrors M001 build rendering (deterministic, read-only, pinned).
+/// When staging is enabled, workflow_dispatch carries an explicit
+/// release_tag input (exact existing tag; no latest/branch default).
+fn emit_release_workflow_header(out: &mut String, ctx: &ReleaseRenderContext<'_>) {
+    let policy = ctx.policy;
+    let staging_enabled = ctx.staging_enabled;
+    out.push_str("name: Eggpack candidate builds\n'on':\n");
     for trigger in &policy.triggers {
         match trigger {
             WorkflowTrigger::Push => out.push_str("  push:\n"),
@@ -3394,6 +3494,13 @@ fn render_release_github_inner(
     } else {
         "false\n"
     });
+}
+
+/// Emit the preflight job: runner, permissions, tag resolution, checkout, and
+/// the Cargo availability probe.
+fn emit_preflight_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    let staging_enabled = ctx.staging_enabled;
     out.push_str("jobs:\n  preflight:\n");
     if staging_enabled
         && policy
@@ -3420,19 +3527,19 @@ fn render_release_github_inner(
             .as_ref()
             .ok_or_else(|| fail("staging requested but no GitHub staging policy exists"))?;
         emit_tag_resolution_step(
-            &mut out,
+            out,
             staging_policy.tag_source,
             policy.release_identity_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver),
             None,
             "resolve_tag",
         );
         checkout_snippet(
-            &mut out,
+            out,
             policy,
             Some("${{ steps.resolve_tag.outputs.source_sha }}"),
         );
     } else {
-        checkout_snippet(&mut out, policy, None);
+        checkout_snippet(out, policy, None);
     }
     // M003e: exact staging renders verify the checked-in release plan in
     // preflight, but only after installing the pinned tool — no earlier step
@@ -3441,69 +3548,80 @@ fn render_release_github_inner(
     // verifies HEAD during `_resolve-release`, and every later job
     // re-verifies against the downloaded runtime identity.
     if staging_enabled {
-        if runtime.is_none() {
-            out.push_str(&tool_install_snippet(tool));
-            source_verify_snippet(&mut out, inputs, staging_enabled, policy);
+        if ctx.runtime.is_none() {
+            out.push_str(&tool_install_snippet(ctx.tool));
+            source_verify_snippet(out, ctx.inputs, staging_enabled, policy);
         }
     } else {
-        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
+        source_verify_snippet(out, ctx.inputs, staging_enabled, policy);
     }
     out.push_str("      - name: Check Cargo availability\n        shell: bash\n        run: cargo --version\n");
+    Ok(())
+}
 
-    // Runtime identity preflight (reusable mode only, M003d section 4D):
-    // check out the commit resolved by preflight, derive/verify HEAD, resolve
-    // invocation-local ReleasePlan/ReleaseCIPlan/GitHubDraftPolicy, and
-    // upload those runtime documents as an internal preflight artifact.
-    // Exact mode emits nothing here (M003c byte-compatible).
-    if let Some(runtime) = runtime {
-        let staging_policy = policy
-            .staging
-            .as_ref()
-            .ok_or_else(|| fail("reusable rendering requires a staging policy"))?;
-        out.push_str("  resolve:\n    needs: preflight\n    outputs:\n      source_sha: ${{ needs.preflight.outputs.source_sha }}\n    runs-on: ");
-        out.push_str(&yaml_scalar(&policy.preflight_runner));
-        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
-        out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n");
-        checkout_snippet(
-            &mut out,
-            policy,
-            Some("${{ needs.preflight.outputs.source_sha }}"),
-        );
-        out.push_str(&tool_install_snippet(tool));
-        // M003e: the runtime identity directory must exist before
-        // `_resolve-release` writes the three invocation-local documents.
-        mkdir_step(
-            &mut out,
-            "Create runtime identity directory",
-            &format!("./{RUNTIME_IDENTITY_DIR}"),
-        );
-        out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n");
-        let expression = match staging_policy.tag_source {
-            StagingTagSource::RefName => "${{ github.ref_name }}",
-            StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
-        };
-        out.push_str("        env:\n          EGGPACK_RELEASE_TAG: ");
-        out.push_str(&yaml_scalar(expression));
-        out.push('\n');
-        out.push_str("        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
-        out.push_str(&runtime.resolve.to_shell());
-        out.push('\n');
-        out.push_str("      - name: Upload runtime release identity\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
-        out.push_str("\n        with:\n          name: ");
-        out.push_str(&yaml_scalar(RUNTIME_IDENTITY_ARTIFACT));
-        out.push_str("\n          path: ");
-        out.push_str(&yaml_scalar(&format!("./{RUNTIME_IDENTITY_DIR}")));
-        out.push_str("\n          if-no-files-found: error\n          retention-days: ");
-        out.push_str(&policy.artifact_retention_days.to_string());
-        out.push('\n');
-    }
+/// Emit the runtime identity preflight job (reusable mode only).
+///
+/// The job checks out the commit resolved by preflight, derives/verifies
+/// HEAD, resolves the invocation-local ReleasePlan/ReleaseCIPlan/
+/// GitHubDraftPolicy, and uploads those runtime documents as an internal
+/// preflight artifact. Exact mode emits nothing here (M003c
+/// byte-compatible).
+fn emit_resolve_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    let Some(runtime) = ctx.runtime else {
+        return Ok(());
+    };
+    let staging_policy = policy
+        .staging
+        .as_ref()
+        .ok_or_else(|| fail("reusable rendering requires a staging policy"))?;
+    out.push_str("  resolve:\n    needs: preflight\n    outputs:\n      source_sha: ${{ needs.preflight.outputs.source_sha }}\n    runs-on: ");
+    out.push_str(&yaml_scalar(&policy.preflight_runner));
+    out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+    out.push_str(&policy.timeout_minutes.to_string());
+    out.push_str("\n    steps:\n");
+    checkout_snippet(
+        out,
+        policy,
+        Some("${{ needs.preflight.outputs.source_sha }}"),
+    );
+    out.push_str(&tool_install_snippet(ctx.tool));
+    // M003e: the runtime identity directory must exist before
+    // `_resolve-release` writes the three invocation-local documents.
+    mkdir_step(
+        out,
+        "Create runtime identity directory",
+        &format!("./{RUNTIME_IDENTITY_DIR}"),
+    );
+    out.push_str("      - name: Resolve runtime release identity\n        shell: bash\n");
+    let expression = match staging_policy.tag_source {
+        StagingTagSource::RefName => "${{ github.ref_name }}",
+        StagingTagSource::DispatchInput => "${{ inputs.release_tag }}",
+    };
+    out.push_str("        env:\n          EGGPACK_RELEASE_TAG: ");
+    out.push_str(&yaml_scalar(expression));
+    out.push('\n');
+    out.push_str("        run: |\n          head_sha=\"$(git rev-parse --verify HEAD^{commit})\"\n          ");
+    out.push_str(&runtime.resolve.to_shell());
+    out.push('\n');
+    out.push_str("      - name: Upload runtime release identity\n        uses: ");
+    out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+    out.push_str("\n        with:\n          name: ");
+    out.push_str(&yaml_scalar(RUNTIME_IDENTITY_ARTIFACT));
+    out.push_str("\n          path: ");
+    out.push_str(&yaml_scalar(&format!("./{RUNTIME_IDENTITY_DIR}")));
+    out.push_str("\n          if-no-files-found: error\n          retention-days: ");
+    out.push_str(&policy.artifact_retention_days.to_string());
+    out.push('\n');
+    Ok(())
+}
 
-    // Build jobs: M001 cargo invocations plus pinned tool install, explicit
-    // `_capture-build` into the canonical per-target directory, and upload of
-    // the entire canonical directory as one deterministic artifact.
-    for job in &graph.ci_plan.targets {
+/// Emit the build jobs: M001 cargo invocations plus pinned tool install,
+/// explicit `_capture-build` into the canonical per-target directory, and
+/// upload of the entire canonical directory as one deterministic artifact.
+fn emit_build_jobs(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    for job in &ctx.graph.ci_plan.targets {
         let runner = policy
             .runners
             .iter()
@@ -3535,7 +3653,7 @@ fn render_release_github_inner(
         out.push_str(&job.job_id);
         // Reusable builds wait for runtime identity; exact builds wait for
         // preflight directly.
-        if runtime.is_some() {
+        if ctx.is_runtime() {
             out.push_str(":\n    needs: resolve\n    runs-on: ");
         } else {
             out.push_str(":\n    needs: preflight\n    runs-on: ");
@@ -3546,12 +3664,8 @@ fn render_release_github_inner(
         out.push_str("\n    continue-on-error: ");
         out.push_str(if job.required { "false\n" } else { "true\n" });
         out.push_str("    steps:\n");
-        checkout_snippet(
-            &mut out,
-            policy,
-            staging_enabled.then_some(frozen_source_sha_expression(runtime.is_some())),
-        );
-        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
+        emit_source_checkout_step(out, ctx, ctx.frozen_sha_opt());
+        emit_runtime_identity_download_step(out, ctx);
         out.push_str("      - name: Set up Rust toolchain\n        uses: ");
         out.push_str(&yaml_scalar(&policy.rust_toolchain.reference));
         out.push_str("\n        with:\n          toolchain: ");
@@ -3572,8 +3686,7 @@ fn render_release_github_inner(
         // M003e: the pinned tool is installed before any Eggpack invocation.
         // Source verification runs here — after the toolchain the install
         // relies on, before any release work — instead of ahead of the tool.
-        out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
+        emit_tool_install_and_verify_steps(out, ctx);
         let provisioned = policy.cross_tools.is_some()
             && job.planned.policy.strategy == BuildStrategy::CargoZigbuild;
         for output in &job.outputs {
@@ -3600,15 +3713,16 @@ fn render_release_github_inner(
             out.push('\n');
         }
         let capture = RunnerCommand::CaptureBuild {
-            contract: inputs.contract.clone(),
-            release_plan: inputs.release_plan.clone(),
-            build_bindings: inputs.build_bindings.clone(),
+            contract: ctx.inputs.contract.clone(),
+            release_plan: ctx.inputs.release_plan.clone(),
+            build_bindings: ctx.inputs.build_bindings.clone(),
             target: job.planned.target.clone(),
             cargo_target_dir:
                 "${{ runner.temp }}/eggpack/${{ github.run_id }}-${{ github.run_attempt }}".into(),
             output_dir: format!("./eggpack-build/{}", job.job_id),
         };
-        let qual = graph
+        let qual = ctx
+            .graph
             .qualifications
             .iter()
             .find(|q| q.build_job_id == job.job_id)
@@ -3628,11 +3742,19 @@ fn render_release_github_inner(
         out.push_str(&policy.artifact_retention_days.to_string());
         out.push('\n');
     }
+    Ok(())
+}
 
-    // Qualification jobs: download the matching canonical build artifact into
-    // a target-specific private directory, invoke `_qualify-target` with all
-    // explicit inputs, and upload the complete qualification directory.
-    for qual in &graph.qualifications {
+/// Emit the qualification jobs: download the matching canonical build
+/// artifact into a target-specific private directory, invoke
+/// `_qualify-target` with all explicit inputs, and upload the complete
+/// qualification directory.
+fn emit_qualification_jobs(
+    out: &mut String,
+    ctx: &ReleaseRenderContext<'_>,
+) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    for qual in &ctx.graph.qualifications {
         let runner = policy
             .runners
             .iter()
@@ -3643,10 +3765,10 @@ fn render_release_github_inner(
             .as_ref()
             .and_then(|map| map.get(&qual.target).cloned());
         let qualify = RunnerCommand::QualifyTarget {
-            contract: inputs.contract.clone(),
-            release_plan: inputs.release_plan.clone(),
-            build_bindings: inputs.build_bindings.clone(),
-            qualification_bindings: inputs.qualification_bindings.clone(),
+            contract: ctx.inputs.contract.clone(),
+            release_plan: ctx.inputs.release_plan.clone(),
+            build_bindings: ctx.inputs.build_bindings.clone(),
+            qualification_bindings: ctx.inputs.qualification_bindings.clone(),
             target: qual.target.clone(),
             candidate_dir: format!("./eggpack-handoff/{}/{}", qual.build_job_id, CANDIDATES_DIR),
             build_handoff: format!(
@@ -3660,10 +3782,10 @@ fn render_release_github_inner(
         out.push_str(&qual.job_id);
         out.push_str(":\n    needs: ");
         emit_source_needs(
-            &mut out,
+            out,
             std::slice::from_ref(&qual.build_job_id),
-            staging_enabled,
-            runtime.is_some(),
+            ctx.staging_enabled,
+            ctx.is_runtime(),
         );
         out.push_str("\n    runs-on: ");
         out.push_str(&yaml_scalar(&runner.label));
@@ -3672,17 +3794,12 @@ fn render_release_github_inner(
         out.push_str("\n    continue-on-error: ");
         out.push_str(if qual.required { "false\n" } else { "true\n" });
         out.push_str("    steps:\n");
-        checkout_snippet(
-            &mut out,
-            policy,
-            staging_enabled.then_some(frozen_source_sha_expression(runtime.is_some())),
-        );
-        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
+        emit_source_checkout_step(out, ctx, ctx.frozen_sha_opt());
+        emit_runtime_identity_download_step(out, ctx);
         // M003e: install before any Eggpack invocation; verify right after.
-        out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
+        emit_tool_install_and_verify_steps(out, ctx);
         out.push_str("      - name: Download build handoff\n        uses: ");
-        out.push_str(&yaml_scalar(&download_pin.reference));
+        out.push_str(&yaml_scalar(&ctx.download_pin.reference));
         out.push_str("\n        with:\n          name: ");
         out.push_str(&yaml_scalar(&qual.build_handoff_name));
         out.push_str("\n          path: ");
@@ -3706,14 +3823,23 @@ fn render_release_github_inner(
         out.push_str(&policy.artifact_retention_days.to_string());
         out.push('\n');
     }
-    // Consumer validation jobs (M003d): one per target with a consumer
-    // validator, running after core qualification and before the gate.
-    // Each consumes the canonical qualification handoff (exact candidate
-    // bytes already validated by Eggpack) and never rebuilds the binary.
-    // Graphs without validators emit no jobs here (M003c byte-compatible).
-    if let Some(validator_map) = &validator_map {
-        for qual in &graph.qualifications {
-            if !graph.consumer_validators.contains_key(&qual.target) {
+    Ok(())
+}
+
+/// Emit the consumer validation jobs (M003d): one per target with a consumer
+/// validator, running after core qualification and before the gate.
+///
+/// Each consumes the canonical qualification handoff (exact candidate bytes
+/// already validated by Eggpack) and never rebuilds the binary. Graphs
+/// without validators emit no jobs here (M003c byte-compatible).
+fn emit_consumer_validation_jobs(
+    out: &mut String,
+    ctx: &ReleaseRenderContext<'_>,
+) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    if let Some(validator_map) = &ctx.validator_map {
+        for qual in &ctx.graph.qualifications {
+            if !ctx.graph.consumer_validators.contains_key(&qual.target) {
                 continue;
             }
             let runner = policy
@@ -3747,10 +3873,10 @@ fn render_release_github_inner(
             out.push_str(&job_id);
             out.push_str(":\n    needs: ");
             emit_source_needs(
-                &mut out,
+                out,
                 std::slice::from_ref(&qual.job_id),
-                staging_enabled,
-                runtime.is_some(),
+                ctx.staging_enabled,
+                ctx.is_runtime(),
             );
             out.push_str("\n    runs-on: ");
             out.push_str(&yaml_scalar(&runner.label));
@@ -3759,17 +3885,12 @@ fn render_release_github_inner(
             out.push_str("\n    continue-on-error: ");
             out.push_str(if qual.required { "false\n" } else { "true\n" });
             out.push_str("    steps:\n");
-            checkout_snippet(
-                &mut out,
-                policy,
-                staging_enabled.then_some(frozen_source_sha_expression(runtime.is_some())),
-            );
-            runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
+            emit_source_checkout_step(out, ctx, ctx.frozen_sha_opt());
+            emit_runtime_identity_download_step(out, ctx);
             // M003e: install before any Eggpack invocation; verify right after.
-            out.push_str(&tool_install_snippet(tool));
-            source_verify_snippet(&mut out, inputs, staging_enabled, policy);
+            emit_tool_install_and_verify_steps(out, ctx);
             out.push_str("      - name: Download qualification handoff\n        uses: ");
-            out.push_str(&yaml_scalar(&download_pin.reference));
+            out.push_str(&yaml_scalar(&ctx.download_pin.reference));
             out.push_str("\n        with:\n          name: ");
             out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
             out.push_str("\n          path: ");
@@ -3781,7 +3902,7 @@ fn render_release_github_inner(
             // `_validate-consumer` writes the per-target evidence file.
             out.push('\n');
             mkdir_step(
-                &mut out,
+                out,
                 "Create consumer evidence directory",
                 &format!("./eggpack-consumer/{}", qual.build_job_id),
             );
@@ -3802,281 +3923,290 @@ fn render_release_github_inner(
             out.push('\n');
         }
     }
-    // Required gate: one explicit download step per target into the canonical
-    // `eggpack-inputs/<target>/` layout, then `_evaluate-gate` with the exact
-    // CI plan, inputs directory, and outcome path.
-    {
-        let gate_cmd = RunnerCommand::EvaluateGate {
-            ci_plan: inputs.ci_plan.clone(),
-            inputs_dir: "./eggpack-inputs".into(),
-            output: format!("./eggpack-gate/{}", GATE_OUTCOME_FILE),
-        };
-        out.push_str("  ");
-        out.push_str(&graph.gate_job_id);
-        out.push_str(":\n    needs: ");
-        // Gate waits for the consumer validation job where one exists,
-        // otherwise directly for the qualification job. Without validators
-        // this is exactly the M003c dependency list.
-        let gate_needs: Vec<String> = graph
-            .qualifications
-            .iter()
-            .map(|q| {
-                if graph.consumer_validators.contains_key(&q.target) {
-                    consumer_job_id(&q.build_job_id)
-                } else {
-                    q.job_id.clone()
-                }
-            })
-            .collect();
-        let mut gate_needs = gate_needs;
-        gate_needs.sort();
-        if staging_enabled {
-            emit_source_needs(&mut out, &gate_needs, true, runtime.is_some());
-        } else {
-            out.push('[');
-            out.push_str(&gate_needs.join(", "));
-            out.push(']');
-        }
-        out.push_str("\n    runs-on: ");
-        out.push_str(&yaml_scalar(&policy.preflight_runner));
-        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
-        out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n");
-        checkout_snippet(
-            &mut out,
-            policy,
-            staging_enabled.then_some(frozen_source_sha_expression(runtime.is_some())),
-        );
-        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        // M003e: install before any Eggpack invocation; verify right after.
-        out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
-        for qual in &graph.qualifications {
-            out.push_str("      - name: Download qualification ");
-            out.push_str(&yaml_scalar(&qual.target));
-            out.push_str("\n        uses: ");
-            out.push_str(&yaml_scalar(&download_pin.reference));
-            out.push_str("\n        with:\n          name: ");
-            out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
-            out.push_str("\n          path: ");
-            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
-            out.push('\n');
-        }
-        // Consumer evidence joins the same canonical per-target layout so
-        // the gate consumes one complete directory per target.
-        for qual in &graph.qualifications {
-            if !graph.consumer_validators.contains_key(&qual.target) {
-                continue;
+    Ok(())
+}
+
+/// Emit the required gate job: one explicit download step per target into the
+/// canonical `eggpack-inputs/<target>/` layout, then `_evaluate-gate` with
+/// the exact CI plan, inputs directory, and outcome path.
+fn emit_gate_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    let gate_cmd = RunnerCommand::EvaluateGate {
+        ci_plan: ctx.inputs.ci_plan.clone(),
+        inputs_dir: "./eggpack-inputs".into(),
+        output: format!("./eggpack-gate/{}", GATE_OUTCOME_FILE),
+    };
+    out.push_str("  ");
+    out.push_str(&ctx.graph.gate_job_id);
+    out.push_str(":\n    needs: ");
+    // Gate waits for the consumer validation job where one exists,
+    // otherwise directly for the qualification job. Without validators
+    // this is exactly the M003c dependency list.
+    let gate_needs: Vec<String> = ctx
+        .graph
+        .qualifications
+        .iter()
+        .map(|q| {
+            if ctx.graph.consumer_validators.contains_key(&q.target) {
+                consumer_job_id(&q.build_job_id)
+            } else {
+                q.job_id.clone()
             }
-            out.push_str("      - name: Download consumer evidence ");
-            out.push_str(&yaml_scalar(&qual.target));
-            out.push_str("\n        uses: ");
-            out.push_str(&yaml_scalar(&download_pin.reference));
-            out.push_str("\n        with:\n          name: ");
-            out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
-            out.push_str("\n          path: ");
-            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
-            out.push('\n');
-        }
-        // M003e: the gate outcome directory must exist before
-        // `_evaluate-gate` writes the outcome file.
-        mkdir_step(&mut out, "Create gate outcome directory", "./eggpack-gate");
-        out.push_str("      - name: Evaluate required qualification gate\n        shell: bash\n        run: ");
-        out.push_str(&yaml_scalar(&gate_cmd.to_shell()));
-        out.push('\n');
+        })
+        .collect();
+    let mut gate_needs = gate_needs;
+    gate_needs.sort();
+    if ctx.staging_enabled {
+        emit_source_needs(out, &gate_needs, true, ctx.is_runtime());
+    } else {
+        out.push('[');
+        out.push_str(&gate_needs.join(", "));
+        out.push(']');
     }
-    // Aggregate: same canonical per-target directories, explicit contract /
-    // release-plan / CI-plan / inputs-dir / output-root / summary arguments.
-    // The finalized internal release is uploaded only when the aggregate
-    // outcome is Complete (the CLI fails closed otherwise, so no partial
-    // release can be uploaded).
-    {
-        let agg_cmd = RunnerCommand::Aggregate {
-            contract: inputs.contract.clone(),
-            release_plan: inputs.release_plan.clone(),
-            ci_plan: inputs.ci_plan.clone(),
-            inputs_dir: "./eggpack-inputs".into(),
-            output_root: "./eggpack-finalized/root".into(),
-            output: "./eggpack-finalized/summary.json".into(),
-        };
-        out.push_str("  ");
-        out.push_str(&graph.aggregate.job_id);
-        out.push_str(":\n    needs: ");
-        emit_source_needs(
-            &mut out,
-            std::slice::from_ref(&graph.gate_job_id),
-            staging_enabled,
-            runtime.is_some(),
-        );
-        out.push_str("\n    runs-on: ");
-        out.push_str(&yaml_scalar(&policy.preflight_runner));
-        out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
-        out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n");
-        checkout_snippet(
-            &mut out,
-            policy,
-            staging_enabled.then_some(frozen_source_sha_expression(runtime.is_some())),
-        );
-        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        // M003e: install before any Eggpack invocation; verify right after.
-        out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, staging_enabled, policy);
-        for qual in &graph.qualifications {
-            out.push_str("      - name: Download qualification ");
-            out.push_str(&yaml_scalar(&qual.target));
-            out.push_str("\n        uses: ");
-            out.push_str(&yaml_scalar(&download_pin.reference));
-            out.push_str("\n        with:\n          name: ");
-            out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
-            out.push_str("\n          path: ");
-            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
-            out.push('\n');
-        }
-        for qual in &graph.qualifications {
-            if !graph.consumer_validators.contains_key(&qual.target) {
-                continue;
-            }
-            out.push_str("      - name: Download consumer evidence ");
-            out.push_str(&yaml_scalar(&qual.target));
-            out.push_str("\n        uses: ");
-            out.push_str(&yaml_scalar(&download_pin.reference));
-            out.push_str("\n        with:\n          name: ");
-            out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
-            out.push_str("\n          path: ");
-            out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
-            out.push('\n');
-        }
-        // M003e: the finalized release directory must exist before
-        // `_aggregate` writes the summary and adjacent manifest.
-        mkdir_step(
-            &mut out,
-            "Create finalized release directory",
-            "./eggpack-finalized",
-        );
-        out.push_str(
-            "      - name: Aggregate and finalize release\n        shell: bash\n        run: ",
-        );
-        out.push_str(&yaml_scalar(&agg_cmd.to_shell()));
-        out.push('\n');
-        out.push_str("      - name: Upload internal finalized release\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+    out.push_str("\n    runs-on: ");
+    out.push_str(&yaml_scalar(&policy.preflight_runner));
+    out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+    out.push_str(&policy.timeout_minutes.to_string());
+    out.push_str("\n    steps:\n");
+    emit_source_checkout_step(out, ctx, ctx.frozen_sha_opt());
+    emit_runtime_identity_download_step(out, ctx);
+    // M003e: install before any Eggpack invocation; verify right after.
+    emit_tool_install_and_verify_steps(out, ctx);
+    for qual in &ctx.graph.qualifications {
+        out.push_str("      - name: Download qualification ");
+        out.push_str(&yaml_scalar(&qual.target));
+        out.push_str("\n        uses: ");
+        out.push_str(&yaml_scalar(&ctx.download_pin.reference));
         out.push_str("\n        with:\n          name: ");
-        out.push_str(&yaml_scalar(&graph.aggregate.final_handoff_name));
-        out.push_str("\n          path: ./eggpack-finalized\n          if-no-files-found: error\n          retention-days: ");
-        out.push_str(&policy.artifact_retention_days.to_string());
+        out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
         out.push('\n');
     }
-    // Stage (M003b): exactly one least-privilege draft staging job. It runs
-    // only after aggregate, only for exact tags (tag push or explicit dispatch
-    // input), consumes the exact aggregate artifact, calls only the M003a
-    // draft-only commands, and uploads the bounded staging receipt. Every
-    // prior job remains read-only; only stage has contents:write; no job
-    // receives id-token:write; the token travels via environment only.
-    if let Some(staging) = &graph.staging {
-        let staging_policy = policy
-            .staging
+    // Consumer evidence joins the same canonical per-target layout so
+    // the gate consumes one complete directory per target.
+    for qual in &ctx.graph.qualifications {
+        if !ctx.graph.consumer_validators.contains_key(&qual.target) {
+            continue;
+        }
+        out.push_str("      - name: Download consumer evidence ");
+        out.push_str(&yaml_scalar(&qual.target));
+        out.push_str("\n        uses: ");
+        out.push_str(&yaml_scalar(&ctx.download_pin.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+        out.push('\n');
+    }
+    // M003e: the gate outcome directory must exist before
+    // `_evaluate-gate` writes the outcome file.
+    mkdir_step(out, "Create gate outcome directory", "./eggpack-gate");
+    out.push_str(
+        "      - name: Evaluate required qualification gate\n        shell: bash\n        run: ",
+    );
+    out.push_str(&yaml_scalar(&gate_cmd.to_shell()));
+    out.push('\n');
+    Ok(())
+}
+
+/// Emit the aggregate job: same canonical per-target directories, explicit
+/// contract / release-plan / CI-plan / inputs-dir / output-root / summary
+/// arguments.
+///
+/// The finalized internal release is uploaded only when the aggregate outcome
+/// is Complete (the CLI fails closed otherwise, so no partial release can be
+/// uploaded).
+fn emit_aggregate_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    let agg_cmd = RunnerCommand::Aggregate {
+        contract: ctx.inputs.contract.clone(),
+        release_plan: ctx.inputs.release_plan.clone(),
+        ci_plan: ctx.inputs.ci_plan.clone(),
+        inputs_dir: "./eggpack-inputs".into(),
+        output_root: "./eggpack-finalized/root".into(),
+        output: "./eggpack-finalized/summary.json".into(),
+    };
+    out.push_str("  ");
+    out.push_str(&ctx.graph.aggregate.job_id);
+    out.push_str(":\n    needs: ");
+    emit_source_needs(
+        out,
+        std::slice::from_ref(&ctx.graph.gate_job_id),
+        ctx.staging_enabled,
+        ctx.is_runtime(),
+    );
+    out.push_str("\n    runs-on: ");
+    out.push_str(&yaml_scalar(&policy.preflight_runner));
+    out.push_str("\n    permissions:\n      contents: read\n    timeout-minutes: ");
+    out.push_str(&policy.timeout_minutes.to_string());
+    out.push_str("\n    steps:\n");
+    emit_source_checkout_step(out, ctx, ctx.frozen_sha_opt());
+    emit_runtime_identity_download_step(out, ctx);
+    // M003e: install before any Eggpack invocation; verify right after.
+    emit_tool_install_and_verify_steps(out, ctx);
+    for qual in &ctx.graph.qualifications {
+        out.push_str("      - name: Download qualification ");
+        out.push_str(&yaml_scalar(&qual.target));
+        out.push_str("\n        uses: ");
+        out.push_str(&yaml_scalar(&ctx.download_pin.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&qual.evidence_handoff_name));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+        out.push('\n');
+    }
+    for qual in &ctx.graph.qualifications {
+        if !ctx.graph.consumer_validators.contains_key(&qual.target) {
+            continue;
+        }
+        out.push_str("      - name: Download consumer evidence ");
+        out.push_str(&yaml_scalar(&qual.target));
+        out.push_str("\n        uses: ");
+        out.push_str(&yaml_scalar(&ctx.download_pin.reference));
+        out.push_str("\n        with:\n          name: ");
+        out.push_str(&yaml_scalar(&consumer_evidence_handoff_name(&qual.target)));
+        out.push_str("\n          path: ");
+        out.push_str(&yaml_scalar(&format!("./eggpack-inputs/{}", qual.target)));
+        out.push('\n');
+    }
+    // M003e: the finalized release directory must exist before
+    // `_aggregate` writes the summary and adjacent manifest.
+    mkdir_step(
+        out,
+        "Create finalized release directory",
+        "./eggpack-finalized",
+    );
+    out.push_str(
+        "      - name: Aggregate and finalize release\n        shell: bash\n        run: ",
+    );
+    out.push_str(&yaml_scalar(&agg_cmd.to_shell()));
+    out.push('\n');
+    out.push_str("      - name: Upload internal finalized release\n        uses: ");
+    out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+    out.push_str("\n        with:\n          name: ");
+    out.push_str(&yaml_scalar(&ctx.graph.aggregate.final_handoff_name));
+    out.push_str("\n          path: ./eggpack-finalized\n          if-no-files-found: error\n          retention-days: ");
+    out.push_str(&policy.artifact_retention_days.to_string());
+    out.push('\n');
+    Ok(())
+}
+
+/// Emit the stage job (M003b): exactly one least-privilege draft staging job.
+///
+/// It runs only after aggregate, only for exact tags (tag push or explicit
+/// dispatch input), consumes the exact aggregate artifact, calls only the
+/// M003a draft-only commands, and uploads the bounded staging receipt. Every
+/// prior job remains read-only; only stage has contents:write; no job
+/// receives id-token:write; the token travels via environment only.
+fn emit_stage_job(out: &mut String, ctx: &ReleaseRenderContext<'_>) -> Result<(), CiError> {
+    let policy = ctx.policy;
+    let Some(staging) = &ctx.graph.staging else {
+        return Ok(());
+    };
+    let staging_policy = policy
+        .staging
+        .as_ref()
+        .ok_or_else(|| fail("staging requested but no GitHub staging policy exists"))?;
+    if staging.provider != StagingProvider::GitHubDraft {
+        return Err(fail("unsupported staging provider"));
+    }
+    if staging_policy.owner.is_empty() || staging_policy.repository.is_empty() {
+        return Err(fail("invalid GitHub staging repository identity"));
+    }
+    let prepare = RunnerCommand::PrepareStage {
+        contract: staging_policy.inputs.contract.clone(),
+        release_manifest: "./eggpack-finalized/release-manifest.json".into(),
+        finalized_root: "./eggpack-finalized/root".into(),
+        github_policy: staging_policy.inputs.github_policy.clone(),
+        install_policy: staging_policy.inputs.install_policy.clone(),
+        output_dir: "./eggpack-staging".into(),
+        output_payload: "./eggpack-staging-payload.json".into(),
+        // M003d installer presentation is explicit: the presentation
+        // path comes from staging inputs and the source root is the
+        // checked-out repository. Absent for M003c-compatible staging.
+        installer_presentation: staging_policy.inputs.installer_presentation.clone(),
+        source_root: staging_policy
+            .inputs
+            .installer_presentation
             .as_ref()
-            .ok_or_else(|| fail("staging requested but no GitHub staging policy exists"))?;
-        if staging.provider != StagingProvider::GitHubDraft {
-            return Err(fail("unsupported staging provider"));
-        }
-        if staging_policy.owner.is_empty() || staging_policy.repository.is_empty() {
-            return Err(fail("invalid GitHub staging repository identity"));
-        }
-        let prepare = RunnerCommand::PrepareStage {
-            contract: staging_policy.inputs.contract.clone(),
-            release_manifest: "./eggpack-finalized/release-manifest.json".into(),
-            finalized_root: "./eggpack-finalized/root".into(),
-            github_policy: staging_policy.inputs.github_policy.clone(),
-            install_policy: staging_policy.inputs.install_policy.clone(),
-            output_dir: "./eggpack-staging".into(),
-            output_payload: "./eggpack-staging-payload.json".into(),
-            // M003d installer presentation is explicit: the presentation
-            // path comes from staging inputs and the source root is the
-            // checked-out repository. Absent for M003c-compatible staging.
-            installer_presentation: staging_policy.inputs.installer_presentation.clone(),
-            source_root: staging_policy
-                .inputs
-                .installer_presentation
-                .as_ref()
-                .map(|_| "${{ github.workspace }}".to_owned()),
-        };
-        let stage_cmd = RunnerCommand::StageGithubDraft {
-            payload: "./eggpack-staging-payload.json".into(),
-            github_policy: staging_policy.inputs.github_policy.clone(),
-            staging_dir: "./eggpack-staging".into(),
-            output_receipt: "./eggpack-staging-receipt.json".into(),
-        };
-        out.push_str("  ");
-        out.push_str(&staging.job_id);
-        out.push_str(":\n    needs: ");
-        emit_source_needs(
-            &mut out,
-            std::slice::from_ref(&staging.aggregate_job_id),
-            true,
-            runtime.is_some(),
-        );
-        let stage_if = match staging_policy.tag_source {
-            StagingTagSource::RefName => "github.event_name == 'push' && github.ref_type == 'tag'",
-            StagingTagSource::DispatchInput => "github.event_name == 'workflow_dispatch'",
-        };
-        out.push_str("\n    if: ");
-        out.push_str(stage_if);
-        out.push_str("\n    runs-on: ");
-        out.push_str(&yaml_scalar(&staging_policy.runner));
-        if let Some(environment) = &staging_policy.environment {
-            out.push_str("\n    environment:\n      name: ");
-            out.push_str(&yaml_scalar(environment));
-        }
-        out.push_str("\n    permissions:\n      contents: write\n    timeout-minutes: ");
-        out.push_str(&policy.timeout_minutes.to_string());
-        out.push_str("\n    steps:\n");
-        emit_tag_resolution_step(
-            &mut out,
-            staging_policy.tag_source,
-            policy.release_identity_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver),
-            Some(frozen_source_sha_expression(runtime.is_some())),
-            "confirm_tag_source",
-        );
-        checkout_snippet(
-            &mut out,
-            policy,
-            Some(frozen_source_sha_expression(runtime.is_some())),
-        );
-        runtime_identity_download_step(&mut out, download_pin, runtime.is_some());
-        // M003e: install before any Eggpack invocation; verify right after.
-        out.push_str(&tool_install_snippet(tool));
-        source_verify_snippet(&mut out, inputs, true, policy);
-        out.push_str("      - name: Download finalized release\n        uses: ");
-        out.push_str(&yaml_scalar(&download_pin.reference));
-        out.push_str("\n        with:\n          name: ");
-        out.push_str(&yaml_scalar(&staging.finalized_handoff_name));
-        out.push_str("\n          path: ./eggpack-finalized\n          if-no-files-found: error\n");
-        out.push_str("      - name: Prepare staging payload\n        shell: bash\n        run: ");
-        out.push_str(&yaml_scalar(&prepare.to_shell()));
-        out.push('\n');
-        out.push_str("      - name: Stage GitHub draft release\n        shell: bash\n        env:\n          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ");
-        out.push_str(&yaml_scalar(&stage_cmd.to_shell()));
-        out.push('\n');
-        out.push_str("      - name: Upload staging receipt\n        uses: ");
-        out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
-        out.push_str("\n        with:\n          name: ");
-        out.push_str(&yaml_scalar(&staging.receipt_handoff_name));
-        out.push_str("\n          path: ./eggpack-staging-receipt.json\n          if-no-files-found: error\n          retention-days: ");
-        out.push_str(&staging_policy.receipt_retention_days.to_string());
-        out.push('\n');
+            .map(|_| "${{ github.workspace }}".to_owned()),
+    };
+    let stage_cmd = RunnerCommand::StageGithubDraft {
+        payload: "./eggpack-staging-payload.json".into(),
+        github_policy: staging_policy.inputs.github_policy.clone(),
+        staging_dir: "./eggpack-staging".into(),
+        output_receipt: "./eggpack-staging-receipt.json".into(),
+    };
+    out.push_str("  ");
+    out.push_str(&staging.job_id);
+    out.push_str(":\n    needs: ");
+    emit_source_needs(
+        out,
+        std::slice::from_ref(&staging.aggregate_job_id),
+        true,
+        ctx.is_runtime(),
+    );
+    let stage_if = match staging_policy.tag_source {
+        StagingTagSource::RefName => "github.event_name == 'push' && github.ref_type == 'tag'",
+        StagingTagSource::DispatchInput => "github.event_name == 'workflow_dispatch'",
+    };
+    out.push_str("\n    if: ");
+    out.push_str(stage_if);
+    out.push_str("\n    runs-on: ");
+    out.push_str(&yaml_scalar(&staging_policy.runner));
+    if let Some(environment) = &staging_policy.environment {
+        out.push_str("\n    environment:\n      name: ");
+        out.push_str(&yaml_scalar(environment));
     }
+    out.push_str("\n    permissions:\n      contents: write\n    timeout-minutes: ");
+    out.push_str(&policy.timeout_minutes.to_string());
+    out.push_str("\n    steps:\n");
+    emit_tag_resolution_step(
+        out,
+        staging_policy.tag_source,
+        policy.release_identity_mode == Some(ReleaseIdentityMode::VPrefixedStableSemver),
+        Some(ctx.frozen_sha()),
+        "confirm_tag_source",
+    );
+    checkout_snippet(out, policy, Some(ctx.frozen_sha()));
+    emit_runtime_identity_download_step(out, ctx);
+    // M003e: install before any Eggpack invocation; verify right after.
+    emit_tool_install_and_verify_steps(out, ctx);
+    out.push_str("      - name: Download finalized release\n        uses: ");
+    out.push_str(&yaml_scalar(&ctx.download_pin.reference));
+    out.push_str("\n        with:\n          name: ");
+    out.push_str(&yaml_scalar(&staging.finalized_handoff_name));
+    out.push_str("\n          path: ./eggpack-finalized\n          if-no-files-found: error\n");
+    out.push_str("      - name: Prepare staging payload\n        shell: bash\n        run: ");
+    out.push_str(&yaml_scalar(&prepare.to_shell()));
+    out.push('\n');
+    out.push_str("      - name: Stage GitHub draft release\n        shell: bash\n        env:\n          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}\n        run: ");
+    out.push_str(&yaml_scalar(&stage_cmd.to_shell()));
+    out.push('\n');
+    out.push_str("      - name: Upload staging receipt\n        uses: ");
+    out.push_str(&yaml_scalar(&policy.upload_artifact.reference));
+    out.push_str("\n        with:\n          name: ");
+    out.push_str(&yaml_scalar(&staging.receipt_handoff_name));
+    out.push_str("\n          path: ./eggpack-staging-receipt.json\n          if-no-files-found: error\n          retention-days: ");
+    out.push_str(&staging_policy.receipt_retention_days.to_string());
+    out.push('\n');
+    Ok(())
+}
+
+/// Apply the static guards to a rendered release workflow.
+///
+/// The generated workflow must never publish, clobber via release CLIs,
+/// mutate tags, or mint OIDC tokens. The only permitted network
+/// acquisition is the finite M005 build-tool bootstrap: a `curl` line is
+/// allowed only when it carries the HTTPS-only flags, bounded timeouts, and
+/// the renderer-owned `$zig_url` variable that is assigned the fixed
+/// `ziglang.org/download/` origin two lines above (M005 §8). Any other
+/// `curl` invocation still fails closed.
+fn validate_rendered_release_workflow(out: &str) -> Result<(), CiError> {
     if out.len() > MAX_WORKFLOW_BYTES {
         return Err(fail("rendered release workflow exceeds size bound"));
     }
-    // Static guards: the generated workflow must never publish, clobber via
-    // release CLIs, mutate tags, or mint OIDC tokens. The only permitted
-    // network acquisition is the finite M005 build-tool bootstrap: a `curl`
-    // line is allowed only when it carries the HTTPS-only flags, bounded
-    // timeouts, and the renderer-owned `$zig_url` variable that is assigned
-    // the fixed `ziglang.org/download/` origin two lines above (M005 §8).
-    // Any other `curl` invocation still fails closed.
     if out.contains("id-token: write") {
         return Err(fail("generated workflow must not request id-token write"));
     }
@@ -4112,11 +4242,53 @@ fn render_release_github_inner(
             "generated workflow bootstrap curl lacks the fixed Zig origin",
         ));
     }
-    if contains_unsafe_dispatch_expression_in_run(&out) {
+    if contains_unsafe_dispatch_expression_in_run(out) {
         return Err(fail(
             "generated run script interpolates an untrusted dispatch tag",
         ));
     }
+    Ok(())
+}
+
+/// Deterministically render the release workflow for a projected graph.
+///
+/// The renderer validates first, then emits: the workflow header, the
+/// preflight job, the runtime-identity job (reusable mode only), the build,
+/// qualification, consumer-validation, gate, aggregate, and stage jobs.
+/// Every emitter appends to one buffer, so the rendered bytes are a pure
+/// function of the validated inputs.
+fn render_release_github_inner(
+    graph: &ReleaseCIPlanV1,
+    policy: &GitHubPolicy,
+    runtime: Option<&RuntimeRender>,
+) -> Result<String, CiError> {
+    validate_release_render_policy(graph, policy)?;
+    validate_release_identity_mode(policy, runtime)?;
+    validate_staging_trigger_match(policy)?;
+    let (tool, download_pin, inputs) = validate_release_tool_pins(policy)?;
+    validate_emulated_runtime_policy(graph, policy)?;
+    let validator_map = resolve_consumer_validator_map(graph, inputs)?;
+    let ctx = ReleaseRenderContext {
+        graph,
+        policy,
+        runtime,
+        tool,
+        download_pin,
+        inputs,
+        validator_map,
+        staging_enabled: graph.staging.is_some(),
+    };
+    let mut out = String::new();
+    emit_release_workflow_header(&mut out, &ctx);
+    emit_preflight_job(&mut out, &ctx)?;
+    emit_resolve_job(&mut out, &ctx)?;
+    emit_build_jobs(&mut out, &ctx)?;
+    emit_qualification_jobs(&mut out, &ctx)?;
+    emit_consumer_validation_jobs(&mut out, &ctx)?;
+    emit_gate_job(&mut out, &ctx)?;
+    emit_aggregate_job(&mut out, &ctx)?;
+    emit_stage_job(&mut out, &ctx)?;
+    validate_rendered_release_workflow(&out)?;
     Ok(out)
 }
 
@@ -4127,29 +4299,7 @@ pub fn check_release_github(
     existing: &[u8],
 ) -> Result<DriftReport, CiError> {
     let expected = render_release_github(graph, policy)?;
-    if existing.len() > MAX_WORKFLOW_BYTES {
-        return Err(fail("existing workflow exceeds size bound"));
-    }
-    let expected = normalize_newlines(expected.as_bytes());
-    let existing = normalize_newlines(existing);
-    let matches = expected == existing;
-    let first_difference = if matches {
-        None
-    } else {
-        Some(
-            expected
-                .iter()
-                .zip(&existing)
-                .position(|(a, b)| a != b)
-                .unwrap_or_else(|| expected.len().min(existing.len())),
-        )
-    };
-    Ok(DriftReport {
-        matches,
-        expected_bytes: expected.len(),
-        actual_bytes: existing.len(),
-        first_difference,
-    })
+    compare_workflow_bytes(expected.as_bytes(), existing)
 }
 
 // ---------------------------------------------------------------------------
@@ -11734,5 +11884,338 @@ support="required"
         assert!(!validate_sha256_hex(&"0".repeat(64)).is_ok());
         assert!(!eggpack_manifest::validate_sha256_hex(&"0".repeat(64)).is_ok());
         assert!(!eggpack_core::validate_sha256_hex(&"0".repeat(64)).is_ok());
+    }
+
+    // ---------------------------------------------------------------------
+    // M003n — producer implementation consolidation.
+    //
+    // The drift comparison is one implementation, the staging payload has
+    // one builder, and the release renderer is decomposed into named
+    // private helpers. Every rendered byte is pinned here.
+    // ---------------------------------------------------------------------
+
+    /// Byte-exact SHA-256 of the reusable release workflow (ref-name tag
+    /// source), captured before the consolidation.
+    const M003N_REUSABLE_REFNAME_SHA256: &str =
+        "712fb94cb0dceccf7546b857960f599e36312641a74aa836b94d1010e3935c92";
+    /// Byte-exact length of the reusable release workflow (ref-name tag
+    /// source), captured before the consolidation.
+    const M003N_REUSABLE_REFNAME_LEN: usize = 28_591;
+    /// Byte-exact SHA-256 of the reusable release workflow (dispatch-input
+    /// tag source), captured before the consolidation.
+    const M003N_REUSABLE_DISPATCH_SHA256: &str =
+        "1eb5559409f930926af8a78ae60413ad79af860725247b5184ef020815698b36";
+    /// Byte-exact length of the reusable release workflow (dispatch-input
+    /// tag source), captured before the consolidation.
+    const M003N_REUSABLE_DISPATCH_LEN: usize = 28_735;
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::Digest;
+        sha2::Sha256::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    /// The three renderers are distinct artifacts, not duplicates; only
+    /// their comparison is shared. Each one has its own drift check
+    /// function.
+    #[derive(Clone, Copy)]
+    enum DriftRenderer {
+        /// `render_github` / `check_github`.
+        Build,
+        /// `render_release_github` / `check_release_github`.
+        Release,
+        /// `render_reusable_release_github` / `check_reusable_release_github`.
+        Reusable,
+    }
+
+    /// Render the artifact one drift check function compares against.
+    fn drift_rendered(renderer: DriftRenderer) -> String {
+        match renderer {
+            DriftRenderer::Build => {
+                let ci_graph = graph(BuildStrategy::NativeCargo, SupportTier::Required);
+                render_github(&ci_graph, &policy()).unwrap()
+            }
+            DriftRenderer::Release => {
+                let (release_graph, release_policy) = m002_golden_case(
+                    include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+                    "eggsact",
+                    "1.2.3",
+                    vec![(
+                        "x86_64-unknown-linux-gnu",
+                        BuildStrategy::NativeCargo,
+                        SupportTier::Required,
+                        Qualification::Structural,
+                    )],
+                    vec!["linux-x64"],
+                );
+                render_release_github(&release_graph, &release_policy).unwrap()
+            }
+            DriftRenderer::Reusable => {
+                let (contract, shape, reusable_policy) =
+                    m003d_shape_and_policy(StagingTagSource::RefName);
+                render_reusable_release_github(&contract, &shape, &reusable_policy).unwrap()
+            }
+        }
+    }
+
+    /// Run one drift check function over the given existing bytes.
+    fn drift_check(renderer: DriftRenderer, existing: &[u8]) -> Result<DriftReport, CiError> {
+        match renderer {
+            DriftRenderer::Build => {
+                let ci_graph = graph(BuildStrategy::NativeCargo, SupportTier::Required);
+                check_github(&ci_graph, &policy(), existing)
+            }
+            DriftRenderer::Release => {
+                let (release_graph, release_policy) = m002_golden_case(
+                    include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+                    "eggsact",
+                    "1.2.3",
+                    vec![(
+                        "x86_64-unknown-linux-gnu",
+                        BuildStrategy::NativeCargo,
+                        SupportTier::Required,
+                        Qualification::Structural,
+                    )],
+                    vec!["linux-x64"],
+                );
+                check_release_github(&release_graph, &release_policy, existing)
+            }
+            DriftRenderer::Reusable => {
+                let (contract, shape, reusable_policy) =
+                    m003d_shape_and_policy(StagingTagSource::RefName);
+                check_reusable_release_github(&contract, &shape, &reusable_policy, existing)
+            }
+        }
+    }
+
+    /// The public check function must return exactly what the one shared
+    /// comparison returns for the same (rendered, existing) byte pair.
+    fn assert_shared_comparison(
+        renderer: DriftRenderer,
+        rendered: &str,
+        existing: &[u8],
+    ) -> DriftReport {
+        let report = drift_check(renderer, existing).unwrap();
+        let shared = compare_workflow_bytes(rendered.as_bytes(), existing).unwrap();
+        assert_eq!(
+            report, shared,
+            "the check function diverged from the one shared comparison"
+        );
+        report
+    }
+
+    /// Classify a drift report so that the three check functions can be
+    /// compared on equal terms despite rendering different artifacts.
+    fn classify(report: &DriftReport, expected_len: usize) -> &'static str {
+        if report.matches {
+            return "match";
+        }
+        if report.actual_bytes < expected_len {
+            "shorter"
+        } else if report.first_difference == Some(0) {
+            "first-byte"
+        } else {
+            "last-byte"
+        }
+    }
+
+    #[test]
+    fn m003n_renderers_are_byte_identical_to_their_baselines() {
+        // render_github.
+        let ci_graph = graph(BuildStrategy::NativeCargo, SupportTier::Required);
+        assert_golden(
+            &render_github(&ci_graph, &policy()).unwrap(),
+            include_str!("../tests/fixtures/native-direct.yml"),
+        );
+        // render_release_github without staging.
+        let (release_graph, release_policy) = m002_golden_case(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&release_graph, &release_policy).unwrap(),
+            include_str!("../tests/fixtures/m002-direct.yml"),
+        );
+        // render_release_github with staging.
+        let (staged_graph, staged_policy) = m003b_staging_graph(
+            include_str!("../../eggpack-contract/tests/fixtures/simple-direct.toml"),
+            "eggsact",
+            "1.2.3",
+            vec![(
+                "x86_64-unknown-linux-gnu",
+                BuildStrategy::NativeCargo,
+                SupportTier::Required,
+                Qualification::Structural,
+            )],
+            vec!["linux-x64"],
+        );
+        assert_golden(
+            &render_release_github(&staged_graph, &staged_policy).unwrap(),
+            include_str!("../tests/fixtures/m003b-direct-staging.yml"),
+        );
+        // render_reusable_release_github, pinned by exact length and digest
+        // because the reusable workflow has no checked-in fixture file.
+        for (tag_source, digest, len) in [
+            (
+                StagingTagSource::RefName,
+                M003N_REUSABLE_REFNAME_SHA256,
+                M003N_REUSABLE_REFNAME_LEN,
+            ),
+            (
+                StagingTagSource::DispatchInput,
+                M003N_REUSABLE_DISPATCH_SHA256,
+                M003N_REUSABLE_DISPATCH_LEN,
+            ),
+        ] {
+            let (contract, shape, reusable_policy) = m003d_shape_and_policy(tag_source);
+            let rendered =
+                render_reusable_release_github(&contract, &shape, &reusable_policy).unwrap();
+            assert_eq!(rendered.len(), len, "reusable workflow length changed");
+            assert_eq!(sha256_hex(rendered.as_bytes()), digest);
+        }
+    }
+
+    #[test]
+    fn m003n_three_check_functions_share_one_drift_comparison() {
+        const RENDERERS: [DriftRenderer; 3] = [
+            DriftRenderer::Build,
+            DriftRenderer::Release,
+            DriftRenderer::Reusable,
+        ];
+        // One verdict per case, agreed by all three check functions.
+        let mut case_verdicts: Vec<(&'static str, &'static str)> = Vec::new();
+        for renderer in RENDERERS {
+            let rendered = drift_rendered(renderer);
+            assert!(
+                !rendered.contains('\r'),
+                "the rendered workflow must be LF-only before comparison"
+            );
+            let len = rendered.len();
+
+            // Matching workflow.
+            let report = assert_shared_comparison(renderer, &rendered, rendered.as_bytes());
+            assert!(report.matches);
+            assert_eq!(report.expected_bytes, len);
+            assert_eq!(report.actual_bytes, len);
+            assert_eq!(report.first_difference, None);
+            case_verdicts.push(("match", classify(&report, len)));
+
+            // CRLF variant: CRLF normalizes to LF only, so it still matches.
+            let crlf = rendered.replace('\n', "\r\n");
+            let report = assert_shared_comparison(renderer, &rendered, crlf.as_bytes());
+            assert!(report.matches, "CRLF must normalize to LF only");
+            assert_eq!(report.expected_bytes, len);
+            assert_eq!(report.actual_bytes, len);
+            assert_eq!(report.first_difference, None);
+            case_verdicts.push(("crlf", classify(&report, len)));
+
+            // Difference at the first byte.
+            let mut first = rendered.clone().into_bytes();
+            first[0] ^= 0x01;
+            let report = assert_shared_comparison(renderer, &rendered, &first);
+            assert!(!report.matches);
+            assert_eq!(report.expected_bytes, len);
+            assert_eq!(report.actual_bytes, len);
+            assert_eq!(report.first_difference, Some(0));
+            case_verdicts.push(("first-byte", classify(&report, len)));
+
+            // Difference at the last byte.
+            let mut last = rendered.clone().into_bytes();
+            let last_index = last.len() - 1;
+            last[last_index] ^= 0x01;
+            let report = assert_shared_comparison(renderer, &rendered, &last);
+            assert!(!report.matches);
+            assert_eq!(report.expected_bytes, len);
+            assert_eq!(report.actual_bytes, len);
+            assert_eq!(report.first_difference, Some(last_index));
+            case_verdicts.push(("last-byte", classify(&report, len)));
+
+            // Length mismatch: the shorter length is the fallback offset.
+            let report =
+                assert_shared_comparison(renderer, &rendered, &rendered.as_bytes()[..len - 1]);
+            assert!(!report.matches);
+            assert_eq!(report.expected_bytes, len);
+            assert_eq!(report.actual_bytes, len - 1);
+            assert_eq!(report.first_difference, Some(len - 1));
+            case_verdicts.push(("shorter", classify(&report, len)));
+        }
+        // Every case has one verdict per check function, and all three agree.
+        for (case, expected) in [
+            ("match", "match"),
+            ("crlf", "match"),
+            ("first-byte", "first-byte"),
+            ("last-byte", "last-byte"),
+            ("shorter", "shorter"),
+        ] {
+            let observed: Vec<&str> = case_verdicts
+                .iter()
+                .filter(|(name, _)| *name == case)
+                .map(|(_, verdict)| *verdict)
+                .collect();
+            assert_eq!(observed.len(), 3, "case {case} is missing a report");
+            assert!(
+                observed.windows(2).all(|pair| pair[0] == pair[1]),
+                "the three check functions disagree on the {case} case: {observed:?}"
+            );
+            assert!(
+                observed.iter().all(|verdict| *verdict == expected),
+                "the {case} case must report {expected}: {observed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn m003n_identical_existing_bytes_produce_identical_reports_in_all_three_functions() {
+        const RENDERERS: [DriftRenderer; 3] = [
+            DriftRenderer::Build,
+            DriftRenderer::Release,
+            DriftRenderer::Reusable,
+        ];
+        // One fixed existing byte pair, fed to all three check functions.
+        let existing = drift_rendered(DriftRenderer::Build).into_bytes();
+        let mut actual_bytes: Vec<usize> = Vec::new();
+        for renderer in RENDERERS {
+            let rendered = drift_rendered(renderer);
+            let report = assert_shared_comparison(renderer, &rendered, &existing);
+            // The same existing bytes are measured identically by all three.
+            assert_eq!(report.actual_bytes, existing.len());
+            actual_bytes.push(report.actual_bytes);
+            // The verdict is the same equality test over the same two byte
+            // sequences, so it holds exactly when that renderer's own
+            // expected bytes equal the existing bytes.
+            assert_eq!(
+                report.matches,
+                normalize_newlines(rendered.as_bytes()) == normalize_newlines(&existing)
+            );
+        }
+        assert!(
+            actual_bytes.windows(2).all(|pair| pair[0] == pair[1]),
+            "the three check functions measured the identical existing bytes differently"
+        );
+    }
+
+    #[test]
+    fn m003n_over_size_workflow_is_rejected_by_every_check_function() {
+        let over_size = vec![b'x'; MAX_WORKFLOW_BYTES + 1];
+        for renderer in [
+            DriftRenderer::Build,
+            DriftRenderer::Release,
+            DriftRenderer::Reusable,
+        ] {
+            assert!(
+                drift_check(renderer, &over_size).is_err(),
+                "the size bound must apply to every check function"
+            );
+        }
     }
 }
