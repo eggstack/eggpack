@@ -1328,7 +1328,7 @@ mod tests {
             let mut bad_digest_ps = m.clone();
             if let ArtifactForm::Direct { artifact, .. } = &mut bad_digest_ps.targets[selected].form
             {
-                artifact.sha256 = "00".repeat(32);
+                artifact.sha256 = "ff".repeat(32);
             }
             let (ok, dest, _) = run_ps("bad-digest-powershell", &bad_digest_ps, b"abc", "200 OK");
             assert!(!ok);
@@ -1364,7 +1364,7 @@ mod tests {
         assert_eq!(fs::read_dir(&bad_dest).unwrap().count(), 0);
         let mut bad_digest = m.clone();
         if let ArtifactForm::Direct { artifact, .. } = &mut bad_digest.targets[selected].form {
-            artifact.sha256 = "00".repeat(32);
+            artifact.sha256 = "ff".repeat(32);
         }
         let origin = serve_once(b"abc", "200 OK");
         let bad_script = render_posix(
@@ -2332,7 +2332,7 @@ sidecar = "{asset}.sha256"
         // Wrong SHA leaves no files.
         let mut bad_sha = manifest.clone();
         if let ArtifactForm::Bundle { entries } = &mut bad_sha.targets[0].form {
-            entries[1].artifact.sha256 = "00".repeat(32);
+            entries[1].artifact.sha256 = "ff".repeat(32);
         }
         let bad_script = render_posix_with_policy(&contract, &bad_sha, &spec, &policy).unwrap();
         let bad_path = root.join("bad-sha.sh");
@@ -2653,7 +2653,7 @@ sidecar = "{asset}.sha256"
                 if mutate_size {
                     artifact.size += 1;
                 } else {
-                    artifact.sha256 = "00".repeat(32);
+                    artifact.sha256 = "ff".repeat(32);
                 }
             }
             let bad_script = render_posix_with_policy(&contract, &bad, &spec, &policy).unwrap();
@@ -3327,7 +3327,7 @@ sidecar = "{asset}.sha256"
                 if label == "size" {
                     artifact.size += 1;
                 } else {
-                    artifact.sha256 = "00".repeat(32);
+                    artifact.sha256 = "ff".repeat(32);
                 }
             }
             let bad_script =
