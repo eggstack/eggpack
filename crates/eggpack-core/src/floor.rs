@@ -189,8 +189,6 @@ enum FloorReadError {
     Malformed,
     /// The candidate exceeds a declared parsing bound.
     BoundExceeded,
-    /// The candidate carries a glibc version requirement that is not numeric.
-    UnrecognizedVersion,
 }
 
 /// A glibc symbol version requirement, compared component by component.
@@ -444,7 +442,14 @@ fn map_vaddr(segments: &[ProgramSegment], vaddr: u64) -> Result<u64, FloorReadEr
             .checked_add(segment.filesz)
             .ok_or(FloorReadError::Malformed)?;
         if vaddr >= segment.vaddr && vaddr < end {
-            return Ok(segment.offset + (vaddr - segment.vaddr));
+            // The segment offset comes from the ELF program header and is not
+            // bounded against the file length here, so the translation back
+            // into the file is overflow-checked like every other offset
+            // computation in this module.
+            return segment
+                .offset
+                .checked_add(vaddr - segment.vaddr)
+                .ok_or(FloorReadError::Malformed);
         }
     }
     Err(FloorReadError::Malformed)
@@ -475,40 +480,78 @@ fn read_version_name(
     Ok(String::from_utf8_lossy(&buffer[..end]).into_owned())
 }
 
+/// How one symbol version name classifies against a glibc floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GlibcVersionName {
+    /// Not a glibc requirement at all: the name carries no `GLIBC_` prefix.
+    NotGlibc,
+    /// A numeric glibc version requirement, comparable against a floor.
+    Numeric(GlibcVersion),
+    /// A `GLIBC_`-prefixed name that is not a plain numeric version.
+    ///
+    /// `GLIBC_PRIVATE` and `GLIBC_ABI_DT_RELR` are real and common. Such a
+    /// name cannot be compared against a declared floor, but it does not
+    /// invalidate the *other* requirements in the same image, so it is
+    /// reported rather than treated as a reason to abandon the scan.
+    Unrecognized,
+}
+
 /// Parse a symbol version name into a glibc version requirement.
 ///
 /// A name that does not start with `GLIBC_` is not a glibc requirement. A
 /// `GLIBC_` name that is not a plain numeric version cannot be compared
-/// against a declared floor, so it is refused rather than ignored.
-fn parse_glibc_version(name: &str) -> Result<Option<GlibcVersion>, FloorReadError> {
+/// against a declared floor, so it is classified as
+/// [`GlibcVersionName::Unrecognized`] rather than ignored — and, critically,
+/// rather than aborting the scan and discarding every other requirement the
+/// image carries.
+fn parse_glibc_version(name: &str) -> GlibcVersionName {
     let Some(rest) = name.strip_prefix("GLIBC_") else {
-        return Ok(None);
+        return GlibcVersionName::NotGlibc;
     };
     let parts: Vec<&str> = rest.split('.').collect();
     if parts.len() < 2 || parts.len() > 3 {
-        return Err(FloorReadError::UnrecognizedVersion);
+        return GlibcVersionName::Unrecognized;
     }
     let mut numbers = [0u16; 3];
     for (index, part) in parts.iter().enumerate() {
         if part.is_empty() || part.len() > 5 || !part.bytes().all(|byte| byte.is_ascii_digit()) {
-            return Err(FloorReadError::UnrecognizedVersion);
+            return GlibcVersionName::Unrecognized;
         }
-        numbers[index] = part
-            .parse::<u16>()
-            .map_err(|_| FloorReadError::UnrecognizedVersion)?;
+        let Ok(number) = part.parse::<u16>() else {
+            return GlibcVersionName::Unrecognized;
+        };
+        numbers[index] = number;
     }
-    Ok(Some(GlibcVersion {
+    GlibcVersionName::Numeric(GlibcVersion {
         major: numbers[0],
         minor: numbers[1],
         patch: numbers[2],
-    }))
+    })
 }
 
-/// Read the highest glibc symbol version requirement of one ELF candidate.
+/// The glibc version requirements observed in one ELF candidate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GlibcRequirements {
+    /// The highest numeric version requirement observed, if any.
+    highest: Option<GlibcVersion>,
+    /// Whether a `GLIBC_`-prefixed name was observed that is not a plain
+    /// numeric version.
+    ///
+    /// Such a name cannot be compared against a declared floor, so the floor
+    /// cannot be *verified* from this image. It does not contradict the floor
+    /// either, and it must not suppress the numeric requirements observed
+    /// alongside it.
+    unrecognized: bool,
+}
+
+/// Read the glibc version requirements of one ELF candidate.
 ///
-/// Returns `Ok(None)` when the candidate carries no glibc version
-/// requirement at all.
-fn read_glibc_requirement(path: &Path) -> Result<Option<GlibcVersion>, FloorReadError> {
+/// The scan visits **every** requirement in the image. A `GLIBC_`-prefixed
+/// name that is not a plain numeric version is recorded as unrecognized and
+/// the scan continues, because abandoning it at the first such name would
+/// discard every other requirement the image carries — including one that
+/// contradicts the declared floor.
+fn read_glibc_requirement(path: &Path) -> Result<GlibcRequirements, FloorReadError> {
     let mut file = File::open(path).map_err(|_| FloorReadError::Unreadable)?;
     let length = file
         .metadata()
@@ -517,7 +560,10 @@ fn read_glibc_requirement(path: &Path) -> Result<Option<GlibcVersion>, FloorRead
     let header = parse_elf_header(&mut file, length)?;
     let segments = read_program_segments(&mut file, &header, length)?;
     let Some(dynamic) = segments.iter().find(|segment| segment.kind == PT_DYNAMIC) else {
-        return Ok(None);
+        return Ok(GlibcRequirements {
+            highest: None,
+            unrecognized: false,
+        });
     };
     let entries = read_dynamic_entries(&mut file, &header, dynamic, length)?;
     let find = |tag: u64| {
@@ -527,7 +573,10 @@ fn read_glibc_requirement(path: &Path) -> Result<Option<GlibcVersion>, FloorRead
             .map(|(_, value)| *value)
     };
     let Some(verneed_vaddr) = find(DT_VERNEED) else {
-        return Ok(None);
+        return Ok(GlibcRequirements {
+            highest: None,
+            unrecognized: false,
+        });
     };
     let strtab_vaddr = find(DT_STRTAB).ok_or(FloorReadError::Malformed)?;
     let requirement_count = find(DT_VERNEEDNUM);
@@ -541,6 +590,7 @@ fn read_glibc_requirement(path: &Path) -> Result<Option<GlibcVersion>, FloorRead
     }
 
     let mut highest: Option<GlibcVersion> = None;
+    let mut unrecognized = false;
     let mut requirement_offset = verneed_offset;
     let mut requirements = 0usize;
     loop {
@@ -564,10 +614,17 @@ fn read_glibc_requirement(path: &Path) -> Result<Option<GlibcVersion>, FloorRead
             let name_offset = u32_at(&auxiliary, 8, header.little_endian) as u64;
             let next_auxiliary = u32_at(&auxiliary, 12, header.little_endian) as u64;
             let name = read_version_name(&mut file, strtab_offset, name_offset, length)?;
-            if let Some(version) = parse_glibc_version(&name)? {
-                if highest.is_none_or(|current| version > current) {
-                    highest = Some(version);
+            // Every requirement is visited. An unrecognized name is recorded
+            // and the scan continues, so a requirement observed alongside it
+            // still reaches the comparison.
+            match parse_glibc_version(&name) {
+                GlibcVersionName::Numeric(version) => {
+                    if highest.is_none_or(|current| version > current) {
+                        highest = Some(version);
+                    }
                 }
+                GlibcVersionName::Unrecognized => unrecognized = true,
+                GlibcVersionName::NotGlibc => {}
             }
             if next_auxiliary == 0 {
                 break;
@@ -584,7 +641,10 @@ fn read_glibc_requirement(path: &Path) -> Result<Option<GlibcVersion>, FloorRead
             .ok_or(FloorReadError::Malformed)?;
         requirements += 1;
     }
-    Ok(highest)
+    Ok(GlibcRequirements {
+        highest,
+        unrecognized,
+    })
 }
 
 /// Inspect one candidate's bytes and compute its floor verification status.
@@ -614,20 +674,34 @@ pub(crate) fn inspect_candidate_floor(
                     // The comparison direction is the point: a binary that
                     // requires a *newer* glibc than declared does not satisfy
                     // the declared floor.
-                    Ok(Some(required)) => {
-                        if required <= declared {
-                            FloorVerificationStatus::Verified
+                    //
+                    // A contradiction is decided **first** and is not
+                    // downgraded by an unrecognized name observed alongside
+                    // it: a declared floor that the bytes contradict is a
+                    // hard failure, never an unverified status.
+                    Ok(requirements) => {
+                        if let Some(required) = requirements.highest {
+                            if required > declared {
+                                FloorVerificationStatus::NotSatisfied
+                            } else if requirements.unrecognized {
+                                // The numeric requirements are compatible with
+                                // the declared floor, but one requirement could
+                                // not be compared, so the floor is not proven.
+                                FloorVerificationStatus::Unverified(
+                                    FloorUnverifiedReason::UnrecognizedVersionRequirement,
+                                )
+                            } else {
+                                FloorVerificationStatus::Verified
+                            }
+                        } else if requirements.unrecognized {
+                            FloorVerificationStatus::Unverified(
+                                FloorUnverifiedReason::UnrecognizedVersionRequirement,
+                            )
                         } else {
-                            FloorVerificationStatus::NotSatisfied
+                            FloorVerificationStatus::Unverified(
+                                FloorUnverifiedReason::NoVersionRequirement,
+                            )
                         }
-                    }
-                    Ok(None) => FloorVerificationStatus::Unverified(
-                        FloorUnverifiedReason::NoVersionRequirement,
-                    ),
-                    Err(FloorReadError::UnrecognizedVersion) => {
-                        FloorVerificationStatus::Unverified(
-                            FloorUnverifiedReason::UnrecognizedVersionRequirement,
-                        )
                     }
                     Err(FloorReadError::NotAnElf | FloorReadError::Unreadable) => {
                         FloorVerificationStatus::Unverified(
@@ -974,13 +1048,14 @@ mod tests {
         let path = write(&image);
         let required = read_glibc_requirement(&path).unwrap();
         assert_eq!(
-            required,
+            required.highest,
             Some(GlibcVersion {
                 major: 2,
                 minor: 34,
                 patch: 0
             })
         );
+        assert!(!required.unrecognized);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
@@ -989,14 +1064,18 @@ mod tests {
         // No version-requirement table at all.
         let image = ElfBuilder::new(true, true).build();
         let path = write(&image);
-        assert_eq!(read_glibc_requirement(&path).unwrap(), None);
+        let required = read_glibc_requirement(&path).unwrap();
+        assert_eq!(required.highest, None);
+        assert!(!required.unrecognized);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
         // A version requirement that is not a glibc requirement.
         let image = ElfBuilder::new(true, true)
             .versions(&["CXXABI_1.3"])
             .build();
         let path = write(&image);
-        assert_eq!(read_glibc_requirement(&path).unwrap(), None);
+        let required = read_glibc_requirement(&path).unwrap();
+        assert_eq!(required.highest, None);
+        assert!(!required.unrecognized);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
 
@@ -1007,7 +1086,7 @@ mod tests {
             .build();
         let path = write(&image);
         assert_eq!(
-            read_glibc_requirement(&path).unwrap(),
+            read_glibc_requirement(&path).unwrap().highest,
             Some(GlibcVersion {
                 major: 2,
                 minor: 17,
@@ -1021,7 +1100,7 @@ mod tests {
             .build();
         let path = write(&image);
         assert_eq!(
-            read_glibc_requirement(&path).unwrap(),
+            read_glibc_requirement(&path).unwrap().highest,
             Some(GlibcVersion {
                 major: 2,
                 minor: 17,
@@ -1159,6 +1238,79 @@ mod tests {
                 FloorUnverifiedReason::UnrecognizedVersionRequirement
             )
         );
+    }
+
+    #[test]
+    fn an_unrecognized_version_name_does_not_mask_a_contradicted_floor() {
+        // `GLIBC_PRIVATE` and `GLIBC_ABI_DT_RELR` are real, common version
+        // names. A binary that requires a glibc newer than the declared floor
+        // must fail closed even when it also carries such a name: the
+        // unrecognized name is recorded, but it must not discard the numeric
+        // requirement observed alongside it.
+        for extra in ["GLIBC_PRIVATE", "GLIBC_ABI_DT_RELR"] {
+            let image = ElfBuilder::new(true, true)
+                .versions(&["GLIBC_2.34", extra])
+                .build();
+            assert_eq!(
+                status_for(&image, glibc(2, 17)),
+                FloorVerificationStatus::NotSatisfied,
+                "{extra} must not mask the contradicted floor"
+            );
+            // The same image against a floor it does satisfy is unverified,
+            // not verified: one requirement could not be compared.
+            assert_eq!(
+                status_for(&image, glibc(2, 34)),
+                FloorVerificationStatus::Unverified(
+                    FloorUnverifiedReason::UnrecognizedVersionRequirement
+                )
+            );
+        }
+        // An unrecognized name alone is still unverified, never verified.
+        let image = ElfBuilder::new(true, true)
+            .versions(&["GLIBC_PRIVATE"])
+            .build();
+        assert_eq!(
+            status_for(&image, glibc(2, 17)),
+            FloorVerificationStatus::Unverified(
+                FloorUnverifiedReason::UnrecognizedVersionRequirement
+            )
+        );
+    }
+
+    #[test]
+    fn an_unrecognized_version_name_does_not_hide_a_numeric_requirement() {
+        // The reader visits every requirement, so a numeric requirement that
+        // appears *after* an unrecognized one is still observed.
+        let image = ElfBuilder::new(true, true)
+            .versions(&["GLIBC_PRIVATE", "GLIBC_2.34"])
+            .build();
+        let path = write(&image);
+        let required = read_glibc_requirement(&path).unwrap();
+        assert_eq!(
+            required.highest,
+            Some(GlibcVersion {
+                major: 2,
+                minor: 34,
+                patch: 0
+            })
+        );
+        assert!(required.unrecognized);
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn a_virtual_address_translation_cannot_overflow() {
+        // A crafted `PT_LOAD` whose file offset is near the top of the `u64`
+        // range must not overflow when the virtual address is translated
+        // back into the file. The segment offset comes from the ELF program
+        // header and is not bounded against the file length.
+        let segments = vec![ProgramSegment {
+            kind: PT_LOAD,
+            offset: u64::MAX - 10,
+            vaddr: 0,
+            filesz: 1024,
+        }];
+        assert_eq!(map_vaddr(&segments, 20), Err(FloorReadError::Malformed));
     }
 
     #[test]

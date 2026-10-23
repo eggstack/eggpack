@@ -84,11 +84,19 @@ impl std::error::Error for DigestError {}
 /// 3. the bytes are streamed through a fixed 64 KiB buffer and the byte count
 ///    is accumulated with overflow checking, so a large artifact never grows
 ///    the process to accommodate it;
-/// 4. the path is inspected again with `symlink_metadata` after the read, and
+/// 4. a read that produced zero bytes is refused, so a file truncated to
+///    nothing between step 1 and the read cannot produce a digest record
+///    either;
+/// 5. the path is inspected again with `symlink_metadata` after the read, and
 ///    the digest is refused if the path became a symlink, stopped being a
 ///    regular file, or changed length while it was read.
 ///
-/// Step 4 is the time-of-check/time-of-use guard. The symlink rejection in
+/// Step 4 is not redundant with step 2: step 2 observes the length *before*
+/// the read, and a file truncated in between would otherwise be read as zero
+/// bytes and pass the step 5 comparison, because the post-read length would
+/// equal the zero bytes read.
+///
+/// Step 5 is the time-of-check/time-of-use guard. The symlink rejection in
 /// step 1 is a property of the path policy, so it stays a path observation;
 /// the read then happens through the handle that was opened, and the evidence
 /// recorded is of those bytes. Without the post-read re-check, a path
@@ -109,6 +117,9 @@ pub fn file_digest(path: &Path) -> Result<(u64, String), DigestError> {
     }
     let mut file = File::open(path).map_err(|_| DigestError::OpenFailed)?;
     let (size, digest) = hash_stream(&mut file)?;
+    if size == 0 {
+        return Err(DigestError::Empty);
+    }
     post_read_check(path, size)?;
     Ok((size, digest))
 }
@@ -201,6 +212,28 @@ mod tests {
         let root = test_temp_dir("digest-empty");
         let path = write_file(&root, "empty", b"");
         assert_eq!(file_digest(&path).unwrap_err(), DigestError::Empty);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_zero_length_read_is_refused_even_when_the_file_grew_empty_after_the_check() {
+        // The pre-read emptiness check observes the length *before* the read.
+        // A file truncated to nothing in between would be read as zero bytes
+        // and would otherwise pass the post-read length comparison, because
+        // the post-read length would equal the zero bytes read. A zero-length
+        // read result is refused on its own terms.
+        let root = test_temp_dir("digest-truncated");
+        let path = write_file(&root, "artifact", b"0123456789");
+        let (size, _) = hash_stream(&mut File::open(&path).unwrap()).unwrap();
+        assert_eq!(size, 10);
+        fs::write(&path, b"").unwrap();
+        // The path now reads as empty, so the pre-read check refuses it.
+        assert_eq!(file_digest(&path).unwrap_err(), DigestError::Empty);
+        // And the post-read step refuses the same path for the same reason.
+        assert_eq!(
+            post_read_check(&path, size).unwrap_err(),
+            DigestError::ChangedDuringRead
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
