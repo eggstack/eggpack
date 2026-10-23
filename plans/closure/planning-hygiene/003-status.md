@@ -139,8 +139,9 @@ Per document (re-pointed): `validation-model.md` 103, `ci-consumer-seam.md` 228,
 `testing-and-portability.md` 8, `contract.md` 3, `github.md` 7,
 `manifest.md` 7, `core.md` 4, `overview.md` 1.
 
-No anchor was left indicative: every one was either confirmed as still true,
-re-pointed at a line that was read, or replaced by a symbol name. The twelve
+No **single-line** anchor was left indicative: every one was either confirmed as
+still true, re-pointed at a line that was read, or replaced by a symbol name.
+Range-style anchors were checked as ranges and remain. The twelve
 symbol-name replacements are the CI crate's five region bounds in
 `ci-consumer-seam.md`'s responsibility table and header (`:487-713`,
 `:941-963`, `:1837-2207`, `:3840-4705`, `:4425-4623`, replaced by module names),
@@ -238,15 +239,18 @@ earlier entries, which are unchanged:
 > a symbol-name reference. No anchor was shifted arithmetically and no number
 > was invented.
 >
-> - Anchors checked: **2510** `file:line` citations across 21 documents.
+> - Anchors checked: **2510** citation tokens across 21 documents. That is the
+>   count of every numeric line-reference token, bare `:N` references included,
+>   not a count of distinct `file:line` citations.
 > - Re-pointed at a verified line (the old line no longer held what the sentence
 >   claimed, or the construct had moved): **596**.
 > - Replaced by a symbol-name reference because no single line could carry the
 >   claim: **12**.
 > - Dropped where the claim was folded into a neighbouring citation: **11**.
 > - Added where a sentence gained a verified anchor: **50**.
-> - Left indicative with a stated reason: **0**. Every anchor now names a line
->   that was read, or names the construct symbolically.
+> - Left indicative with a stated reason: **0** — for single-line anchors only.
+>   Range-style anchors (`file.rs:N-M`) remain; see the correction note under
+>   §4's table.
 > - Documents whose prose changed because the code changed underneath them:
 >   `ci-consumer-seam.md` (the CI crate's module tree, and the private process
 >   runner that CI M003m replaced with core's shared bounded runner),
@@ -533,8 +537,8 @@ here: the orchestrator runs the full local gate once at the end of the chain.
   the sentence's claim was checked against it. `bootstrap.md`'s anchors were
   the one place a mechanical shift was tempting; they were resolved by content
   match and by reading each cited line, and the result was checked against the
-  symbols the sentences name. No anchor was left indicative, and no number was
-  invented.
+  symbols the sentences name. No single-line anchor was left indicative, and no
+  number was invented.
 - **The citation-verification section is append-only.** The two earlier entries
   are unchanged; a new entry was appended after them.
 - **History is not rewritten.** No closure record was edited, reworded, or
