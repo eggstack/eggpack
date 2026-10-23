@@ -405,6 +405,19 @@ semantics, only calling `eggpack_bootstrap::render_posix_with_policy` /
 workflows; and it does not touch registries, Issues, or PRs. The draft is left
 for a human to publish.
 
+It also owns no producer rule of its own. The SHA-256 hex acceptance set
+belongs to `eggpack-manifest` (`validate_sha256_hex`,
+`crates/eggpack-manifest/src/lib.rs:98`); `validate_sha256`
+(`crates/eggpack-github/src/lib.rs:571`) applies it and keeps this crate's
+wording. The file digest belongs to `eggpack-core` (`file_digest`,
+`crates/eggpack-core/src/digest.rs:102`); `digest_file`
+(`crates/eggpack-github/src/lib.rs:604`) applies it and maps each refusal to
+this crate's staging diagnostic. The exact-tag safety rule belongs to
+`eggpack-core` (`validate_exact_tag_safety`,
+`crates/eggpack-core/src/lib.rs:313`); `validate_tag`
+(`crates/eggpack-github/src/lib.rs:494`) applies it. The full rule map is in
+[validation-model.md](validation-model.md).
+
 ## Dependencies / dependents
 
 Dependencies (`crates/eggpack-github/Cargo.toml:14-26`): `eggpack-contract`

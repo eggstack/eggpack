@@ -5,10 +5,10 @@
 use eggpack_contract::DistributionContract;
 use eggpack_core::{
     cargo_command, ArchiveEncoding, BuildAttempt, BuildBindingsV1, BuildStrategy,
-    CompatibilityFloor, FinalizationRequest, FinalizationTargetInput, HostArch, HostOs,
-    HostRequirement, LogicalOutputSelector, PackConfig, PlannedAssetForm, PlannedTarget,
-    Qualification, QualificationBindingsV1, QualificationEvidence, QualificationStatus,
-    ReleasePlan, SupportTier, TargetPolicy,
+    FinalizationRequest, FinalizationTargetInput, HostArch, HostOs, HostRequirement,
+    LogicalOutputSelector, PackConfig, PlannedAssetForm, PlannedTarget, Qualification,
+    QualificationBindingsV1, QualificationEvidence, QualificationStatus, ReleasePlan, SupportTier,
+    TargetPolicy,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -296,46 +296,19 @@ impl CIPlan {
         for job in &self.targets {
             let target = &job.planned;
             let policy = &target.policy;
-            let cargo_zigbuild_valid = policy
-                .toolchain
-                .cargo_zigbuild
-                .as_deref()
-                .is_some_and(safe_tool_version);
-            let zig_valid = policy
-                .toolchain
-                .zig
-                .as_deref()
-                .is_some_and(safe_tool_version);
-            let toolchain_valid = safe_tool_version(&policy.toolchain.rust)
-                && ((policy.strategy == BuildStrategy::CargoZigbuild
-                    && cargo_zigbuild_valid
-                    && zig_valid)
-                    || (policy.strategy == BuildStrategy::NativeCargo
-                        && policy.toolchain.cargo_zigbuild.is_none()
-                        && policy.toolchain.zig.is_none()));
-            let floor_valid = match policy.floor {
-                CompatibilityFloor::None => true,
-                CompatibilityFloor::Glibc { .. } => target.target.contains("-linux-gnu"),
-                CompatibilityFloor::Macos { .. } => target.target.ends_with("-apple-darwin"),
-            };
-            let native_qualification_valid = if policy.qualification == Qualification::Native {
-                host_matches_target(
-                    policy.qualification_host.unwrap_or(HostRequirement {
-                        os: policy.host_os,
-                        arch: policy.host_arch,
-                    }),
+            // The producer owns the policy rules. This crate projects the
+            // pipeline; it does not restate the toolchain, floor, or
+            // native-qualification host rules, so it applies them instead.
+            let policy_valid = eggpack_core::validate_policy(policy, &target.target).is_ok()
+                && eggpack_core::validate_floor_applicability(
+                    &policy.floor,
+                    policy.strategy,
                     &target.target,
                 )
-            } else {
-                true
-            };
+                .is_ok();
             if !safe_target(&target.target)
                 || target.policy.target != target.target
-                || !toolchain_valid
-                || !floor_valid
-                || !native_qualification_valid
-                || (policy.strategy == BuildStrategy::CargoZigbuild
-                    && matches!(policy.floor, CompatibilityFloor::Macos { .. }))
+                || !policy_valid
                 || prior.is_some_and(|p| p >= target.target.as_str())
                 || job.job_id != target_job_id(&target.target)
                 || !job_ids.insert(job.job_id.as_str())
@@ -419,19 +392,6 @@ fn safe_tool_version(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b".+-_".contains(&b))
-}
-fn host_matches_target(host: HostRequirement, target: &str) -> bool {
-    let arch_matches = match host.arch {
-        HostArch::X86_64 => target.starts_with("x86_64-"),
-        HostArch::Aarch64 => target.starts_with("aarch64-"),
-        HostArch::Armv7 => target.starts_with("armv7-"),
-    };
-    let os_matches = match host.os {
-        HostOs::Linux => target.contains("-linux-"),
-        HostOs::Macos => target.ends_with("-apple-darwin"),
-        HostOs::Windows => target.contains("-windows-"),
-    };
-    arch_matches && os_matches
 }
 fn selector_matches_form(selector: &LogicalOutputSelector, form: PlannedAssetForm) -> bool {
     match (selector, form) {
@@ -545,14 +505,8 @@ impl ZigOfficialArchiveV1 {
     /// Validate both digests are exact 64-character lowercase hex SHA-256.
     pub fn validate(&self) -> Result<(), CiError> {
         for digest in [&self.linux_x86_64_sha256, &self.linux_aarch64_sha256] {
-            if digest.len() != 64
-                || !digest
-                    .bytes()
-                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-                || digest == &"0".repeat(64)
-            {
-                return Err(fail("invalid Zig official archive SHA-256"));
-            }
+            validate_sha256_hex(digest)
+                .map_err(|_| fail("invalid Zig official archive SHA-256"))?;
         }
         Ok(())
     }
@@ -629,16 +583,11 @@ pub fn zig_expected_digest(
 }
 
 /// Validate one hex SHA-256 digest string without trusting remote content.
+///
+/// The acceptance set is owned by `eggpack-manifest` (ADR-0006) and re-exported
+/// by `eggpack-core`; this crate applies it rather than restating it.
 pub fn validate_sha256_hex(digest: &str) -> Result<(), CiError> {
-    if digest.len() != 64
-        || !digest
-            .bytes()
-            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        || digest == "0".repeat(64)
-    {
-        return Err(fail("invalid SHA-256 digest"));
-    }
-    Ok(())
+    eggpack_core::validate_sha256_hex(digest).map_err(|_| fail("invalid SHA-256 digest"))
 }
 
 /// Pure archive top-level layout check for an official Zig archive listing.
@@ -4390,13 +4339,8 @@ impl ConsumerValidationEvidenceV1 {
         // that was never observed.
         match (&self.candidate_sha256, self.candidate_size) {
             (Some(digest), size) if size > 0 => {
-                if digest.len() != 64
-                    || !digest
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                {
-                    return Err(fail("consumer evidence digest must be lowercase hex"));
-                }
+                validate_sha256_hex(digest)
+                    .map_err(|_| fail("consumer evidence digest must be lowercase hex"))?;
             }
             (Some(_), _) => {
                 return Err(fail(
@@ -4558,14 +4502,8 @@ pub fn run_consumer_validator(
             "consumer validation working directory is not a real directory",
         ));
     }
-    if request.expected_sha256.len() != 64
-        || !request
-            .expected_sha256
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(fail("expected candidate digest must be lowercase hex"));
-    }
+    validate_sha256_hex(request.expected_sha256)
+        .map_err(|_| fail("expected candidate digest must be lowercase hex"))?;
     if !safe_metadata(request.release_id, 256)
         || !safe_metadata(request.source_revision, 256)
         || !safe_target(request.target)
@@ -4590,12 +4528,19 @@ pub fn run_consumer_validator(
     // evidence records an absent candidate rather than a synthetic one: a
     // never-read candidate must not be published as a digest, because this
     // document is a claim about final bytes.
-    let (observed_size, observed_sha) = hash_candidate_file(request.candidate_path);
-    let candidate_ok = is_regular_nonempty_file(request.candidate_path)
-        && observed_size == request.expected_size
-        && observed_sha == request.expected_sha256;
-    let evidence_size = observed_size;
-    let evidence_sha = (observed_sha.len() == 64).then_some(observed_sha);
+    let observed = hash_candidate_file(request.candidate_path);
+    let candidate_ok = match &observed {
+        Ok((size, sha)) => {
+            is_regular_nonempty_file(request.candidate_path)
+                && *size == request.expected_size
+                && *sha == request.expected_sha256
+        }
+        Err(_) => false,
+    };
+    let (evidence_size, evidence_sha) = match &observed {
+        Ok((size, sha)) => (*size, Some(sha.clone())),
+        Err(_) => (0, None),
+    };
     if !candidate_ok {
         return consumer_evidence_shell(
             request,
@@ -4686,38 +4631,13 @@ fn ensure_candidate_executable(path: &Path) -> bool {
     }
 }
 
-fn hash_candidate_file(path: &Path) -> (u64, String) {
-    let meta = match std::fs::symlink_metadata(path) {
-        Ok(meta) => meta,
-        Err(_) => return (0, String::new()),
-    };
-    if meta.file_type().is_symlink() || !meta.is_file() || meta.len() == 0 {
-        return (0, String::new());
-    }
-    let mut file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(_) => return (0, String::new()),
-    };
-    use std::io::Read;
-    let mut hasher = Sha256::new();
-    let mut chunk = [0u8; 65536];
-    let mut size = 0u64;
-    loop {
-        match file.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(count) => {
-                size += count as u64;
-                hasher.update(&chunk[..count]);
-            }
-            Err(_) => return (0, String::new()),
-        }
-    }
-    let digest: String = hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
-    (size, digest)
+/// Digest one candidate file for the consumer-evidence identity.
+///
+/// The canonical producer file-digest helper owns this. There is no sentinel
+/// success value, no empty digest, and no zero-size placeholder: a refusal is
+/// a typed error and the caller records an absent candidate.
+fn hash_candidate_file(path: &Path) -> Result<(u64, String), eggpack_core::DigestError> {
+    eggpack_core::file_digest(path)
 }
 
 fn validator_command(
@@ -4964,19 +4884,23 @@ impl ReleaseWorkflowShapeV1 {
 }
 
 fn validate_exact_tag(tag: &str) -> Result<(), CiError> {
-    if tag.is_empty() || tag.len() > 128 {
-        return Err(fail("exact tag out of bounds"));
-    }
-    if tag.chars().any(char::is_control) {
-        return Err(fail("exact tag contains control characters"));
-    }
-    if tag.contains(['?', '#', '@', ' ', '\\', '\'', '"', '`', '$']) {
-        return Err(fail("exact tag contains query/injection characters"));
-    }
-    if tag.contains("..") || tag.starts_with('/') || tag.ends_with('/') {
-        return Err(fail("exact tag has unsafe path shape"));
-    }
-    Ok(())
+    // The canonical exact-tag safety rule is owned by `eggpack-core`; this
+    // crate keeps its own diagnostic wording for each refusal class.
+    eggpack_core::validate_exact_tag_safety(tag).map_err(|error| {
+        fail(match error {
+            eggpack_core::ExactTagSafetyError::OutOfBounds => "exact tag out of bounds",
+            eggpack_core::ExactTagSafetyError::ControlCharacters => {
+                "exact tag contains control characters"
+            }
+            eggpack_core::ExactTagSafetyError::QueryOrInjectionCharacters => {
+                "exact tag contains query/injection characters"
+            }
+            eggpack_core::ExactTagSafetyError::UnsafePathShape => "exact tag has unsafe path shape",
+            eggpack_core::ExactTagSafetyError::UnsafeGitRefPath => {
+                "exact tag has unsafe git ref path shape"
+            }
+        })
+    })
 }
 
 fn validate_source_revision(revision: &str) -> Result<(), CiError> {
@@ -9886,7 +9810,7 @@ mod tests {
                     arch: planned.policy.host_arch,
                 });
             assert_eq!(qual.host, expected);
-            assert!(host_matches_target(qual.host, &qual.target));
+            assert!(eggpack_core::host_matches_target(qual.host, &qual.target));
         }
         let yaml = render_reusable_release_github(&contract, &shape, &policy).unwrap();
         assert_eq!(
@@ -11078,5 +11002,416 @@ support="required"
             "../tests/fixtures/native-direct-multitarget.yml",
             &render_github(&graph, &policy()).unwrap(),
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // M003l — producer rule authority convergence.
+    //
+    // The canonical rules now live in one place. The expected-outcome tables
+    // below are the pre-convergence rules of the crates that used to own
+    // them, kept here only so the canonical rule can be shown to agree with
+    // them case by case. The assertions themselves are written against the
+    // canonical rule alone.
+    // -----------------------------------------------------------------------
+
+    /// The pre-convergence CI-side host/target predicate.
+    fn pre_convergence_ci_host_matches_target(host: HostRequirement, target: &str) -> bool {
+        let arch_matches = match host.arch {
+            HostArch::X86_64 => target.starts_with("x86_64-"),
+            HostArch::Aarch64 => target.starts_with("aarch64-"),
+            HostArch::Armv7 => target.starts_with("armv7-"),
+        };
+        let os_matches = match host.os {
+            HostOs::Linux => target.contains("-linux-"),
+            HostOs::Macos => target.ends_with("-apple-darwin"),
+            HostOs::Windows => target.contains("-windows-"),
+        };
+        arch_matches && os_matches
+    }
+
+    #[test]
+    fn m003l_core_host_target_rule_reproduces_every_pre_convergence_ci_outcome() {
+        let hosts = [
+            HostRequirement {
+                os: HostOs::Linux,
+                arch: HostArch::X86_64,
+            },
+            HostRequirement {
+                os: HostOs::Linux,
+                arch: HostArch::Aarch64,
+            },
+            HostRequirement {
+                os: HostOs::Linux,
+                arch: HostArch::Armv7,
+            },
+            HostRequirement {
+                os: HostOs::Macos,
+                arch: HostArch::X86_64,
+            },
+            HostRequirement {
+                os: HostOs::Macos,
+                arch: HostArch::Aarch64,
+            },
+            HostRequirement {
+                os: HostOs::Macos,
+                arch: HostArch::Armv7,
+            },
+            HostRequirement {
+                os: HostOs::Windows,
+                arch: HostArch::X86_64,
+            },
+            HostRequirement {
+                os: HostOs::Windows,
+                arch: HostArch::Aarch64,
+            },
+            HostRequirement {
+                os: HostOs::Windows,
+                arch: HostArch::Armv7,
+            },
+        ];
+        const TRIPLES: &[&str] = &[
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "armv7-unknown-linux-gnueabihf",
+            "x86_64-unknown-linux-musl",
+            "aarch64-unknown-linux-musl",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+            "aarch64-pc-windows-msvc",
+            "armv7-pc-windows-msvc",
+            "x86_64-unknown-freebsd",
+            "aarch64-unknown-none",
+        ];
+        for triple in TRIPLES {
+            for host in hosts {
+                assert_eq!(
+                    eggpack_core::host_matches_target(host, triple),
+                    pre_convergence_ci_host_matches_target(host, triple),
+                    "core host/target rule diverged for {host:?} on {triple}"
+                );
+            }
+        }
+        // Pinned outcomes, so the table above cannot silently agree with a
+        // wrong rule.
+        assert!(eggpack_core::host_matches_target(
+            hosts[0],
+            "x86_64-unknown-linux-gnu"
+        ));
+        assert!(!eggpack_core::host_matches_target(
+            hosts[0],
+            "aarch64-unknown-linux-gnu"
+        ));
+        assert!(eggpack_core::host_matches_target(
+            hosts[3],
+            "x86_64-apple-darwin"
+        ));
+        assert!(!eggpack_core::host_matches_target(
+            hosts[3],
+            "x86_64-unknown-linux-gnu"
+        ));
+        assert!(eggpack_core::host_matches_target(
+            hosts[6],
+            "x86_64-pc-windows-msvc"
+        ));
+        assert!(!eggpack_core::host_matches_target(
+            hosts[6],
+            "x86_64-unknown-freebsd"
+        ));
+    }
+
+    #[test]
+    fn m003l_floor_applicability_is_refused_in_every_pre_convergence_case() {
+        // A glibc floor on a target that is not GNU/Linux.
+        assert_eq!(
+            eggpack_core::validate_floor_applicability(
+                &CompatibilityFloor::Glibc {
+                    major: 2,
+                    minor: 17
+                },
+                BuildStrategy::NativeCargo,
+                "aarch64-apple-darwin",
+            ),
+            Err(eggpack_core::FloorApplicabilityError::NotGlibcTarget)
+        );
+        // A macOS floor on a target that is not Darwin.
+        assert_eq!(
+            eggpack_core::validate_floor_applicability(
+                &CompatibilityFloor::Macos {
+                    major: 13,
+                    minor: 0
+                },
+                BuildStrategy::NativeCargo,
+                "x86_64-unknown-linux-gnu",
+            ),
+            Err(eggpack_core::FloorApplicabilityError::NotMacosTarget)
+        );
+        // A macOS floor under cargo-zigbuild.
+        assert_eq!(
+            eggpack_core::validate_floor_applicability(
+                &CompatibilityFloor::Macos {
+                    major: 13,
+                    minor: 0
+                },
+                BuildStrategy::CargoZigbuild,
+                "x86_64-apple-darwin",
+            ),
+            Err(eggpack_core::FloorApplicabilityError::MacosFloorUnderZigbuild)
+        );
+        // The shapes that were accepted stay accepted.
+        assert!(eggpack_core::validate_floor_applicability(
+            &CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17
+            },
+            BuildStrategy::NativeCargo,
+            "x86_64-unknown-linux-gnu",
+        )
+        .is_ok());
+        assert!(eggpack_core::validate_floor_applicability(
+            &CompatibilityFloor::Macos {
+                major: 13,
+                minor: 0
+            },
+            BuildStrategy::NativeCargo,
+            "x86_64-apple-darwin",
+        )
+        .is_ok());
+        assert!(eggpack_core::validate_floor_applicability(
+            &CompatibilityFloor::None,
+            BuildStrategy::CargoZigbuild,
+            "x86_64-unknown-linux-gnu",
+        )
+        .is_ok());
+
+        // The projected pipeline still refuses the same three cases.
+        let (contract, shape, policy) = m006_shape_and_policy();
+        let mut glibc_outside = shape.clone();
+        let darwin = glibc_outside
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-apple-darwin")
+            .unwrap();
+        darwin.floor = CompatibilityFloor::Glibc {
+            major: 2,
+            minor: 17,
+        };
+        assert!(render_reusable_release_github(&contract, &glibc_outside, &policy).is_err());
+
+        let mut macos_outside = shape.clone();
+        let linux = macos_outside
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-unknown-linux-gnu")
+            .unwrap();
+        linux.floor = CompatibilityFloor::Macos {
+            major: 13,
+            minor: 0,
+        };
+        assert!(render_reusable_release_github(&contract, &macos_outside, &policy).is_err());
+
+        let mut macos_under_zigbuild = shape.clone();
+        let darwin = macos_under_zigbuild
+            .targets
+            .iter_mut()
+            .find(|p| p.target == "aarch64-apple-darwin")
+            .unwrap();
+        darwin.strategy = BuildStrategy::CargoZigbuild;
+        darwin.toolchain = ToolchainRequirement {
+            rust: "1.89.0".into(),
+            cargo_zigbuild: Some(M005_CARGO_ZIGBUILD_VERSION.into()),
+            zig: Some(M005_ZIG_VERSION.into()),
+        };
+        darwin.floor = CompatibilityFloor::Macos {
+            major: 13,
+            minor: 0,
+        };
+        assert!(render_reusable_release_github(&contract, &macos_under_zigbuild, &policy).is_err());
+    }
+
+    /// The pre-convergence core-side exact-tag safety rule.
+    fn pre_convergence_core_tag_is_safe(tag: &str) -> bool {
+        !(tag.is_empty()
+            || tag.len() > 128
+            || tag.chars().any(char::is_control)
+            || tag.starts_with('/')
+            || tag.ends_with('/')
+            || tag.ends_with('.')
+            || tag.contains("..")
+            || tag.contains("@{")
+            || tag.contains(['?', '\\', '^', ':', '*', '[', '~', ' '])
+            || tag.split('/').any(|component| {
+                component.is_empty() || component.starts_with('.') || component.ends_with(".lock")
+            }))
+    }
+
+    /// The pre-convergence CI-side exact-tag safety rule.
+    fn pre_convergence_ci_tag_is_safe(tag: &str) -> bool {
+        !(tag.is_empty()
+            || tag.len() > 128
+            || tag.chars().any(char::is_control)
+            || tag.contains(['?', '#', '@', ' ', '\\', '\'', '"', '`', '$'])
+            || tag.contains("..")
+            || tag.starts_with('/')
+            || tag.ends_with('/'))
+    }
+
+    #[test]
+    fn m003l_canonical_tag_safety_is_the_union_of_both_pre_convergence_rules() {
+        const TAGS: &[&str] = &[
+            "",
+            "v1.2.3",
+            "release/v1.2.3",
+            "v1.2.3-rc.1",
+            "v1.2.3+build.1",
+            "v1.2.3#",
+            "v1.2.3@",
+            "v1.2.3'",
+            "v1.2.3\"",
+            "v1.2.3`",
+            "v1.2.3$",
+            "v1.2.3?",
+            "v1.2.3 ",
+            "v1.2.3\\",
+            "v1.2.3^",
+            "v1.2.3:",
+            "v1.2.3*",
+            "v1.2.3[",
+            "v1.2.3~",
+            "v1.2.3.",
+            "v1..2.3",
+            "v1.2.3@{",
+            "/v1.2.3",
+            "v1.2.3/",
+            "release//v1.2.3",
+            "release/.hidden/v1.2.3",
+            "release/v1.2.3.lock",
+            "v1.2.3\n",
+            "v1.2.3\t",
+        ];
+        for tag in TAGS {
+            let canonical = eggpack_core::validate_exact_tag_safety(tag).is_ok();
+            let core = pre_convergence_core_tag_is_safe(tag);
+            let ci = pre_convergence_ci_tag_is_safe(tag);
+            // The canonical rule is the union of the two concern sets, so a
+            // tag is accepted exactly when both former rules accepted it.
+            assert_eq!(
+                canonical,
+                core && ci,
+                "canonical tag safety diverged for {tag:?}"
+            );
+            // The canonical accepted set is a subset of the union of the two
+            // former accepted sets: it accepts nothing either rule refused.
+            assert!(
+                !canonical || core || ci,
+                "canonical tag safety widened for {tag:?}"
+            );
+        }
+        // Every character class that either former rule refused is refused by
+        // the canonical rule.
+        for character in [
+            '?', '#', '@', ' ', '\\', '\'', '"', '`', '$', '^', ':', '*', '[', '~',
+        ] {
+            let tag = format!("v1.2.3{character}");
+            assert!(
+                !pre_convergence_core_tag_is_safe(&tag) || !pre_convergence_ci_tag_is_safe(&tag),
+                "expected a pre-convergence refusal for {tag:?}"
+            );
+            assert!(
+                eggpack_core::validate_exact_tag_safety(&tag).is_err(),
+                "canonical tag safety accepted {tag:?}"
+            );
+        }
+        // A canonical version tag and a multi-segment tag stay accepted.
+        assert!(eggpack_core::validate_exact_tag_safety("v1.2.3").is_ok());
+        assert!(eggpack_core::validate_exact_tag_safety("release/v1.2.3").is_ok());
+    }
+
+    #[test]
+    fn m003l_candidate_digest_refusals_are_typed_and_never_an_empty_digest() {
+        let root = eggpack_core_test_temp("m003l-digest");
+        let missing = root.join("missing.bin");
+        let empty = root.join("empty.bin");
+        std::fs::write(&empty, b"").unwrap();
+        let payload = root.join("payload.bin");
+        std::fs::write(&payload, b"payload").unwrap();
+
+        // A missing file.
+        assert!(hash_candidate_file(&missing).is_err());
+
+        // An empty file.
+        assert!(hash_candidate_file(&empty).is_err());
+
+        // A symlink.
+        #[cfg(unix)]
+        {
+            let link = root.join("link.bin");
+            std::os::unix::fs::symlink(&payload, &link).unwrap();
+            assert!(hash_candidate_file(&link).is_err());
+        }
+
+        // An unreadable file. A privileged process may still read it; the
+        // digest is then well-formed rather than empty.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let unreadable = root.join("unreadable.bin");
+            std::fs::write(&unreadable, b"payload").unwrap();
+            std::fs::set_permissions(&unreadable, std::fs::Permissions::from_mode(0o000)).unwrap();
+            match hash_candidate_file(&unreadable) {
+                Err(_) => {}
+                Ok((size, digest)) => {
+                    assert_eq!(size, 7);
+                    assert_eq!(digest.len(), 64);
+                }
+            }
+        }
+
+        // No refusal path yields an empty digest string.
+        for path in [&missing, &empty, &payload] {
+            if let Ok((_, digest)) = hash_candidate_file(path) {
+                assert!(!digest.is_empty(), "empty digest for {path:?}");
+            }
+        }
+
+        // A readable regular file still digests to a 64-character hex digest.
+        let (size, digest) = hash_candidate_file(&payload).unwrap();
+        assert_eq!(size, 7);
+        assert_eq!(digest.len(), 64);
+        assert!(digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn m003l_sha256_acceptance_set_is_identical_at_every_call_site() {
+        const DIGESTS: &[&str] = &[
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90",
+            "g1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9",
+            "a1b2c3d4",
+            "",
+        ];
+        for digest in DIGESTS {
+            let canonical = eggpack_manifest::validate_sha256_hex(digest).is_ok();
+            assert_eq!(
+                eggpack_core::validate_sha256_hex(digest).is_ok(),
+                canonical,
+                "core re-export diverged for {digest:?}"
+            );
+            assert_eq!(
+                validate_sha256_hex(digest).is_ok(),
+                canonical,
+                "CI call site diverged for {digest:?}"
+            );
+        }
+        // The all-zeros placeholder is refused at every call site.
+        assert!(!validate_sha256_hex(&"0".repeat(64)).is_ok());
+        assert!(!eggpack_manifest::validate_sha256_hex(&"0".repeat(64)).is_ok());
+        assert!(!eggpack_core::validate_sha256_hex(&"0".repeat(64)).is_ok());
     }
 }

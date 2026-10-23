@@ -356,14 +356,14 @@ Four findings, all verified above, none of them a claim about intent.
    only partially populated. Rejection is still fail-closed — the effect is
    diagnostic quality, not acceptance.
 4. **Host matching is string-prefix matching, not parsed-triple matching.**
-   `host_matches_target` (`crates/eggpack-core/src/lib.rs:84-96`) tests
+   `host_matches_target` (`crates/eggpack-core/src/lib.rs:90-103`) tests
    `triple.starts_with("x86_64-")` for architecture and then
    `triple.contains("-linux-")`, `ends_with("-apple-darwin")`, or
    `contains("-windows-")` for OS. `contains` is a substring test, not a
-   component test, and the triple is never parsed into components. The
-   independent copy in `eggpack-ci` (`crates/eggpack-ci/src/lib.rs:393-405`) has
-   the same property. The nearby floor checks at
-   `crates/eggpack-core/src/lib.rs:143` and `:146` use the same substring/prefix
+   component test, and the triple is never parsed into components. There is no
+   independent copy any more: `eggpack-ci` calls this function. The nearby floor
+   checks in `floor_applies_to_triple`
+   (`crates/eggpack-core/src/lib.rs:142-160`) use the same substring/prefix
    idiom, so floor applicability inherits the same weakness.
 
 One further observation, offered as a bound rather than a defect: the
@@ -375,6 +375,50 @@ while `manifest` (`:14`), `core` (`crates/eggpack-core/src/lib.rs:173`),
 cap their own target count at 256. The contract is producer-authored rather
 than remotely supplied, so this is a consistency gap in the bounds table rather
 than an untrusted-input exposure.
+
+## Where each producer rule lives
+
+Each producer rule has exactly one owner. The owner defines it; every other
+crate applies it. There is no second implementation of any of these rules
+anywhere in the workspace, and the convergence that produced that state is
+recorded in `plans/implementation/ci-release-orchestration/003l-producer-rule-authority-convergence-corrective.md`.
+
+| Rule | Owner | Callable as |
+|---|---|---|
+| Host/target match | `eggpack-core` | `host_matches_target` (`crates/eggpack-core/src/lib.rs:90`) |
+| Compatibility-floor applicability | `eggpack-core` | `validate_floor_applicability` (`crates/eggpack-core/src/lib.rs:186`) |
+| Exact-tag **safety** | `eggpack-core` | `validate_exact_tag_safety` (`crates/eggpack-core/src/lib.rs:313`) |
+| SHA-256 hex acceptance | `eggpack-manifest` | `validate_sha256_hex` (`crates/eggpack-manifest/src/lib.rs:98`) |
+| File digest | `eggpack-core` | `file_digest` (`crates/eggpack-core/src/digest.rs:102`) |
+
+The consumers, and nothing else:
+
+- **`eggpack-ci`** applies the core rules. `CIPlan::validate`
+  (`crates/eggpack-ci/src/lib.rs:282`) calls `validate_policy` and
+  `validate_floor_applicability`; `validate_sha256_hex`
+  (`crates/eggpack-ci/src/lib.rs:589`) delegates to the manifest rule through
+  core's re-export (`crates/eggpack-core/src/lib.rs:18`); and the exact-tag
+  check calls `validate_exact_tag_safety`. Each call site keeps its own
+  diagnostic wording.
+- **`eggpack-github`** applies the manifest and core rules. `validate_sha256`
+  (`crates/eggpack-github/src/lib.rs:571`) delegates to the manifest rule,
+  `digest_file` (`crates/eggpack-github/src/lib.rs:604`) delegates to
+  `file_digest`, and `validate_tag`
+  (`crates/eggpack-github/src/lib.rs:494`) delegates to
+  `validate_exact_tag_safety`.
+- **`eggpack-core`** owns the rules, and applies them to itself: the git
+  resolution path uses `validate_exact_tag_safety`
+  (`crates/eggpack-core/src/builder.rs:430`), and the build-command derivation
+  uses `validate_floor_applicability`
+  (`crates/eggpack-core/src/builder.rs:370`).
+
+Two boundaries matter when reading the table. First, exact-tag **safety** and
+exact-tag **format** are different rules: safety is the character-and-shape
+rule above; format is the separate canonical-`vX.Y.Z` check with its own
+diagnostic. Second, SHA-256 acceptance is an **integrity** fact about bytes —
+the accepted set is 64 lowercase hexadecimal characters, minus the all-zeros
+placeholder, which no real byte sequence hashes to (ADR-0006). Acceptance says
+nothing about authenticity, provenance, or publisher identity.
 
 ## Related deep dives
 

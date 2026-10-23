@@ -166,6 +166,19 @@ versioned processes, and it will fail at CI runtime rather than at compile time.
   restating them. `BuildOutput` (`:94`) is the one place where Cargo-level
   detail enters, and it is explicit: package and binary are named, never
   inferred.
+- **No producer rule of its own.** The host/target match, the compatibility
+  floor, the exact-tag safety rule, the SHA-256 hex acceptance set, and the
+  file digest each have one owner outside this crate. `CIPlan::validate`
+  (`:282`) calls `eggpack_core::validate_policy` and
+  `eggpack_core::validate_floor_applicability` instead of re-deriving the
+  toolchain, floor, or native-qualification host rules;
+  `validate_sha256_hex` (`:589`) delegates to the manifest rule through core's
+  re-export; the exact-tag check calls
+  `eggpack_core::validate_exact_tag_safety`; and candidate hashing calls
+  `eggpack_core::file_digest`, whose refusal is a typed error rather than a
+  zero-size placeholder. Each call site keeps its own diagnostic wording, so
+  the messages this crate emits are unchanged. The full rule map is in
+  [validation-model.md](validation-model.md).
 - **No authenticity claim.** Digests and sizes are integrity facts.
 - **No release selection, update, or rollback.** Those belong to the product
   repository and to Eggup respectively.

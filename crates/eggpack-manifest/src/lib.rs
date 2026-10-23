@@ -46,6 +46,70 @@ impl std::error::Error for ManifestError {}
 fn invalid(s: impl Into<String>) -> ManifestError {
     ManifestError::Invalid(s.into())
 }
+
+/// Why a SHA-256 hex digest string was refused.
+///
+/// ADR-0006 (Option A) fixes one acceptance set for the whole workspace:
+/// exactly 64 lowercase hexadecimal characters, and not the all-zeros
+/// placeholder that no real file digest can produce.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sha256Error {
+    /// The digest is not exactly 64 characters long.
+    Length,
+    /// The digest contains a character that is not lowercase hexadecimal.
+    NotLowercaseHex,
+    /// The digest is the all-zeros placeholder, which is never a real digest.
+    AllZeros,
+}
+
+impl Sha256Error {
+    /// Bounded, single-line reason phrase for this refusal.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::Length => "must be 64 characters",
+            Self::NotLowercaseHex => "must be lowercase hexadecimal",
+            Self::AllZeros => "must not be the all-zeros digest",
+        }
+    }
+}
+
+impl fmt::Display for Sha256Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.reason())
+    }
+}
+impl std::error::Error for Sha256Error {}
+
+/// The all-zeros placeholder digest. No byte sequence hashes to it.
+const ALL_ZEROS_SHA256: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+/// Validate one SHA-256 hex digest against the canonical acceptance set.
+///
+/// This is the **single** SHA-256 hex acceptance rule in the workspace. The
+/// crate that owns the evidence schema owns the rule, and `eggpack-core`,
+/// `eggpack-ci`, and `eggpack-github` all consume it instead of restating it.
+///
+/// The accepted set is exactly 64 lowercase hexadecimal characters, minus the
+/// all-zeros placeholder, which can only mean "no digest was computed" and
+/// which no legitimate producer emits (ADR-0006).
+///
+/// A digest is an integrity fact about bytes. Acceptance here says nothing
+/// about authenticity, provenance, or publisher identity.
+pub fn validate_sha256_hex(digest: &str) -> Result<(), Sha256Error> {
+    if digest.len() != 64 {
+        return Err(Sha256Error::Length);
+    }
+    if !digest
+        .bytes()
+        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return Err(Sha256Error::NotLowercaseHex);
+    }
+    if digest == ALL_ZEROS_SHA256 {
+        return Err(Sha256Error::AllZeros);
+    }
+    Ok(())
+}
 fn bounded(s: &str, max: usize, label: &str) -> Result<(), ManifestError> {
     if s.is_empty() || s.len() > max || s.chars().any(char::is_control) {
         return Err(invalid(format!("invalid {label}")));
@@ -286,16 +350,10 @@ impl ArtifactRecord {
         if self.size == 0 {
             return Err(invalid("size must be non-zero"));
         }
-        if self.sha256.len() != 64
-            || !self
-                .sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(invalid(
-                "sha256 must be 64 lowercase hexadecimal characters",
-            ));
-        }
+        validate_sha256_hex(&self.sha256).map_err(|error| match error {
+            Sha256Error::AllZeros => invalid("sha256 must not be the all-zeros digest"),
+            _ => invalid("sha256 must be 64 lowercase hexadecimal characters"),
+        })?;
         Ok(())
     }
 }
@@ -308,23 +366,19 @@ impl ByteEvidence {
         if self.size == 0 {
             return Err(invalid("size must be non-zero"));
         }
-        if self.sha256.len() != 64
-            || !self
-                .sha256
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        {
-            return Err(invalid(
-                "sha256 must be 64 lowercase hexadecimal characters",
-            ));
-        }
+        validate_sha256_hex(&self.sha256).map_err(|error| match error {
+            Sha256Error::AllZeros => invalid("sha256 must not be the all-zeros digest"),
+            _ => invalid("sha256 must be 64 lowercase hexadecimal characters"),
+        })?;
         Ok(())
     }
 }
 fn decode_sha256(hex: &str) -> Result<[u8; 32], ManifestError> {
-    if hex.len() != 64 {
-        return Err(invalid("sha256 must contain 64 lowercase hex characters"));
-    }
+    validate_sha256_hex(hex).map_err(|error| match error {
+        Sha256Error::Length => invalid("sha256 must contain 64 lowercase hex characters"),
+        Sha256Error::AllZeros => invalid("sha256 must not be the all-zeros digest"),
+        Sha256Error::NotLowercaseHex => invalid("invalid lowercase sha256"),
+    })?;
     let mut out = [0u8; 32];
     for (i, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let digit = |b: u8| match b {
@@ -1424,6 +1478,59 @@ mod tests {
                 manifest.target("x86_64-pc-windows-gnu").is_err(),
                 "wrong-target fixture must remain an unsupported selection"
             );
+        }
+    }
+
+    #[test]
+    fn m003l_sha256_acceptance_set_is_the_canonical_one() {
+        // The canonical acceptance set: exactly 64 lowercase hexadecimal
+        // characters, and not the all-zeros placeholder (ADR-0006).
+        assert!(validate_sha256_hex(
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        )
+        .is_ok());
+        assert_eq!(
+            validate_sha256_hex(&"0".repeat(64)),
+            Err(Sha256Error::AllZeros)
+        );
+        assert_eq!(
+            validate_sha256_hex(&"A".repeat(64)),
+            Err(Sha256Error::NotLowercaseHex)
+        );
+        assert_eq!(
+            validate_sha256_hex(&"g".repeat(64)),
+            Err(Sha256Error::NotLowercaseHex)
+        );
+        assert_eq!(
+            validate_sha256_hex(&"a".repeat(63)),
+            Err(Sha256Error::Length)
+        );
+        assert_eq!(
+            validate_sha256_hex(&"a".repeat(65)),
+            Err(Sha256Error::Length)
+        );
+        assert_eq!(validate_sha256_hex(""), Err(Sha256Error::Length));
+        // The document shape is unchanged, but the acceptance set tightened:
+        // the all-zeros placeholder is no longer a usable evidence digest.
+        assert!(ByteEvidence::validate(&ByteEvidence {
+            size: 1,
+            sha256: "0".repeat(64),
+        })
+        .is_err());
+        assert!(ByteEvidence::validate(&ByteEvidence {
+            size: 1,
+            sha256: "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90".to_owned(),
+        })
+        .is_ok());
+        // The reason phrases stay single-line and bounded.
+        for error in [
+            Sha256Error::Length,
+            Sha256Error::NotLowercaseHex,
+            Sha256Error::AllZeros,
+        ] {
+            let reason = error.reason();
+            assert!(!reason.is_empty() && !reason.contains('\n'));
+            assert!(reason.len() <= 64);
         }
     }
 }

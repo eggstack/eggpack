@@ -16,6 +16,10 @@ GitHub draft release staging adapter and local staging payload materializer (CI 
 - Production asset files are opened once, length- and SHA-256-verified in bounded 64 KiB chunks, then uploaded from that same handle as a known-length one-shot stream. No full-file upload buffer is materialized.
 - Asset reconciliation reads every page under the policy bound (default 16, maximum 32); a full final allowed page fails closed because completeness is unknown.
 - Upload templates are parsed and checked against the exact HTTPS `uploads.github.com` origin and current release path. Asset names are encoded as URL query pairs and round-trip unchanged.
+- This crate owns no producer rule of its own. The SHA-256 hex acceptance set
+  belongs to `eggpack-manifest` (ADR-0006), the file digest and the exact-tag
+  safety rule belong to `eggpack-core`; this crate applies them and keeps its
+  own diagnostic wording.
 
 Local payload (`prepare_staging_payload`) revalidates the finalized root against the contract and manifest, rejects missing/extra/tampered files, writes a standalone `release-manifest.json` that decodes back to the exact M004 manifest, generates deterministic `install.sh`/`install.ps1` with exact-tag origins (`https://github.com/<owner>/<repo>/releases/download/<tag>`), and emits a deterministic `StagingPayloadV1`. M004 root semantics are unchanged.
 

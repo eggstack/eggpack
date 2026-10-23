@@ -15,6 +15,7 @@ use eggpack_contract::{
     expected_release_files, validate_release_inventory, DistributionContract, ExpandedAssets,
     ExtrasPolicy, ReleaseInventory,
 };
+pub use eggpack_manifest::{validate_sha256_hex, Sha256Error};
 use eggpack_manifest::{
     ArchiveMemberRecord, ArtifactForm, ArtifactRecord, BundleRecord, ByteEvidence, ReleaseManifest,
     TargetRecord,
@@ -78,7 +79,15 @@ impl std::error::Error for CoreError {}
 fn err(s: impl Into<String>) -> CoreError {
     CoreError(s.into())
 }
-fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
+/// Whether a host requirement matches a canonical target triple.
+///
+/// This is the **single** producer-side host/target match rule. Architecture
+/// is a triple prefix (`x86_64-`, `aarch64-`, `armv7-`) and the operating
+/// system is a triple predicate (`-linux-`, `-apple-darwin`, `-windows-`).
+///
+/// `Qualification::Native` is host-matched against this predicate, and
+/// `eggpack-ci` calls it instead of carrying an independent copy.
+pub fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
     let arch = match host.arch {
         HostArch::X86_64 => triple.starts_with("x86_64-"),
         HostArch::Aarch64 => triple.starts_with("aarch64-"),
@@ -112,7 +121,89 @@ fn valid_tool_version(value: &str) -> bool {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
-fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
+/// Why a declared compatibility floor does not apply to a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloorApplicabilityError {
+    /// A glibc floor was declared for a target that is not GNU/Linux.
+    NotGlibcTarget,
+    /// A macOS floor was declared for a target that is not macOS.
+    NotMacosTarget,
+    /// A macOS floor was declared for a cargo-zigbuild build.
+    MacosFloorUnderZigbuild,
+}
+
+/// The compatibility-floor half of the floor rule that concerns the target
+/// triple alone.
+///
+/// A glibc floor applies only to a `-linux-gnu` triple and a macOS floor only
+/// to an `-apple-darwin` triple. The strategy half of the same rule lives in
+/// [`floor_applies_to_strategy`]; the two are composed by the canonical
+/// [`validate_floor_applicability`].
+fn floor_applies_to_triple(
+    floor: &CompatibilityFloor,
+    triple: &str,
+) -> Result<(), FloorApplicabilityError> {
+    match floor {
+        CompatibilityFloor::None => Ok(()),
+        CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-gnu") => {
+            Err(FloorApplicabilityError::NotGlibcTarget)
+        }
+        CompatibilityFloor::Macos { .. } if !triple.ends_with("-apple-darwin") => {
+            Err(FloorApplicabilityError::NotMacosTarget)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The compatibility-floor half of the floor rule that concerns the build
+/// strategy alone.
+///
+/// A macOS floor cannot be satisfied by a cargo-zigbuild build: the cross
+/// tool does not produce a macOS deployment target, so the declared floor
+/// could never be proven.
+fn floor_applies_to_strategy(
+    floor: &CompatibilityFloor,
+    strategy: BuildStrategy,
+) -> Result<(), FloorApplicabilityError> {
+    match (floor, strategy) {
+        (CompatibilityFloor::Macos { .. }, BuildStrategy::CargoZigbuild) => {
+            Err(FloorApplicabilityError::MacosFloorUnderZigbuild)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Whether the declared compatibility floor applies to a target triple and a
+/// build strategy.
+///
+/// This is the **single** producer-side floor-applicability rule. It composes
+/// the two halves of the rule: a glibc floor requires a `-linux-gnu` triple
+/// and a macOS floor requires an `-apple-darwin` triple, and a macOS floor is
+/// incompatible with a cargo-zigbuild build.
+///
+/// `eggpack-ci` applies it to a projected plan instead of re-deriving the
+/// floor rules.
+pub fn validate_floor_applicability(
+    floor: &CompatibilityFloor,
+    strategy: BuildStrategy,
+    triple: &str,
+) -> Result<(), FloorApplicabilityError> {
+    floor_applies_to_triple(floor, triple)?;
+    floor_applies_to_strategy(floor, strategy)
+}
+
+/// Validate one target policy against its canonical target triple.
+///
+/// This is the **single** producer-side policy validation rule. It covers the
+/// toolchain requirement shape, the cross-tool presence rule for the selected
+/// strategy, the compatibility-floor applicability rule, and the
+/// native-qualification host match.
+///
+/// `eggpack-ci` applies it to a `CIPlan` instead of re-deriving any of those
+/// rules. The macOS-floor-under-cargo-zigbuild refusal is enforced where the
+/// build command is derived, so policy resolution keeps its outcome; the
+/// canonical floor rule covers it.
+pub fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
     if policy.toolchain.rust.is_empty()
         || policy.toolchain.rust.len() > 64
         || !policy
@@ -151,14 +242,18 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
             }
         }
     }
-    match policy.floor {
-        CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-gnu") => {
-            return Err(err("glibc floor applies only to GNU/Linux targets"))
-        }
-        CompatibilityFloor::Macos { .. } if !triple.ends_with("-apple-darwin") => {
-            return Err(err("macOS floor applies only to macOS targets"))
-        }
-        _ => {}
+    if let Err(error) = floor_applies_to_triple(&policy.floor, triple) {
+        return Err(match error {
+            FloorApplicabilityError::NotGlibcTarget => {
+                err("glibc floor applies only to GNU/Linux targets")
+            }
+            FloorApplicabilityError::NotMacosTarget => {
+                err("macOS floor applies only to macOS targets")
+            }
+            FloorApplicabilityError::MacosFloorUnderZigbuild => {
+                err("macOS floor cannot use cargo-zigbuild")
+            }
+        });
     }
     if policy.qualification == Qualification::Native {
         let host = policy.qualification_host.unwrap_or(HostRequirement {
@@ -170,6 +265,72 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
                 "native qualification requires a qualification host matching the target OS/arch",
             ));
         }
+    }
+    Ok(())
+}
+
+/// Why an exact release tag was refused for safety reasons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExactTagSafetyError {
+    /// The tag is empty or longer than the documented bound.
+    OutOfBounds,
+    /// The tag contains a control character.
+    ControlCharacters,
+    /// The tag contains a character that is special to a query or a shell.
+    QueryOrInjectionCharacters,
+    /// The tag has an unsafe path shape.
+    UnsafePathShape,
+    /// The tag has a shape that is unsafe as a git ref path.
+    UnsafeGitRefPath,
+}
+
+/// The longest exact release tag that is considered at all.
+const MAX_EXACT_TAG_BYTES: usize = 128;
+
+/// Whether an exact release tag is safe to handle.
+///
+/// This is the **single** exact-tag safety rule in the workspace. It carries
+/// the union of the two concern sets that previously existed as separate
+/// partial rules:
+///
+/// - the git-ref-path concerns — a tag used as
+///   `refs/tags/<tag>^{commit}` must not contain `..`, must not begin or end
+///   with `/`, must not end with `.`, must not contain `@{`, must not contain
+///   `^`, `:`, `*`, `[` or `~`, and must not carry an empty, `.`-leading, or
+///   `.lock`-ending path component;
+/// - the shell-metacharacter concerns — a tag arriving from a workflow
+///   dispatch input must not contain `?`, `#`, `@`, a space, `\`, `'`, `"`,
+///   `` ` `` or `$`.
+///
+/// A tag is accepted only if it satisfies every concern, so the accepted set
+/// is the intersection of the two former accepted sets: this rule can only
+/// refuse more, never accept more.
+///
+/// This validator is **safety only**. The canonical *format* check — a
+/// `vX.Y.Z` stable version — is a separate, named concern with its own
+/// diagnostic, and a tag that is safe but not canonical is refused by the
+/// format check.
+pub fn validate_exact_tag_safety(tag: &str) -> Result<(), ExactTagSafetyError> {
+    if tag.is_empty() || tag.len() > MAX_EXACT_TAG_BYTES {
+        return Err(ExactTagSafetyError::OutOfBounds);
+    }
+    if tag.chars().any(char::is_control) {
+        return Err(ExactTagSafetyError::ControlCharacters);
+    }
+    if tag.contains(['?', '#', '@', ' ', '\\', '\'', '"', '`', '$']) {
+        return Err(ExactTagSafetyError::QueryOrInjectionCharacters);
+    }
+    if tag.contains("..") || tag.starts_with('/') || tag.ends_with('/') {
+        return Err(ExactTagSafetyError::UnsafePathShape);
+    }
+    if tag.ends_with('.')
+        || tag.contains("@{")
+        || tag.contains(['^', ':', '*', '[', '~'])
+        || tag.split('/').any(|component| {
+            component.is_empty() || component.starts_with('.') || component.ends_with(".lock")
+        })
+    {
+        return Err(ExactTagSafetyError::UnsafeGitRefPath);
     }
     Ok(())
 }

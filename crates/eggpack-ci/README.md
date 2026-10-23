@@ -67,6 +67,16 @@ the stage job (`--installer-presentation` plus `--source-root` from staging
 inputs; absent for M003c-compatible staging). Graphs without validators or
 wrappers render byte-identical to M003c.
 
+This crate owns no producer rule of its own. The host/target match, the
+compatibility floor, the exact-tag safety rule, and the file digest belong to
+`eggpack-core`; the SHA-256 hex acceptance set belongs to `eggpack-manifest`.
+`CIPlan::validate` applies the core policy validation, the exact-tag check
+applies the core safety rule, candidate hashing applies the core file digest
+(a refusal is a typed error, not a zero-size placeholder), and
+`validate_sha256_hex` applies the manifest rule through core's re-export. Each
+call site keeps its own diagnostic wording, so this crate's messages and the
+rendered workflow bytes are unchanged.
+
 Runner labels and action commit pins are policy inputs rather than CIPlan data.
 Cross-build runners must declare preinstalled cargo-zigbuild and Zig; generated
 build jobs check the configured cargo-zigbuild version and never install tools.

@@ -360,7 +360,15 @@ pub fn cargo_command(
                 format!("{}.{major}.{minor}", target.target)
             }
             CompatibilityFloor::Macos { .. } => {
-                return Err(build_err("macOS floor cannot use cargo-zigbuild"));
+                // The canonical floor rule owns this refusal: a macOS floor
+                // cannot be satisfied by a cargo-zigbuild build.
+                crate::validate_floor_applicability(
+                    &target.policy.floor,
+                    target.policy.strategy,
+                    &target.target,
+                )
+                .map_err(|_| build_err("macOS floor cannot use cargo-zigbuild"))?;
+                target.target.clone()
             }
             CompatibilityFloor::None => target.target.clone(),
         };
@@ -424,19 +432,9 @@ pub fn run_git_tag_bounded(
     expected: &str,
     cwd: Option<&Path>,
 ) -> Result<ProcessEvidence, BuildError> {
-    if tag.is_empty()
-        || tag.len() > 128
-        || tag.chars().any(char::is_control)
-        || tag.starts_with('/')
-        || tag.ends_with('/')
-        || tag.ends_with('.')
-        || tag.contains("..")
-        || tag.contains("@{")
-        || tag.contains(['?', '\\', '^', ':', '*', '[', '~', ' '])
-        || tag.split('/').any(|component| {
-            component.is_empty() || component.starts_with('.') || component.ends_with(".lock")
-        })
-    {
+    // The canonical exact-tag safety rule owns this refusal: it carries the
+    // union of the git-ref-path concerns and the shell-metacharacter concerns.
+    if crate::validate_exact_tag_safety(tag).is_err() {
         return Err(build_err("invalid exact git tag"));
     }
     run_git_resolve_bounded(

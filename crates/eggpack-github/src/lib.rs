@@ -492,19 +492,23 @@ fn validate_repo(value: &str) -> Result<(), GithubError> {
 }
 
 fn validate_tag(value: &str) -> Result<(), GithubError> {
-    if value.is_empty() || value.len() > 128 {
-        return Err(fail("tag out of bounds"));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(fail("tag contains control characters"));
-    }
-    if value.contains(['?', '#', '@', ' ', '\\', '\'', '"', '`', '$']) {
-        return Err(fail("tag contains query/injection characters"));
-    }
-    if value.contains("..") || value.starts_with('/') || value.ends_with('/') {
-        return Err(fail("tag has unsafe path shape"));
-    }
-    Ok(())
+    // The canonical exact-tag safety rule is owned by `eggpack-core`; this
+    // crate keeps its own diagnostic wording for each refusal class.
+    eggpack_core::validate_exact_tag_safety(value).map_err(|error| {
+        fail(match error {
+            eggpack_core::ExactTagSafetyError::OutOfBounds => "tag out of bounds",
+            eggpack_core::ExactTagSafetyError::ControlCharacters => {
+                "tag contains control characters"
+            }
+            eggpack_core::ExactTagSafetyError::QueryOrInjectionCharacters => {
+                "tag contains query/injection characters"
+            }
+            eggpack_core::ExactTagSafetyError::UnsafePathShape => "tag has unsafe path shape",
+            eggpack_core::ExactTagSafetyError::UnsafeGitRefPath => {
+                "tag has unsafe git ref path shape"
+            }
+        })
+    })
 }
 
 fn validate_title(value: &str) -> Result<(), GithubError> {
@@ -565,14 +569,14 @@ fn validate_relative_path(value: &str) -> Result<(), GithubError> {
 }
 
 fn validate_sha256(value: &str) -> Result<(), GithubError> {
-    if value.len() != 64
-        || !value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
-        return Err(fail("sha256 must be 64 lowercase hex characters"));
-    }
-    Ok(())
+    // The SHA-256 hex acceptance set is owned by `eggpack-manifest`
+    // (ADR-0006); this crate applies it rather than restating it.
+    eggpack_manifest::validate_sha256_hex(value).map_err(|error| {
+        fail(match error {
+            eggpack_manifest::Sha256Error::AllZeros => "sha256 must not be the all-zeros digest",
+            _ => "sha256 must be 64 lowercase hex characters",
+        })
+    })
 }
 
 /// Read a credential from the environment without logging it.
@@ -587,44 +591,33 @@ pub fn read_token(env_name: &str) -> Result<String, GithubError> {
     Ok(value)
 }
 
-/// Digest one staging file with a fixed-size buffer.
+/// Digest one staging file with the canonical producer file-digest helper.
 ///
 /// The bytes are never held in memory: a finalized release bundle can be far
 /// larger than the process should grow to accommodate, and the rest of this
 /// crate already streams — `streamed_upload_body` and `verify_file` both read
 /// in `UPLOAD_CHUNK_BYTES` chunks. Peak memory here is therefore independent
 /// of artifact size.
+///
+/// The digest rule itself is owned by `eggpack-core`; this wrapper only keeps
+/// the crate's own staging diagnostic wording.
 fn digest_file(path: &Path) -> Result<(u64, String), GithubError> {
-    let metadata =
-        std::fs::symlink_metadata(path).map_err(|_| fail("staging file is unavailable"))?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() == 0 {
-        return Err(fail("staging file must be a non-empty regular file"));
-    }
-    use sha2::Digest;
-    use std::io::Read as _;
-    let mut file = std::fs::File::open(path).map_err(|_| fail("staging file cannot be read"))?;
-    let mut hasher = sha2::Sha256::new();
-    let mut buffer = vec![0u8; UPLOAD_CHUNK_BYTES];
-    let mut size: u64 = 0;
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|_| fail("staging file cannot be read"))?;
-        if count == 0 {
-            break;
+    eggpack_core::file_digest(path).map_err(|error| fail(staging_digest_message(error)))
+}
+
+/// Map a canonical file-digest refusal to this crate's staging diagnostic.
+fn staging_digest_message(error: eggpack_core::DigestError) -> &'static str {
+    match error {
+        eggpack_core::DigestError::Unavailable => "staging file is unavailable",
+        eggpack_core::DigestError::NotRegularFile | eggpack_core::DigestError::Empty => {
+            "staging file must be a non-empty regular file"
         }
-        hasher.update(&buffer[..count]);
-        size = size
-            .checked_add(count as u64)
-            .ok_or_else(|| fail("staging file size exceeds the platform bound"))?;
+        eggpack_core::DigestError::OpenFailed | eggpack_core::DigestError::ReadFailed => {
+            "staging file cannot be read"
+        }
+        eggpack_core::DigestError::SizeOverflow => "staging file size exceeds the platform bound",
+        eggpack_core::DigestError::ChangedDuringRead => "staging file changed during read",
     }
-    let after =
-        std::fs::symlink_metadata(path).map_err(|_| fail("staging file changed during read"))?;
-    if after.file_type().is_symlink() || !after.is_file() || after.len() != size {
-        return Err(fail("staging file changed during read"));
-    }
-    let digest = hasher.finalize();
-    Ok((size, digest.iter().map(|b| format!("{b:02x}")).collect()))
 }
 
 fn reject_symlink_dir(path: &Path, label: &str) -> Result<(), GithubError> {
@@ -3266,3 +3259,73 @@ impl GithubApi for FixtureGithub {
 
 #[cfg(test)]
 mod tests;
+
+/// M003l: the SHA-256 acceptance set is the canonical one, applied here
+/// rather than restated.
+#[cfg(test)]
+mod m003l_rule_convergence_tests {
+    use super::*;
+
+    #[test]
+    fn sha256_acceptance_set_is_the_canonical_one() {
+        const DIGESTS: &[&str] = &[
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90",
+            "g1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9",
+            "a1b2c3d4",
+            "",
+        ];
+        for digest in DIGESTS {
+            assert_eq!(
+                validate_sha256(digest).is_ok(),
+                eggpack_manifest::validate_sha256_hex(digest).is_ok(),
+                "GitHub call site diverged for {digest:?}"
+            );
+        }
+        // The all-zeros placeholder is refused.
+        assert!(validate_sha256(&"0".repeat(64)).is_err());
+        // A canonical digest is accepted.
+        assert!(validate_sha256(
+            "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn exact_tag_safety_is_the_canonical_one() {
+        // Every character class the pre-convergence rule refused is still
+        // refused, and the canonical rule adds the git-ref-path concerns.
+        for tag in [
+            "",
+            "v1.2.3#",
+            "v1.2.3@",
+            "v1.2.3'",
+            "v1.2.3\"",
+            "v1.2.3`",
+            "v1.2.3$",
+            "v1.2.3?",
+            "v1.2.3 ",
+            "v1.2.3\\",
+            "v1.2.3^",
+            "v1.2.3:",
+            "v1.2.3*",
+            "v1.2.3[",
+            "v1.2.3~",
+            "v1.2.3.",
+            "v1..2.3",
+            "/v1.2.3",
+            "v1.2.3/",
+            "release/v1.2.3.lock",
+        ] {
+            assert!(
+                validate_tag(tag).is_err(),
+                "GitHub accepted an unsafe tag {tag:?}"
+            );
+        }
+        // A canonical version tag and a multi-segment tag stay accepted.
+        assert!(validate_tag("v1.2.3").is_ok());
+        assert!(validate_tag("release/v1.2.3").is_ok());
+    }
+}
