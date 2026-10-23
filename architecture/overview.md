@@ -89,15 +89,36 @@ it. Where the claim could not be pinned to one line, the anchor became a
 symbol-name reference. No anchor was shifted arithmetically and no number was
 invented.
 
-- Anchors checked: **2510** `file:line` citations across 21 documents.
+- Anchors checked by that pass: **2510** citation tokens. That is the pass's own
+  count of every numeric line-reference token in `architecture/`, bare `:N`
+  references included — it is **not** a count of distinct `file:line` citations.
+  Measured on the current tree, `architecture/` holds **1161** `file:line`
+  citation tokens across 21 documents (**1103** of them into `.rs` files), and
+  `plans/` holds **185** more, so **1346** across `architecture/` and `plans/`.
+  Measured with
+  `grep -ohE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' architecture/*.md | wc -l`
+  and the same expression over `architecture/ plans/`.
 - Re-pointed at a verified line (the old line no longer held what the sentence
   claimed, or the construct had moved): **596**.
 - Replaced by a symbol-name reference because no single line could carry the
   claim: **12**.
 - Dropped where the claim was folded into a neighbouring citation: **11**.
 - Added where a sentence gained a verified anchor: **50**.
-- Left indicative with a stated reason: **0**. Every anchor now names a line
-  that was read, or names the construct symbolically.
+- **Left indicative with a reason: 0** — but that count covers *single-line*
+  anchors only, and the claim it made ("every anchor now names a line that was
+  read, or names the construct symbolically") was too strong. The directory
+  still carries **431** range-style anchors (`file.rs:N-M`), spread over **404**
+  lines of **17** documents. A range is neither a single line nor a symbol-name
+  reference: each was checked as a range, not as one read line. The per-document
+  range-anchor line counts are `ci-consumer-seam.md` 81,
+  `process-execution.md` 65, `ci-rendering.md` 57, `determinism.md` 54,
+  `cli.md` 40, `validation-model.md` 27, `core-finalization.md` 19,
+  `core-qualification.md` 13, `testing-and-portability.md` 11,
+  `core-planning.md` 10, `github.md` 9, `contract.md` 9, `overview.md` 3,
+  `core-build.md` 2, `bootstrap.md` 2, `manifest.md` 1, `core.md` 1. Measured with
+  `grep -ohE '\.rs:[0-9]+-[0-9]+' architecture/*.md | wc -l` for occurrences and
+  `grep -lE '\.rs:[0-9]+-[0-9]+' architecture/*.md | xargs grep -cE '\.rs:[0-9]+-[0-9]+'`
+  for lines.
 - Documents whose prose changed because the code changed underneath them:
   `ci-consumer-seam.md` (the CI crate's module tree, and the private process
   runner that CI M003m replaced with core's shared bounded runner),
@@ -192,11 +213,11 @@ contract   manifest
 |---|---|---|
 | `eggpack-contract` | 2937 (2449 + 488 tests) | [contract.md](contract.md) |
 | `eggpack-manifest` | 1536 | [manifest.md](manifest.md) |
-| `eggpack-core` | 8750 (6 files) | [core.md](core.md) |
+| `eggpack-core` | 8935 (6 files) | [core.md](core.md) |
 | `eggpack-bootstrap` | 3587 | [bootstrap.md](bootstrap.md) |
-| `eggpack-ci` | 12831 (14 files) | [ci.md](ci.md) |
+| `eggpack-ci` | 12945 (14 files) | [ci.md](ci.md) |
 | `eggpack-github` | 5498 (3439 + 2059 tests) | [github.md](github.md) |
-| `eggpack-cli` | 6983 (5261 + 1722 tests) | [cli.md](cli.md) |
+| `eggpack-cli` | 8523 (5711 + 2812 tests) | [cli.md](cli.md) |
 
 Counts are Rust source lines per crate, measured against the baseline named
 above: every `.rs` file under `crates/<crate>/`, production and test code alike.
@@ -246,8 +267,8 @@ revision verification and for the consumer validator:
 | `src/builder.rs` | 1902 | bindings, command specs, bounded execution, candidate discovery | [core-build.md](core-build.md) |
 | `src/qualification.rs` | 2982 | qualification methods, host matching, evidence | [core-qualification.md](core-qualification.md) |
 | `src/finalization.rs` | 928 | `finalize_release`, archive assembly, manifest aggregation | [core-finalization.md](core-finalization.md) |
-| `src/digest.rs` | 294 | the one bounded file-digest authority | [core-build.md](core-build.md) |
-| `src/floor.rs` | 1260 | bounded ELF compatibility-floor inspection | [core-qualification.md](core-qualification.md) |
+| `src/digest.rs` | 327 | the one bounded file-digest authority | [core-finalization.md](core-finalization.md) |
+| `src/floor.rs` | 1412 | bounded ELF compatibility-floor inspection | [core-qualification.md](core-qualification.md) |
 
 Crate-level orientation, dependency direction, and the cross-file data
 contracts live in [core.md](core.md).
@@ -267,7 +288,7 @@ authenticity or provenance claims.
 
 ### `eggpack-ci` — release CI planning and workflow rendering
 
-A 14-file module tree at 12831 lines, the largest component in the workspace.
+A 14-file module tree at 12885 lines, the largest component in the workspace.
 Depends on `contract` + `core`. Projects a release into a provider-neutral
 graph (`project_ci_plan` → `CIPlan` → `TargetJob`; `project_release_plan` →
 `ReleaseCIPlanV1` with qualification, gate, aggregate/finalize, and staging
@@ -288,16 +309,16 @@ runtime identity contract (`ReleaseWorkflowShapeV1`,
 | `src/error.rs` | 19 | `CiError` |
 | `src/validate.rs` | 60 | shared string rules (`safe_target`, `safe_identifier`, `safe_metadata`, `safe_tool_version`) |
 | `src/planning.rs` | 370 | `CIPlan` projection and validation |
-| `src/policy.rs` | 734 | policy types, Zig/cross-tool provisioning, shared path constants |
+| `src/policy.rs` | 739 | policy types, Zig/cross-tool provisioning, shared path constants |
 | `src/runner.rs` | 475 | `RunnerCommand`, the finite runner-command enum |
 | `src/render_github.rs` | 256 | `render_github` and the YAML scalar quoter |
 | `src/drift.rs` | 106 | byte-level drift comparison |
 | `src/handoff.rs` | 390 | build/qualification handoff documents |
 | `src/release_plan.rs` | 655 | `ReleaseCIPlanV1` and the release-plan projection |
-| `src/render_release.rs` | 1394 | release and reusable-workflow rendering |
+| `src/render_release.rs` | 1403 | release and reusable-workflow rendering |
 | `src/consumer_validator.rs` | 560 | the external consumer validator |
 | `src/identity.rs` | 215 | reusable-workflow runtime identity |
-| `src/tests.rs` | 7538 | the crate's test module, declared out of line |
+| `src/tests.rs` | 7638 | the crate's test module, declared out of line |
 
 **Deep dive:** [ci.md](ci.md) → [ci-rendering.md](ci-rendering.md),
 [ci-consumer-seam.md](ci-consumer-seam.md).
@@ -320,7 +341,7 @@ is generated by default rather than hand-written.
 
 ### `eggpack-cli` — deterministic wiring
 
-`src/main.rs` (4531) plus `src/operator.rs` (730), binary `eggpack`, no
+`src/main.rs` (4617) plus `src/operator.rs` (1094), binary `eggpack`, no
 `clap`. Hand-rolled dispatch in `dispatch` (`src/main.rs:24`) with the
 `eggpack ci` family and six local producer operator commands (`check`, `plan`,
 `package`, `qualify`, `collect`, `manifest`) — plus nine narrow internal
@@ -331,6 +352,32 @@ file-in/file-out steps. Exit code 0 on success, 1 with a single-line
 `eggpack: <message>` on failure. Owns the atomic-write, bounded-read,
 symlink-rejection, and relative-path-absolutization helpers that make the
 generated steps safe.
+
+| File | Lines | Concern |
+|---|---|---|
+| `src/main.rs` | 4617 | dispatch, the `ci` family, `contract expand`, file-safety helpers |
+| `src/operator.rs` | 1094 | the six local producer operator commands |
+| `tests/contract_expand.rs` | 381 | `eggpack contract expand` integration tests (8 tests) |
+| `tests/operator_commands.rs` | 2431 | operator-family integration tests (30 tests) |
+
+The operator family gained three optional flags and three tightened behaviours
+in the 2026-10-23 review chain; `cli.md` documents each in full, and this card
+records only the shape. The flags are `--qemu-sysroot` (the caller's QEMU
+sysroot for an emulated target, exactly as the `ci _qualify-target` runner takes
+it), `--identity-mode` (a caller-chosen release-identity mode rather than a
+hardcoded constant), and `--consumer-validators` (the checked-in validator map
+path). The producer policy and both bindings documents are read as **TOML or
+JSON** through one strict reader (`src/operator.rs:458-470`), so the bounds,
+unknown-field rejection, and strictness do not diverge from the CI path's.
+`qualify` refuses `--output-dir == --artifacts-dir` before writing anything
+(`src/operator.rs:693-695`): staging the qualification artifacts into the
+directory the candidates were read from would rewrite the very bytes the
+qualification is about. The derived manifest is **self-checking** — it reads
+every archive member back out of the finalized `.tar.gz` and compares it
+against the collected manifest (`src/operator.rs:973-991`,
+`digest_archive_member` `:1056`), so a manifest that disagrees with the archive
+it describes is refused rather than emitted. Staging never truncates a
+candidate.
 
 It also owns `eggpack contract expand` (Contract M003), the one consumer-facing
 scalar projection: read one local contract, print exactly one expanded name.

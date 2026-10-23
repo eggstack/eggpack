@@ -22,17 +22,19 @@ instead of owning a second, weaker spawn path. See
 `bootstrap` and `ci` derive documents from core's outputs, `github` consumes
 core's finalized release, and `cli` wires all of it.
 
-Code baseline `fc072af`; the working tree measures 6618 lines across five files.
+Code baseline `fa82486dab83d2369d330a3cef197a3651851c26`; the working tree
+measures 8935 lines across six files.
 
 ## File map
 
 | File | Lines | Owns | Deep dive |
 |---|---|---|---|
-| `src/lib.rs` | 1128 | policy vocabulary, `PackConfig` -> `ReleasePlan`, `build_manifest` | [core-planning.md](core-planning.md) |
-| `src/builder.rs` | 1663 | build bindings, command construction, bounded execution, candidate discovery | [core-build.md](core-build.md) |
-| `src/qualification.rs` | 2606 | qualification bindings, method taxonomy, host matching, evidence | [core-qualification.md](core-qualification.md) |
-| `src/finalization.rs` | 927 | qualification gate, output root, archives, sidecars, manifest | [core-finalization.md](core-finalization.md) |
-| `src/digest.rs` | 294 | the single producer-side file-digest authority | [core-finalization.md](core-finalization.md) |
+| `src/lib.rs` | 1384 | policy vocabulary, `PackConfig` -> `ReleasePlan`, `build_manifest` | [core-planning.md](core-planning.md) |
+| `src/builder.rs` | 1902 | build bindings, command construction, bounded execution, candidate discovery | [core-build.md](core-build.md) |
+| `src/qualification.rs` | 2982 | qualification bindings, method taxonomy, host matching, evidence | [core-qualification.md](core-qualification.md) |
+| `src/finalization.rs` | 928 | qualification gate, output root, archives, sidecars, manifest | [core-finalization.md](core-finalization.md) |
+| `src/digest.rs` | 327 | the single producer-side file-digest authority | [core-finalization.md](core-finalization.md) |
+| `src/floor.rs` | 1412 | compatibility-floor verification status and bounded ELF `GLIBC_x.y` inspection | [core-qualification.md](core-qualification.md) |
 
 Read them in pipeline order. The rough size split is itself informative:
 qualification is the most intricate part of the producer, and finalization is

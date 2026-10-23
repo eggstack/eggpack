@@ -18,8 +18,8 @@ Rendering turns intent into text. Three entry points produce workflow bytes:
 | Function | Location | Inputs | Output |
 |---|---|---|---|
 | `render_github` | `render_github.rs:143` | `&CIPlan`, `&GitHubPolicy` | `Result<String>` |
-| `render_release_github` | `render_release.rs:244` | `&ReleaseCIPlanV1`, `&GitHubPolicy` | `Result<String>` |
-| `render_reusable_release_github` | `render_release.rs:267` | `&DistributionContract`, `&ReleaseWorkflowShapeV1`, `&GitHubPolicy` | `Result<String>` |
+| `render_release_github` | `render_release.rs:253` | `&ReleaseCIPlanV1`, `&GitHubPolicy` | `Result<String>` |
+| `render_reusable_release_github` | `render_release.rs:276` | `&DistributionContract`, `&ReleaseWorkflowShapeV1`, `&GitHubPolicy` | `Result<String>` |
 
 Each takes references only and returns a `String`. None of the three, nor the
 three `check_*` functions (`check_github` `drift.rs:63`, `check_reusable_release_github`
@@ -40,18 +40,18 @@ the upstream repository.
 
 | Type | Location | Caller supplies | Validation enforces |
 |---|---|---|---|
-| `ActionPin` | `policy.rs:15` | one `reference` string | `validate_pin` `policy.rs:698`: `owner/repo@40-hex`, repo equal to the expected literal |
-| `RunnerMapping` | `policy.rs:30` | `os`, `arch`, `label`, `cargo_zigbuild`, `zig` | label charset `safe_runner_label` `policy.rs:712`; ≤128 mappings `policy.rs:575`; duplicate `(os, arch)` rejected `policy.rs:645-652` |
-| `WorkflowTrigger` | `policy.rs:269` | an ordered subset of `Push` / `WorkflowDispatch` | 1–2 entries `policy.rs:573-574`; duplicates rejected `policy.rs:653-662` |
-| `GitHubPolicy` | `policy.rs:315` | runners, pins, triggers, timeouts, optional staging, provisioning, and release identity mode | timeout 1–360 `policy.rs:569-570`; retention 1–90 `policy.rs:571-572`; sysroot map ≤256 `policy.rs:592-593`; staging identity rejects control chars, `/`, `..` `policy.rs:617-624`; staging tag source requires its matching trigger `policy.rs:635-643`; mapped mode is reusable-staging-only and pairs `RefName` with push or `DispatchInput` with dispatch |
-| `EggpackToolPolicy` | `policy.rs:372` | install timeout, and in practice only the revision | `validate` `policy.rs:385`: repo equals `https://github.com/eggstack/eggpack` `policy.rs:386`, revision exactly 40 hex `policy.rs:387-388`, package exactly `eggpack-cli` `policy.rs:389`, timeout 1–60 `policy.rs:390-391` |
+| `ActionPin` | `policy.rs:15` | one `reference` string | `validate_pin` `policy.rs:703`: `owner/repo@40-hex`, repo equal to the expected literal |
+| `RunnerMapping` | `policy.rs:30` | `os`, `arch`, `label`, `cargo_zigbuild`, `zig` | label charset `safe_runner_label` `policy.rs:717`; ≤128 mappings `policy.rs:580`; duplicate `(os, arch)` rejected `policy.rs:650-657` |
+| `WorkflowTrigger` | `policy.rs:274` | an ordered subset of `Push` / `WorkflowDispatch` | 1–2 entries `policy.rs:578-579`; duplicates rejected `policy.rs:658-667` |
+| `GitHubPolicy` | `policy.rs:320` | runners, pins, triggers, timeouts, optional staging, provisioning, and release identity mode | timeout 1–360 `policy.rs:574-575`; retention 1–90 `policy.rs:576-577`; sysroot map ≤256 `policy.rs:597-598`; staging identity rejects control chars, `/`, `..` `policy.rs:622-629`; staging tag source requires its matching trigger `policy.rs:640-648`; mapped mode is reusable-staging-only and pairs `RefName` with push or `DispatchInput` with dispatch |
+| `EggpackToolPolicy` | `policy.rs:377` | install timeout, and in practice only the revision | `validate` `policy.rs:385`: repo equals `https://github.com/eggstack/eggpack` `policy.rs:391`, revision exactly 40 hex `policy.rs:392-393`, package exactly `eggpack-cli` `policy.rs:394`, timeout 1–60 `policy.rs:395-396` |
 | `CrossToolProvisioningV1` | `policy.rs:65` | install and download timeouts, per-arch Zig digests | `validate` `policy.rs:98` bounds both timeouts and both digests; `ZigOfficialArchiveV1::validate` `policy.rs:78` requires 64 lowercase hex, rejects the all-zero digest (`policy.rs:161` delegates to the canonical rule) |
 
 The distinction matters. Action SHAs and runner labels are free-form but bounded;
-the Eggpack install origin and package name are exact literals (`policy.rs:386`, `policy.rs:389`).
+the Eggpack install origin and package name are exact literals (`policy.rs:391`, `policy.rs:394`).
 The set of permitted action *repositories* is a fixed four-entry allowlist
 (`actions/checkout`, `dtolnay/rust-toolchain`, `actions/upload-artifact`,
-`actions/download-artifact`) at `policy.rs:579-584`; only the commit within one of them
+`actions/download-artifact`) at `policy.rs:584-589`; only the commit within one of them
 is caller-chosen. Tool *versions* split across the two inputs by design: Zig and
 cargo-zigbuild versions come from the resolved plan (`cross_tool_versions`
 `render_github.rs:43-57`), SHA-256 digests from policy (`zig_expected_digest` `policy.rs:146`),
@@ -67,11 +67,11 @@ without re-sorting and relies on construction-time ordering
 
 ## The three render entry points
 
-| | `render_github` `render_github.rs:143` | `render_release_github` `render_release.rs:244` | `render_reusable_release_github` `render_release.rs:267` |
+| | `render_github` `render_github.rs:143` | `render_release_github` `render_release.rs:253` | `render_reusable_release_github` `render_release.rs:276` |
 |---|---|---|---|
 | Plan input | `CIPlan` (build graph only) | `ReleaseCIPlanV1` (qualified graph) | static `ReleaseWorkflowShapeV1` |
 | Jobs | `preflight`, one per target | `preflight`, builds, qualifications, consumer validation, gate, aggregate, optional `stage` | same as release, plus `resolve` |
-| Extra required policy | none beyond core `GitHubPolicy` | `eggpack_tool` `render_release.rs:469`, `download_artifact` `render_release.rs:474`, `release_inputs` `render_release.rs:479`, per-target sysroot for Emulated `render_release.rs:488-512`, validator map `render_release.rs:516-526` | all of the above plus `pack_config` `render_release.rs:281-284`, `draft_template` `render_release.rs:285-288`, a staging intent `render_release.rs:273-276` |
+| Extra required policy | none beyond core `GitHubPolicy` | `eggpack_tool` `render_release.rs:478`, `download_artifact` `render_release.rs:483`, `release_inputs` `render_release.rs:488`, per-target sysroot for Emulated `render_release.rs:508-518`, validator map `render_release.rs:525-535` | all of the above plus `pack_config` `render_release.rs:290-293`, `draft_template` `render_release.rs:294-297`, a staging intent `render_release.rs:282-285` |
 | Identity | n/a | tag, release id, and revision checked in and verified per job | none in bytes; resolved at run time by `resolve` |
 | Drift check | `check_github` `drift.rs:63` | `check_release_github` `drift.rs:99` | `check_reusable_release_github` `drift.rs:88` |
 
@@ -80,9 +80,9 @@ earliest slice and emits no gate. The exact release renderer serves a workflow
 already pinned to one tag and one revision, so every job verifies the
 checked-out source against the checked-in plan. The reusable renderer serves a
 workflow whose bytes must stay valid for every future tag: it projects the graph
-from static shape against dummy identity (`render_release.rs:297-313`), rewrites the
-identity-carrying input paths to workflow-private storage (`render_release.rs:318-339`), and
-fails closed if an unresolved placeholder survives into the output (`render_release.rs:360-362`).
+from static shape against dummy identity (`render_release.rs:306-322`), rewrites the
+identity-carrying input paths to workflow-private storage (`render_release.rs:327-348`), and
+fails closed if an unresolved placeholder survives into the output (`render_release.rs:369-371`).
 When `GitHubPolicy.release_identity_mode` is absent, generated bytes keep the
 historical exact-tag behavior. The explicit `v_prefixed_stable_semver` mode is
 accepted only with staging and one matching tag source; it emits a literal
@@ -106,7 +106,7 @@ operations and are not inferred by the renderer.
 One correction worth recording: despite the name, no `workflow_call` trigger is
 emitted, and `workflow_call` does not appear anywhere in the workspace sources.
 The reusable renderer emits the same `WorkflowTrigger` set as the exact renderer
-(`render_release.rs:562-576`). "Reusable" here means tag-independent and identity-resolved at
+(`render_release.rs:571-585`). "Reusable" here means tag-independent and identity-resolved at
 run time, not the GitHub reusable-workflow calling convention.
 
 `render_github` and `check_github` have no production caller in `eggpack-cli`;
@@ -142,13 +142,13 @@ and rendered behaviour cannot diverge.
 
 ## Job and step composition
 
-Triggers are emitted first (`render_release.rs:562-576`). `push:` and `workflow_dispatch:`
+Triggers are emitted first (`render_release.rs:571-585`). `push:` and `workflow_dispatch:`
 appear in the order the policy lists them. Dispatch gains a `release_tag` string
 input only when staging is enabled *and* the tag source is `DispatchInput`
-(`render_release.rs:565-576`); there is no branch or `latest` default. The top-level
-`permissions` block is `contents: read` (`render_release.rs:577`, and `render_github.rs:152` for build-only),
+(`render_release.rs:574-585`); there is no branch or `latest` default. The top-level
+`permissions` block is `contents: read` (`render_release.rs:586`, and `render_github.rs:152` for build-only),
 and every job restates it. Concurrency keys on workflow and ref, or on the
-resolved staging tag for dispatch-driven staging (`render_release.rs:582-591`).
+resolved staging tag for dispatch-driven staging (`render_release.rs:601-607`).
 
 Dispatch tags are workflow data throughout the renderer. The reusable
 `resolve` and write-scoped `stage` jobs bind `inputs.release_tag` to
@@ -164,14 +164,14 @@ validation script.
 
 | Order | Job | Emitter | `needs:` |
 |---|---|---|---|
-| 1 | `preflight` | `emit_preflight_job` `render_release.rs:602`, job head `render_release.rs:605` | — |
-| 2 | `resolve` (reusable only) | `emit_resolve_job` `render_release.rs:670`, job head `render_release.rs:679` | `preflight` |
-| 3 | one build job per `CIPlan` target | `emit_build_jobs` `render_release.rs:723`, job head `render_release.rs:752` | `resolve` if reusable, else `preflight` (`render_release.rs:755-761`) |
-| 4 | one qualification job per build job | `emit_qualification_jobs` `render_release.rs:853`, job head `render_release.rs:882` | that build job (`render_release.rs:883-890`) |
-| 5 | one consumer job per validated target | `emit_consumer_validation_jobs` `render_release.rs:936`, job head `render_release.rs:973` | that qualification job (`render_release.rs:974-981`) |
-| 6 | gate, id fixed `required_gate` | `emit_gate_job` `render_release.rs:1033`, job head `render_release.rs:1040` | inline list (`render_release.rs:1043-1063`) |
-| 7 | aggregate, id fixed `aggregate` | `emit_aggregate_job` `render_release.rs:1121`, job head `render_release.rs:1131` | the gate (`render_release.rs:1132-1139`) |
-| 8 | `stage`, only when the graph has staging | `emit_stage_job` `render_release.rs:1203`, job head `render_release.rs:1242` | the aggregate, plus an `if:` tag guard (`render_release.rs:1243-1256`) |
+| 1 | `preflight` | `emit_preflight_job` `render_release.rs:611`, job head `render_release.rs:614` | — |
+| 2 | `resolve` (reusable only) | `emit_resolve_job` `render_release.rs:679`, job head `render_release.rs:688` | `preflight` |
+| 3 | one build job per `CIPlan` target | `emit_build_jobs` `render_release.rs:732`, job head `render_release.rs:752` | `resolve` if reusable, else `preflight` (`render_release.rs:764-770`) |
+| 4 | one qualification job per build job | `emit_qualification_jobs` `render_release.rs:862`, job head `render_release.rs:882` | that build job (`render_release.rs:892-899`) |
+| 5 | one consumer job per validated target | `emit_consumer_validation_jobs` `render_release.rs:945`, job head `render_release.rs:982` | that qualification job (`render_release.rs:983-990`) |
+| 6 | gate, id fixed `required_gate` | `emit_gate_job` `render_release.rs:1042`, job head `render_release.rs:1040` | inline list (`render_release.rs:1052-1072`) |
+| 7 | aggregate, id fixed `aggregate` | `emit_aggregate_job` `render_release.rs:1130`, job head `render_release.rs:1131` | the gate (`render_release.rs:1141-1148`) |
+| 8 | `stage`, only when the graph has staging | `emit_stage_job` `render_release.rs:1212`, job head `render_release.rs:1242` | the aggregate, plus an `if:` tag guard (`render_release.rs:1252-1265`) |
 
 Job identifiers are not invented by the renderer. They come from the validated
 plan, and `ReleaseCIPlanV1::validate` pins them to exact strings: the gate must
@@ -179,41 +179,45 @@ be `required_gate` (`release_plan.rs:177`), the aggregate `aggregate` (`release_
 `stage` (`release_plan.rs:245`), and each build job id must equal the derived
 `target_job_id(target)` (`planning.rs:342`). The gate's `needs:` is the one list-valued
 dependency: each qualification contributes its consumer job when a validator is
-configured for that target and the qualification job otherwise (`render_release.rs:1043-1057`), so
+configured for that target and the qualification job otherwise (`render_release.rs:1052-1066`), so
 a graph with no validators emits exactly the pre-validator dependency list.
 
-`render_release_github_inner` (`render_release.rs:1361`) is the orchestrator, not the
+`render_release_github_inner` (`render_release.rs:1370`) is the orchestrator, not the
 implementation. It validates, then emits, and each concern has one named private
-helper: `validate_release_render_policy` (`render_release.rs:408`) for the plan and policy
-shape, `validate_release_identity_mode` (`render_release.rs:421`) for the identity mode,
-`validate_staging_trigger_match` (`render_release.rs:442`) for the trigger cross-check,
-`validate_release_tool_pins` (`render_release.rs:465`) and `validate_emulated_runtime_policy`
-(`render_release.rs:488`) for the pin and emulated-runtime rules,
-`resolve_consumer_validator_map` (`render_release.rs:516`) for the validator map,
-`emit_release_workflow_header` (`render_release.rs:558`) for the header and permissions, one
-`emit_*_job` helper per job, `emit_source_checkout_step` (`render_release.rs:529`),
-`emit_runtime_identity_download_step` (`render_release.rs:538`), and
-`emit_tool_install_and_verify_steps` (`render_release.rs:547`) for step emission, and
-`validate_rendered_release_workflow` (`render_release.rs:1307`) for the static guards. The
-helpers share one validated context, `ReleaseRenderContext` (`render_release.rs:370`), so no
+helper: `validate_release_render_policy` (`render_release.rs:417`) for the plan and policy
+shape, `validate_release_identity_mode` (`render_release.rs:430`) for the identity mode,
+`validate_staging_trigger_match` (`render_release.rs:451`) for the trigger cross-check,
+`validate_release_tool_pins` (`render_release.rs:474`) and `validate_emulated_runtime_policy`
+(`render_release.rs:497`) for the pin and emulated-runtime rules,
+`resolve_consumer_validator_map` (`render_release.rs:525`) for the validator map,
+`emit_release_workflow_header` (`render_release.rs:567`) for the header and permissions, one
+`emit_*_job` helper per job, `emit_source_checkout_step` (`render_release.rs:538`),
+`emit_runtime_identity_download_step` (`render_release.rs:547`), and
+`emit_tool_install_and_verify_steps` (`render_release.rs:556`) for step emission, and
+`validate_rendered_release_workflow` (`render_release.rs:1316`) for the static guards. The
+helpers share one validated context, `ReleaseRenderContext` (`render_release.rs:379`), so no
 emitter re-derives a policy decision.
 
 Step order inside a build job is fixed: checkout (`render_release.rs:768`), runtime-identity
-download when reusable (`render_release.rs:769`), toolchain setup (`render_release.rs:770`), toolchain
-verification or cross-tool provisioning (`render_release.rs:777-786`), pinned tool install
-(`render_release.rs:790`), source verification when staging is enabled (`render_release.rs:547-550`), one build
-step per output (`render_release.rs:793-815`), `_capture-build` (`render_release.rs:834`), artifact upload
-(`render_release.rs:836`). The install precedes the first `eggpack` invocation; source
+download when reusable (`render_release.rs:769`), toolchain setup (`render_release.rs:779`), toolchain
+verification or cross-tool provisioning (`render_release.rs:786-795`), pinned tool install
+(`render_release.rs:790`), source verification when staging is enabled (`render_release.rs:556-559`), one build
+step per output (`render_release.rs:802-824`), `_capture-build` (`render_release.rs:843`), artifact upload
+(`render_release.rs:845`). The install precedes the first `eggpack` invocation; source
 verification follows the toolchain the install depends on. Least privilege is
 structural: every job carries `permissions: contents: read` except `stage`,
-which carries `contents: write` (`render_release.rs:1263`); no job receives `id-token: write`,
-and the renderer fails closed if that string ever appears (`render_release.rs:1311-1313`). The
-staging token travels through `env` only (`render_release.rs:1285`). Artifact handoff names are
-derived, not literal: `handoff_name` (`planning.rs:354`), `BUILD_HANDOFF_FILE` (`policy.rs:537`),
-`QUALIFICATION_EVIDENCE_FILE` (`policy.rs:540`), `CANDIDATES_DIR` (`policy.rs:543`),
-`GATE_OUTCOME_FILE` (`policy.rs:546`), `RUNTIME_IDENTITY_ARTIFACT` (`identity.rs:29`).
-`mkdir_step` (`render_release.rs:33`) asserts its directory is a fixed safe relative path before
-emitting `mkdir -p '<dir>'`.
+which carries `contents: write` (`render_release.rs:1272`); no job receives `id-token: write`,
+and the renderer fails closed if that string ever appears (`render_release.rs:1320-1322`). The
+staging token travels through `env` only (`render_release.rs:1294`). Artifact handoff names are
+derived, not literal: `handoff_name` (`planning.rs:354`), `BUILD_HANDOFF_FILE` (`policy.rs:542`),
+`QUALIFICATION_EVIDENCE_FILE` (`policy.rs:545`), `CANDIDATES_DIR` (`policy.rs:548`),
+`GATE_OUTCOME_FILE` (`policy.rs:551`), `RUNTIME_IDENTITY_ARTIFACT` (`identity.rs:29`).
+`mkdir_step` (`render_release.rs:39`) **refuses** — it returns `Result` — when its
+directory is not a fixed safe relative path, instead of emitting `mkdir -p
+'<dir>'`. The refusal is deliberate: a contract may legally declare a triple at
+the contract's own name bound, which yields a directory name longer than the
+renderer's bound, and the renderer must reject that document rather than panic
+on caller-supplied input.
 
 ## Determinism of the render
 
@@ -237,11 +241,11 @@ is `plan.targets` order, which `CIPlan::validate` forces strictly ascending by
 target triple (`planning.rs:264`); output order within a job is forced ascending by logical
 selector (`planning.rs:288`); qualification order is forced canonical (`release_plan.rs:312-324`). So
 identical `(plan, policy)` gives byte-identical output. The trigger and runner
-arrays are emitted in the caller's listed order (`render_release.rs:562`, `render_release.rs:726-733`), so a
+arrays are emitted in the caller's listed order (`render_release.rs:571`, `render_release.rs:735-742`), so a
 policy listing the same set in a different order renders differently: policy
 array order is part of the determinism input, not something the renderer
 normalizes. Output is size-bounded at 8 MiB (`MAX_WORKFLOW_BYTES` `drift.rs:12`),
-checked after rendering (`render_github.rs:244`, `render_release.rs:1307-1309`) and again against existing bytes by
+checked after rendering (`render_github.rs:244`, `render_release.rs:1316-1318`) and again against existing bytes by
 each `check_*` (`drift.rs:37-39`). See [determinism.md](determinism.md).
 
 ## Drift checking
@@ -290,28 +294,28 @@ re-checks the bound (`crates/eggpack-cli/src/main.rs:395-398`), calls the checke
 
 Two independent provisioning concerns appear in the rendered text.
 
-**The Eggpack tool itself.** `tool_install_snippet` (`render_release.rs:51`) emits
+**The Eggpack tool itself.** `tool_install_snippet` (`render_release.rs:60`) emits
 `cargo install --git <repo> --rev <rev> --locked <package>` followed by
 `eggpack --version`, under the policy's install timeout. The three interpolated
 values are not quoted, which is safe only because `EggpackToolPolicy::validate`
-(`policy.rs:385-396`) reduces them to a literal URL, a 40-hex revision, and the literal
+(`policy.rs:390-401`) reduces them to a literal URL, a 40-hex revision, and the literal
 package `eggpack-cli`. The install appears in every release job that can invoke
 `eggpack`: `preflight` when staging is enabled and the render is not reusable
-(`render_release.rs:651-655`), `resolve` (`render_release.rs:689`), and every release-producing job through the
-one shared `emit_tool_install_and_verify_steps` (`render_release.rs:547-550`) — build
-(`render_release.rs:790`), qualification (`render_release.rs:901`), consumer validation (`render_release.rs:992`), gate
-(`render_release.rs:1075`), aggregate (`render_release.rs:1148`), and `stage` (`render_release.rs:1276`).
+(`render_release.rs:662`), `resolve` (`render_release.rs:698`), and every release-producing job through the
+one shared `emit_tool_install_and_verify_steps` (`render_release.rs:556-559`) — build
+(`render_release.rs:799`), qualification (`render_release.rs:910`), consumer validation (`render_release.rs:1001`), gate
+(`render_release.rs:1084`), aggregate (`render_release.rs:1157`), and `stage` (`render_release.rs:1285`).
 
 Ordering here was a real defect class, not a design preference. Source
 verification originally preceded the install in exact-staging preflight, and
 output directories were not created before the commands that write into them;
 both were corrected so the pinned tool is installed before any `eggpack`
-invocation and required directories are created first. `plans/registry.md:115`
+invocation and required directories are created first. `plans/registry.md:159`
 records this as the closed M003e corrective ("renderer installs tool before use
 and creates output dirs") and notes that post-closure live dispatch then exposed
 a rejected `-p` install flag, corrected by M003f. The current ordering is
-asserted structurally by `assert_tool_before_use` (`tests.rs:5438`) and
-`assert_mkdir_before_output` (`tests.rs:5481`).
+asserted structurally by `assert_tool_before_use` (`tests.rs:5538`) and
+`assert_mkdir_before_output` (`tests.rs:5581`).
 
 **Cross-build tools.** `cross_tools_section` (`render_github.rs:132`) selects between two modes.
 With no `cross_tools` policy the render is `PreinstalledVerified`:
@@ -327,13 +331,13 @@ entries, extract to a private directory, require a regular non-symlink executabl
 with the exec bit, require exact version equality, and export
 `CARGO_ZIGBUILD_ZIG_PATH` plus an invocation-private `CARGO_ZIGBUILD_CACHE_DIR`
 (`render_github.rs:117`). Product build steps in this mode receive `provisioned_build_env()`
-(`render_github.rs:126-128`, applied at `render_release.rs:800-802`) so the build binds to the verified Zig
+(`render_github.rs:126-128`, applied at `render_release.rs:809-811`) so the build binds to the verified Zig
 rather than to ambient `PATH`. Provisioning is restricted to Linux x86-64 and
-AArch64, enforced twice — in `GitHubPolicy::validate` (`policy.rs:681-687`) and again in
-the release renderer (`render_release.rs:734-752`).
+AArch64, enforced twice — in `GitHubPolicy::validate` (`policy.rs:686-692`) and again in
+the release renderer (`render_release.rs:743-761`).
 
 The render finishes with static guards over its own output
-(`validate_rendered_release_workflow` `render_release.rs:1307-1352`): no
+(`validate_rendered_release_workflow` `render_release.rs:1316-1361`): no
 `id-token: write`; none of `gh release`, `--clobber`, `release --publish`,
 `git tag `, `git push --tags`; and no `curl ` line lacking the full HTTPS-only
 plus bounded-timeout plus `"$zig_url"` shape, with a closing check that the fixed
@@ -352,14 +356,14 @@ Rendering is text production. It does not:
   region; process execution in this crate belongs to the consumer validator
   (`run_consumer_validator` `consumer_validator.rs:323`).
 - **Publish.** The only write-capable step emitted is
-  `_stage-github-draft` (`render_release.rs:1236-1241`), guarded by a tag-shape `if:`
-  (`render_release.rs:1251-1256`), and the publish tokens are rejected at `render_release.rs:1314-1326`.
+  `_stage-github-draft` (`render_release.rs:1245-1250`), guarded by a tag-shape `if:`
+  (`render_release.rs:1260-1265`), and the publish tokens are rejected at `render_release.rs:1323-1335`.
 - **Talk to GitHub.** There is no HTTP client dependency. The only network
   acquisition is *emitted as text* for a runner to perform (`render_github.rs:111-114`); the
   renderer never opens a connection.
 - **Decide release content.** Job set, ordering, identifiers, artifact names,
-  and tool versions are all read from the validated plan (`render_release.rs:752-754`,
-  `render_release.rs:882-883`, `render_release.rs:1040-1041`, `render_release.rs:1131-1132`, `render_release.rs:1242-1243`). Layout and naming
+  and tool versions are all read from the validated plan (`render_release.rs:761-763`,
+  `render_release.rs:891-892`, `render_release.rs:1049-1050`, `render_release.rs:1140-1141`, `render_release.rs:1251-1252`). Layout and naming
   authority is `eggpack-contract`; build,
   qualification, and finalization authority is `eggpack-core`. See
   [core.md](core.md).
@@ -378,14 +382,14 @@ against fixtures pulled in with `include_str!`, so the comparison is against the
 tracked bytes as of compile time. There are thirteen `assert_golden` call sites
 (`tests.rs:176`, `tests.rs:410`, `tests.rs:1439`, `tests.rs:1464`, `tests.rs:1481`,
 `tests.rs:1498`, `tests.rs:2106`, `tests.rs:2178`, `tests.rs:2195`, `tests.rs:2212`,
-`tests.rs:6917`, `tests.rs:6934`, `tests.rs:6951`) and nine YAML goldens in
+`tests.rs:7017`, `tests.rs:7034`, `tests.rs:7051`) and nine YAML goldens in
 `crates/eggpack-ci/tests/fixtures/`
 (`m002-*`, `m003b-*-staging`, `native-direct`, `native-direct-multitarget`),
 alongside one contract input, `mixed-direct-targets.toml`.
 
 Three tests are `#[ignore]`d and all three mutate tracked fixtures:
 `m002a_regenerate_goldens` (`tests.rs:1508`), `m003b_regenerate_goldens` (`tests.rs:2113`), and
-`m005_regenerate_m001_multitarget_golden` (`tests.rs:6289`). Each now carries a comment
+`m005_regenerate_m001_multitarget_golden` (`tests.rs:6389`). Each now carries a comment
 above its `#[ignore]` recording that it mutates tracked fixtures, and each calls
 `write_golden`
 (`tests.rs:158`), which is `#[allow(dead_code)]` and writes directly under
@@ -399,13 +403,14 @@ not read-only. Non-golden behavioural coverage worth naming:
 `rendering_is_deterministic_parseable_read_only_and_hands_off_candidate` (`tests.rs:164`),
 `drift_check_normalizes_only_crlf_and_detects_manual_edits` (`tests.rs:225`),
 `m003b_staging_disabled_renders_byte_compatible` (`tests.rs:2090`),
-`m003d_reusable_check_detects_shape_drift` (`tests.rs:4733`),
-`m005_release_renderer_provisions_before_build_with_private_cache` (`tests.rs:6139`).
+`m003d_reusable_check_detects_shape_drift` (`tests.rs:4833`),
+`m005_release_renderer_provisions_before_build_with_private_cache` (`tests.rs:6239`).
 
-The review burden is the honest cost of the split. The crate is a thirteen-file
-module tree and carries 81 `#[test]` functions in `src/tests.rs`; the rendering
-tests share that module with the planning, handoff, and consumer-validator tests,
-so a change to step emission is reviewed alongside unrelated harness code. See
+The review burden is the honest cost of the split. The crate is a 14-file
+module tree and carries 82 test attributes (80 `#[test]`, 2 `#[tokio::test]`) in
+`src/tests.rs`; the rendering tests share that module with the planning,
+handoff, and consumer-validator tests, so a change to step emission is reviewed
+alongside unrelated harness code. See
 [testing-and-portability.md](testing-and-portability.md).
 
 ## Dependencies / dependents

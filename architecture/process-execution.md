@@ -69,7 +69,7 @@ reason unrelated to release integrity.
 
 All `std::process::Command` uses in `eggpack-bootstrap` are inside its test
 module (`crates/eggpack-bootstrap/src/lib.rs:1066`), and the remaining CLI
-spawns are inside `mod tests` (`crates/eggpack-cli/src/main.rs:1629`). Neither
+spawns are inside `mod tests` (`crates/eggpack-cli/src/main.rs:1711`). Neither
 crate has a production spawn site.
 
 ## Process groups and jobs

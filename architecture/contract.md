@@ -327,7 +327,7 @@ reorder insensitivity (`:271`), and finding-sort stability (`:306`).
 | `simple-direct.toml` | `eggsact`, two `direct` targets (`linux-x64`, `macos-arm64`), one asset + one sidecar each. |
 | `codegg-bundle.toml` | `codegg`, one target, three-entry bundle (runfile, helper, manifest JSON). |
 | `egress-archive.toml` | `egress`, two targets, `.tar.gz` archive with two literal members; same install names on both targets. |
-| `eggsact-direct-targets.toml` | `eggsact`, five `direct` targets, version-bearing names and no `.exe` rule. Used by `eggpack-ci` (`crates/eggpack-ci/src/lib.rs8755`); no longer used by `eggpack-cli`, whose M003 test moved to `consumer-direct-targets.toml`. |
+| `eggsact-direct-targets.toml` | `eggsact`, five `direct` targets, version-bearing names and no `.exe` rule. Used by `eggpack-ci` (`crates/eggpack-ci/src/tests.rs:4967`); no longer used by `eggpack-cli`, whose M003 test moved to `consumer-direct-targets.toml`. |
 | `consumer-direct-targets.toml` | Byte-identical copy of the adopted eggsact contract at `eggstack/eggsact@d4e6e5c` (`release/eggpack/distribution.toml`): five `direct` targets, version-free public asset names, and the contract-level `.exe` rule. Added by Contract M003 so the CLI's consumer-shaped test compares against the names consumers actually publish. |
 | `observed-simple.toml` | `ObservedTargetMapping` for `simple-direct.toml` at `1.2.6`. |
 | `observed-codegg.toml` | `ObservedTargetMapping` for `codegg-bundle.toml` at `0.9.0`, looked up by alias. |

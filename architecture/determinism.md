@@ -143,7 +143,7 @@ checked against the serialization boundary; none reaches serialized output.
 Where a directory must be read, the code funnels through `BTreeMap` rather than
 trusting `read_dir` order — see the finalized-root inventory at
 `crates/eggpack-github/src/lib.rs:1181` (one shared implementation), and the provisioned Zig
-listing, collected then sorted (`crates/eggpack-ci/src/policy.rs:232-240`).
+listing, collected then sorted (`crates/eggpack-ci/src/policy.rs:237-245`).
 `validate_build_artifact_dir` deliberately does not rely on directory order:
 `read_dir` only rejects extras and counts
 (`crates/eggpack-ci/src/handoff.rs:243-266`), matching membership against the
@@ -175,7 +175,7 @@ rather than default-driven.
 | gzip `MTIME` | `0` via `GzBuilder::mtime` | `crates/eggpack-core/src/finalization.rs:424` |
 | gzip OS byte | unset → `255` | `crates/eggpack-core/src/finalization.rs:423-425` |
 | gzip FNAME / FCOMMENT | unset | `crates/eggpack-core/src/finalization.rs:423-425` |
-| Compression level | `Compression::default()` | `crates/eggpack-core/src/finalization.rs:425` |
+| Compression level | `Compression::default()` | `crates/eggpack-core/src/finalization.rs:434` |
 
 `tar::Header::new_gnu` already zeroes the block and calls `set_mtime(0)`; the
 production code re-sets mtime, uid, gid, and mode explicitly
@@ -240,16 +240,16 @@ rendered bytes is the line-ending convention a repository's `.gitattributes`
 may impose, and a lone `\r` or a trailing-whitespace edit is still drift.
 
 `eggpack ci check` never writes: it reads, re-renders, and reports
-(`crates/eggpack-cli/src/main.rs:880-944`), returning an error naming byte
+(`crates/eggpack-cli/src/main.rs:958-1022`), returning an error naming byte
 counts and first difference. `eggpack ci generate` is the only writer, writes
 only the explicit `--output` path, and rejects a symlink target
-(`crates/eggpack-cli/src/main.rs:823-878`; `atomic_write` at
+(`crates/eggpack-cli/src/main.rs:901-956`; `atomic_write` at
 `crates/eggpack-cli/src/main.rs:653-654`).
 
 Tests pin both directions: identical bytes and a CRLF-converted copy both report
 a match while a one-token change to `contents: read` is drift
 (`crates/eggpack-ci/src/tests.rs:225-244`); the five-target matrix renders and
-checks with no drift (`crates/eggpack-ci/src/tests.rs:5117-5125`); rendering twice is asserted equal
+checks with no drift (`crates/eggpack-ci/src/tests.rs:5217-5225`); rendering twice is asserted equal
 (`crates/eggpack-ci/src/tests.rs:174-175`).
 
 ## Round-trip stability
@@ -274,7 +274,7 @@ structural round-trips (`:531`, `:550`).
 The same check runs at every boundary where a manifest crosses into consumer
 space: the CLI re-encodes and fails if the round-trip is not byte-identical
 before writing `release-manifest.json` beside the finalized root
-(`crates/eggpack-cli/src/main.rs:1450-1462`, test at `crates/eggpack-cli/src/main.rs:2141-2155`); staging does
+(`crates/eggpack-cli/src/main.rs:1532-1544`, test at `crates/eggpack-cli/src/main.rs:2227-2241`); staging does
 the same for the manifest it writes
 (`crates/eggpack-github/src/lib.rs:1272-1292`);
 `eggpack-github` re-sorts the payload clone on every `to_json`

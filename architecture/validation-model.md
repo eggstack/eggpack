@@ -280,10 +280,15 @@ qualification whose host does not match. The parse-tier parity condition at
 production path in the workspace treats it that way — `resolve_runtime_release_plan`
 (`crates/eggpack-ci/src/lib.rs4613-4623`) checks the version, calls `resolve`,
 and then independently re-checks that the plan's release id and revision equal
-the exact tag and revision, and `project_ci_plan` (`:128-140`) re-resolves and
-compares. I found no non-test call site of `PackConfig::from_toml`; its only
-uses are in tests (`crates/eggpack-core/src/lib.rs:665`, `:852`;
-`crates/eggpack-ci/src/lib.rs9929`).
+the exact tag and revision, and `project_ci_plan`
+(`crates/eggpack-ci/src/planning.rs:111-123`) re-resolves and
+compares. The one production call site outside the CI crate is the CLI operator
+family (`crates/eggpack-cli/src/operator.rs:423`), which resolves through the
+same `resolve_runtime_release_plan_with_mode`
+(`crates/eggpack-ci/src/identity.rs:180-211`) and then validates the resolved
+plan (`crates/eggpack-cli/src/operator.rs:313-314`). The remaining uses are in
+tests (`crates/eggpack-core/src/lib.rs:915`, `:1102`;
+`crates/eggpack-ci/src/tests.rs:6144`).
 
 The Zig rule is deferred on purpose, and the reason is written down at
 `crates/eggpack-core/src/lib.rs:508-512`: `zig` is an additive optional field so
@@ -391,7 +396,7 @@ recorded in `plans/implementation/ci-release-orchestration/003l-producer-rule-au
 | Compatibility-floor applicability | `eggpack-core` | `validate_floor_applicability` (`crates/eggpack-core/src/lib.rs:186`) |
 | Exact-tag **safety** | `eggpack-core` | `validate_exact_tag_safety` (`crates/eggpack-core/src/lib.rs:313`) |
 | SHA-256 hex acceptance | `eggpack-manifest` | `validate_sha256_hex` (`crates/eggpack-manifest/src/lib.rs:98`) |
-| File digest | `eggpack-core` | `file_digest` (`crates/eggpack-core/src/digest.rs:102`) |
+| File digest | `eggpack-core` | `file_digest` (`crates/eggpack-core/src/digest.rs:110`) |
 
 The consumers, and nothing else:
 
@@ -399,7 +404,7 @@ The consumers, and nothing else:
   (`crates/eggpack-ci/src/planning.rs:234`) calls `validate_policy` and
   `validate_floor_applicability` (`crates/eggpack-ci/src/planning.rs:254-260`);
   `validate_sha256_hex`
-  (`crates/eggpack-ci/src/policy.rs:161-163`) delegates to the manifest rule through
+  (`crates/eggpack-ci/src/policy.rs:161-168`) delegates to the manifest rule through
   core's re-export (`crates/eggpack-core/src/lib.rs:20`); and the exact-tag
   check calls `validate_exact_tag_safety`. Each call site keeps its own
   diagnostic wording.

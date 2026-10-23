@@ -132,10 +132,10 @@ a fixed set of file names and JSON documents:
 
 | Constant | Value | Role |
 |---|---|---|
-| `BUILD_HANDOFF_FILE` (`policy.rs:537`) | `build-handoff.json` | build step output consumed by qualification |
-| `CANDIDATES_DIR` (`policy.rs:543`) | `candidates` | candidate bytes directory |
-| `QUALIFICATION_EVIDENCE_FILE` (`policy.rs:540`) | `evidence.json` | per-target qualification evidence |
-| `GATE_OUTCOME_FILE` (`policy.rs:546`) | `gate-outcome.json` | gate decision consumed by aggregate |
+| `BUILD_HANDOFF_FILE` (`policy.rs:542`) | `build-handoff.json` | build step output consumed by qualification |
+| `CANDIDATES_DIR` (`policy.rs:548`) | `candidates` | candidate bytes directory |
+| `QUALIFICATION_EVIDENCE_FILE` (`policy.rs:545`) | `evidence.json` | per-target qualification evidence |
+| `GATE_OUTCOME_FILE` (`policy.rs:551`) | `gate-outcome.json` | gate decision consumed by aggregate |
 | `CONSUMER_EVIDENCE_FILE` (`consumer_validator.rs:12`) | `consumer-evidence.json` | external validator output |
 | `RUNTIME_IDENTITY_DIR` (`identity.rs:17`) | `eggpack-runtime` | reusable-workflow runtime identity directory |
 | `RUNTIME_RELEASE_PLAN` (`identity.rs:20`) | `eggpack-runtime/release-plan.json` | runtime-resolved plan |

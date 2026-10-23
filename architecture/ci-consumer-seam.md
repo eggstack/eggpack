@@ -34,10 +34,10 @@ malformed or out-of-bounds documents, not against a determined adversary.
 ## The build/qualification handoff formats
 
 `BUILD_HANDOFF_FILE` = `build-handoff.json`
-(`crates/eggpack-ci/src/policy.rs:537`), `QUALIFICATION_EVIDENCE_FILE` =
-`evidence.json` (`policy.rs:540`), `CANDIDATES_DIR` = `candidates`
-(`policy.rs:543`), `GATE_OUTCOME_FILE` = `gate-outcome.json` (`policy.rs:546`,
-written by the gate job at `crates/eggpack-ci/src/render_release.rs:1038`). These
+(`crates/eggpack-ci/src/policy.rs:542`), `QUALIFICATION_EVIDENCE_FILE` =
+`evidence.json` (`policy.rs:545`), `CANDIDATES_DIR` = `candidates`
+(`policy.rs:548`), `GATE_OUTCOME_FILE` = `gate-outcome.json` (`policy.rs:551`,
+written by the gate job at `crates/eggpack-ci/src/render_release.rs:1047`). These
 four strings are the entire contract between the rendered workflow and the
 `eggpack` binary. A change to a name, a JSON shape, or a validation rule here
 survives compilation and fails at CI runtime: nothing in the type system ties a
@@ -49,7 +49,7 @@ producer write to a consumer read.
 | candidate bytes | files under `candidates/` | `stage_build_artifact_dir` (`handoff.rs:333`) / CLI staging | same | size, regular non-symlink file, exact inventory, no extras (`handoff.rs:253-286`) |
 | qualification evidence | `QualificationEvidence` (core) | qualification job | `validate_qualification_artifact_dir` (`handoff.rs:292`) | identity must equal the handoff (`handoff.rs:299-304`) |
 | consumer evidence | `ConsumerValidationEvidenceV1` (`consumer_validator.rs:138`) | `run_consumer_validator` (`consumer_validator.rs:323`) | `decode_consumer_evidence` (`release_plan.rs:406`), `evaluate_gate_with_consumer` (`release_plan.rs:420`) | `from_json` (`consumer_validator.rs:172`) + `validate` (`consumer_validator.rs:183`); gate re-validates at `release_plan.rs:426-428` |
-| workflow shape | `ReleaseWorkflowShapeV1` (`identity.rs:65`) | checked in | `render_reusable_release_github` (`render_release.rs:267`), `check_reusable_release_github` (`drift.rs:88`) | `from_json` (`identity.rs:86`) + `validate` (`identity.rs:104`) |
+| workflow shape | `ReleaseWorkflowShapeV1` (`identity.rs:65`) | checked in | `render_reusable_release_github` (`render_release.rs:276`), `check_reusable_release_github` (`drift.rs:88`) | `from_json` (`identity.rs:86`) + `validate` (`identity.rs:104`) |
 
 `BuildHandoffOutput` (`handoff.rs:25`) carries the contract logical selector, an
 explicit Cargo package and binary, a relative path below the handoff root, an
@@ -74,7 +74,7 @@ deterministic `relative_path` per selector (`candidate-direct`,
 `size: 1` as a non-zero placeholder (`handoff.rs:164`) with an explicit comment
 that callers must not treat it as evidence (`handoff.rs:155-158`). The runner
 replaces it with the observed size and re-validates — the CLI does exactly that
-at `crates/eggpack-cli/src/main.rs:999`, then re-validates at
+at `crates/eggpack-cli/src/main.rs:1077`, then re-validates at
 `main.rs:1002-1004` and `validate_build_artifact_dir` (`main.rs:1033`).
 
 ### `reconstruct_attempt`
@@ -118,12 +118,12 @@ directory, hard-links each candidate (falling back to copy,
 just wrote** (`handoff.rs:358`), so a size mismatch fails here. Two caveats: the
 handoff write is a plain `std::fs::write` (`handoff.rs:356`), not an atomic
 replace, unlike the CLI's `atomic_write`
-(`crates/eggpack-cli/src/main.rs:1032`); and this function has no caller outside
+(`crates/eggpack-cli/src/main.rs:1108`); and this function has no caller outside
 this crate's own tests — the CLI stages inline at `main.rs:1020-1034` using the
 literals `"candidates"` and `"build-handoff.json"` rather than the constants.
 `cargo_output_path` (`handoff.rs:364`) derives
 `<cargo_target_dir>/<target>/release/<binary>` after
-`validate_canonical_target_dir` (`crates/eggpack-ci/src/policy.rs:550`),
+`validate_canonical_target_dir` (`crates/eggpack-ci/src/policy.rs:555`),
 appending `.exe` for targets whose triple contains the `-windows-` component
 (`handoff.rs:380-384`). The suffix is appended to the full binary name, so a
 dotted name resolves to `tool.cli.exe`; this agrees with
@@ -144,7 +144,7 @@ is finite — `python3` on Linux/macOS, `python` on Windows — via
 `cfg!`-testable `python_interpreter_exe_for_windows`
 (`consumer_validator.rs:224`). `validate` (`consumer_validator.rs:79`) enforces
 `schema_version == 1`; interpreter is `Python3`; `validate_release_input_path`
-(`crates/eggpack-ci/src/policy.rs:520`) on the script (bounded relative, no
+(`crates/eggpack-ci/src/policy.rs:525`) on the script (bounded relative, no
 absolute root, no drive colon, no backslash, no `.`/`..`/empty segments,
 per-segment ≤128, total ≤512); `timeout_ms` in 1 000..=600 000; both output limits
 in 1..=8 000 000. `from_json` (`consumer_validator.rs:62`) bounds the document at
@@ -159,7 +159,7 @@ plus absolute `script_path`, `candidate_path`, `work_dir`, the `expected_size` a
 `expected_sha256` to verify against, release identity strings, an optional
 `AtomicBool` cancellation flag, and an optional exact PATH override
 (`consumer_validator.rs:254-258`). The CLI populates it at
-`crates/eggpack-cli/src/main.rs:1272-1284` with the size and digest taken from the
+`crates/eggpack-cli/src/main.rs:1354-1366` with the size and digest taken from the
 **qualification evidence**, not from the handoff (`main.rs:1276-1277`), and
 refuses outright to run if that evidence is not `Passed` (`main.rs:1235-1240`).
 
@@ -173,7 +173,7 @@ bounded evidence.
 
 | Step | Citation | Result on failure |
 |---|---|---|
-| re-validate config; script, candidate, work dir absolute; work dir a real directory; `expected_sha256` 64 lowercase hex; identity strings in bounds | `consumer_validator.rs:326-350` | `Err` |
+| re-validate config; script, candidate, work dir absolute; work dir a real directory; `expected_sha256` 64 lowercase hex, not all-zero; identity strings in bounds | `consumer_validator.rs:326-350` | `Err` |
 | candidate hashed, size and digest compared to expected | `consumer_validator.rs:369-389` | `Failed(CandidateMismatch)` |
 | script is a regular non-symlink file of 1 B..=1 MiB | `consumer_validator.rs:356-363`, `:390-397` | `Failed(ScriptUnavailable)` |
 | restore POSIX exec bits on the transferred candidate | `consumer_validator.rs:400-407`, `:451` | `Failed(CandidateMismatch)` |
@@ -266,7 +266,7 @@ the Zig download (`policy.rs:98-107`). Which *versions* are required comes from
 representable. `ZigOfficialArchiveV1` (`policy.rs:49`) holds one digest per
 supported Linux host architecture; `validate` (`policy.rs:78`) requires exactly 64
 lowercase hex characters and rejects the all-zero digest as a sentinel
-(`policy.rs:161-163`); `digest_for` (`policy.rs:87`) maps `X86_64`/`Aarch64` and
+(`policy.rs:161-168`); `digest_for` (`policy.rs:87`) maps `X86_64`/`Aarch64` and
 fails for `Armv7`.
 
 The version-to-archive mapping is pure and finite. `zig_archive_name`
@@ -278,16 +278,16 @@ version that fails `safe_tool_version` (`crates/eggpack-ci/src/validate.rs:23`,
 redirect target is representable. `zig_expected_digest` (`policy.rs:146`) requires
 a Linux host and returns the policy's pinned digest.
 
-`validate_zig_archive_listing` (`policy.rs:174`) is a network-free layout check
+`validate_zig_archive_listing` (`policy.rs:179`) is a network-free layout check
 over a file listing: non-empty, ≤4096 entries, each ≤512 bytes, no absolute root,
 NUL, `.`, `..`, or empty components, exactly one top-level directory, and a
-`<top>/zig` entry; it returns that top-level name. Its doc (`policy.rs:165-173`)
+`<top>/zig` entry; it returns that top-level name. Its doc (`policy.rs:170-178`)
 is careful about scope: symlink and traversal rejection *during extraction* is
 enforced by the rendered script and by `validate_provisioned_zig_dir`, not here.
-The latter (`policy.rs:226`) verifies the extracted tree offline: root is a real
+The latter (`policy.rs:231`) verifies the extracted tree offline: root is a real
 directory, exactly one child, that child is a real directory, `<top>/zig` is a
 regular non-symlink non-empty file, and on Unix has at least one exec bit
-(`policy.rs:256-262`); it returns the path to the `zig` executable.
+(`policy.rs:262-267`); it returns the path to the `zig` executable.
 
 **On the digest's meaning.** The expected digest is a caller-supplied pin. A
 download verified against it proves the bytes that arrived match the bytes the
@@ -313,12 +313,12 @@ per-target `consumer_validators` map, and optional staging intent. Its doc
 exact future tag, GitHub release id, or artifact digests/sizes;
 `deny_unknown_fields` enforces the negative space, so an injected
 `"release_id":"v1"` is rejected
-(`crates/eggpack-ci/src/tests.rs:4474`).
+(`crates/eggpack-ci/src/tests.rs:4574`).
 `ShapeStagingIntentV1` (`identity.rs:45`) is how staging is expressed in the
 shape: `provider` (must be `StagingProvider::GitHubDraft`,
 `identity.rs:135-139`), an explicit `tag_source` (`RefName` or `DispatchInput`),
 and a `required` flag. It is required for reusable rendering
-(`crates/eggpack-ci/src/render_release.rs:272-276`).
+(`crates/eggpack-ci/src/render_release.rs:281-285`).
 
 `validate` (`identity.rs:104`) enforces `schema_version == 1`, 1..=256 unique
 canonically ordered `safe_target` triples, 1..=256 `safe_metadata(alias, 128)`
@@ -332,12 +332,12 @@ transitively, later, inside `project_ci_plan` and
 `project_release_plan_with_consumer` during rendering. `pack_config()`
 (`identity.rs:144`) views the shape targets as a `PackConfig`.
 
-`render_reusable_release_github` (`crates/eggpack-ci/src/render_release.rs:267`)
+`render_reusable_release_github` (`crates/eggpack-ci/src/render_release.rs:276`)
 projects the graph against the two placeholders `UNRESOLVED_RELEASE_ID`
 (`crates/eggpack-ci/src/identity.rs:37`) and `UNRESOLVED_SOURCE_REVISION`
 (`identity.rs:40`), rewrites identity-carrying input paths to workflow-private
-storage (`render_release.rs:324`, `:353`), renders, then asserts the rendered
-bytes contain neither placeholder (`render_release.rs:360-364`) — a direct proof
+storage (`render_release.rs:333`, `:353`), renders, then asserts the rendered
+bytes contain neither placeholder (`render_release.rs:369-373`) — a direct proof
 that no release identity is embedded. `resolve_runtime_release_plan`
 (`identity.rs:162`) turns a runtime identity into a concrete plan through the
 `ExactTag` wrapper (`identity.rs:169-176`); its explicit sibling
@@ -372,14 +372,14 @@ pointing at the same commit therefore fails the event-tag comparison.
 | Constant | Value | Written by |
 |---|---|---|
 | `RUNTIME_IDENTITY_DIR` (`crates/eggpack-ci/src/identity.rs:17`) | `eggpack-runtime` | created by the resolve job |
-| `RUNTIME_RELEASE_PLAN` (`identity.rs:20`), `RUNTIME_CI_PLAN` (`identity.rs:23`), `RUNTIME_GITHUB_POLICY` (`identity.rs:26`) | `eggpack-runtime/{release-plan,release-ci-plan,github-draft}.json` | `_resolve-release` output flags (`crates/eggpack-ci/src/render_release.rs:353-358`) |
-| `RUNTIME_IDENTITY_ARTIFACT` (`identity.rs:29`) | `eggpack-runtime-identity` | uploaded and downloaded by every later job with `if-no-files-found: error` (`render_release.rs:230-233`) |
+| `RUNTIME_RELEASE_PLAN` (`identity.rs:20`), `RUNTIME_CI_PLAN` (`identity.rs:23`), `RUNTIME_GITHUB_POLICY` (`identity.rs:26`) | `eggpack-runtime/{release-plan,release-ci-plan,github-draft}.json` | `_resolve-release` output flags (`crates/eggpack-ci/src/render_release.rs:362-364`) |
+| `RUNTIME_IDENTITY_ARTIFACT` (`identity.rs:29`) | `eggpack-runtime-identity` | uploaded and downloaded by every later job with `if-no-files-found: error` (`render_release.rs:239-242`) |
 
 The resolve job checks out the event-selected exact tag, derives HEAD via
-`git rev-parse --verify HEAD^{commit}` (`render_release.rs:705`), writes the three
+`git rev-parse --verify HEAD^{commit}` (`render_release.rs:714`), writes the three
 documents into workflow-private storage, and uploads them as an internal preflight
 artifact that every later job downloads *before* its `_verify-source` step
-(`render_release.rs:711-714`).
+(`render_release.rs:720-723`).
 
 **The security implication, stated plainly: a runtime-supplied plan is a trust
 decision made by whoever invokes the workflow.** The checked-in, drift-checked shape
@@ -392,7 +392,7 @@ to a specific commit is `verify_source_revision` (`main.rs:410`), which requires
 given revision to equal HEAD in the explicit source root. Anyone who can invoke the
 workflow at a ref they control chooses the plan that ref resolves to — that is the
 point of a reusable workflow, and it is why the rendered tag guard
-(`crates/eggpack-ci/src/render_release.rs:700-704`, which exports the exact
+(`crates/eggpack-ci/src/render_release.rs:709-713`, which exports the exact
 event-selected tag as `EGGPACK_RELEASE_TAG`) matters more than the shape's
 contents. One minor seam weakness: `safe_metadata`
 (`crates/eggpack-ci/src/validate.rs:19`) permits commas, but the CLI splits
@@ -409,10 +409,10 @@ Bounds are stated per document above. The full set: `BuildHandoffV1` 1 MiB
 limits 1..=8 000 000, script ≤512 B (`consumer_validator.rs:79-97`); validator
 script file 1 MiB (`consumer_validator.rs:19`); consumer evidence 64 KiB
 (`consumer_validator.rs:16`) with non-zero size and 64-hex digest
-(`consumer_validator.rs:183-211`); Zig digests 64 lowercase hex, not all-zero
-(`crates/eggpack-ci/src/policy.rs:78-83`, `:161-163`); provisioning timeouts
+(`consumer_validator.rs:183-213`); Zig digests 64 lowercase hex, not all-zero
+(`crates/eggpack-ci/src/policy.rs:78-83`, `:161-168`); provisioning timeouts
 1..=60 min, 5..=300 s, 60..=3600 s (`policy.rs:98-107`); archive listing ≤4096
-entries (`policy.rs:175`); shape 1 MiB (`crates/eggpack-ci/src/identity.rs:31`)
+entries (`policy.rs:180`); shape 1 MiB (`crates/eggpack-ci/src/identity.rs:31`)
 with 1..=256 targets and aliases (`identity.rs:108-131`); runtime tag ≤128 B and
 revision exactly 40 hex (`identity.rs:188-189`).
 
@@ -465,9 +465,9 @@ apply here (see [process-execution.md](process-execution.md)).
 
 ## Tests
 
-The crate's tests live in `crates/eggpack-ci/src/tests.rs` (7538 lines, declared
+The crate's tests live in `crates/eggpack-ci/src/tests.rs` (7638 lines, declared
 out of line by `crates/eggpack-ci/src/lib.rs:18-19`). That module has **81 test
-attributes** (79 `#[test]`, 2 `#[tokio::test]`), plus 16
+attributes** (80 `#[test]`, 2 `#[tokio::test]`), plus 16
 `#[cfg(unix)]`/`#[cfg(windows)]`/`#[cfg(not(windows))]`-gated blocks.
 
 | Test | Line | What it proves |
@@ -477,10 +477,10 @@ attributes** (79 `#[test]`, 2 `#[tokio::test]`), plus 16
 | `m002a_generated_orchestration_executes_end_to_end` | `tests.rs:1589` | the rendered command/argument/layout contract drives build → capture → qualify → gate → aggregate → M004 finalization directly |
 | `m003d_validator_config_validation` | `tests.rs:3186` | bounds on schema version, interpreter, script path, timeout, output limits |
 | `m003d_consumer_execution_matrix` | `tests.rs:3289` | pass; non-zero exit; timeout; stdout flood → `OutputLimit`; hermetic missing interpreter; size+digest mismatch; symlinked script; symlinked candidate; cancellation → `Cancelled`; misuse → `Err` |
-| `m003d_consumer_gate_matrix` (`tests.rs:4063`), `m003d_consumer_attach_rejects_mismatch` (`tests.rs:4179`), `m003d_consumer_render_gates_and_detects_drift` (`tests.rs:4264`), `m003d_python_mapping_and_hermetic_lookup` (`tests.rs:3940`) | | gate treatment of passed/failed/required/non-gating evidence; attaching a validator to an unknown target or non-existent selector fails; the consumer job renders and drift-detects; the `python3`/`python` mapping |
-| `m003d_shape_validation` (`tests.rs:4474`), `m003d_runtime_resolve_matrix` (`tests.rs:4508`), `m003d_reusable_check_detects_shape_drift` (`tests.rs:4733`), `m003d_runner_commands_cover_consumer_and_resolve` (`tests.rs:4339`) | | shape round-trips and rejects an injected `release_id`; runtime resolution deterministic and fails closed on bad tag/revision/selection; a shape change is detected as drift; `RunnerCommand` covers the consumer and resolve commands |
-| `m003g_validator_restores_exec_on_transferred_candidate` | `tests.rs:5632` | exec bits restored, bytes untouched |
-| `m005_zig_archive_mapping_is_finite_and_official`, `..._listing_validation_without_network`, `m005_provisioned_zig_dir_checks_without_network` | `tests.rs:5731`, `:6214`, `:6240` | exact archive names and the fixed `ziglang.org` URL; listing layout validation offline; provisioned dir validation offline, including symlinked and non-executable `zig` rejection |
+| `m003d_consumer_gate_matrix` (`tests.rs:4063`), `m003d_consumer_attach_rejects_mismatch` (`tests.rs:4179`), `m003d_consumer_render_gates_and_detects_drift` (`tests.rs:4364`), `m003d_python_mapping_and_hermetic_lookup` (`tests.rs:3940`) | | gate treatment of passed/failed/required/non-gating evidence; attaching a validator to an unknown target or non-existent selector fails; the consumer job renders and drift-detects; the `python3`/`python` mapping |
+| `m003d_shape_validation` (`tests.rs:4574`), `m003d_runtime_resolve_matrix` (`tests.rs:4608`), `m003d_reusable_check_detects_shape_drift` (`tests.rs:4833`), `m003d_runner_commands_cover_consumer_and_resolve` (`tests.rs:4439`) | | shape round-trips and rejects an injected `release_id`; runtime resolution deterministic and fails closed on bad tag/revision/selection; a shape change is detected as drift; `RunnerCommand` covers the consumer and resolve commands |
+| `m003g_validator_restores_exec_on_transferred_candidate` | `tests.rs:5732` | exec bits restored, bytes untouched |
+| `m005_zig_archive_mapping_is_finite_and_official`, `..._listing_validation_without_network`, `m005_provisioned_zig_dir_checks_without_network` | `tests.rs:5831`, `:6214`, `:6240` | exact archive names and the fixed `ziglang.org` URL; listing layout validation offline; provisioned dir validation offline, including symlinked and non-executable `zig` rejection |
 
 Three honest caveats:
 

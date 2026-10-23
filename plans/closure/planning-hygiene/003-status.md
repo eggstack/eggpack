@@ -81,6 +81,14 @@ After — measured at `fa82486dab83d2369d330a3cef197a3651851c26`:
 | `eggpack-github` | 5498 (3439 + 2059) | 2 |
 | `eggpack-cli` | 6983 (5261 + 1722) | 4 |
 
+> **These counts are pinned to the SHA named above and are not the current
+> tree's.** The CLI, CI, and core crates were all corrected after this pass
+> (the 2026-10-23 producer-convergence corrective chain), so the figures have
+> moved. The current per-crate and per-file counts live in
+> `architecture/overview.md`'s crate card; this table records what this pass
+> measured and is not re-measured here, because a closure record is not
+> rewritten.
+
 The CI crate's per-file breakdown is in `architecture/overview.md`'s crate card:
 `lib.rs` 59, `error.rs` 19, `validate.rs` 60, `planning.rs` 370, `policy.rs` 734,
 `runner.rs` 475, `render_github.rs` 256, `drift.rs` 106, `handoff.rs` 390,
@@ -107,7 +115,23 @@ claim, the anchor became a symbol-name reference.
 | Replaced by a symbol-name reference | 12 |
 | Dropped where the claim was folded into a neighbouring citation | 11 |
 | Added where a sentence gained a verified anchor | 50 |
-| **Left indicative with a reason** | **0** |
+| **Left indicative with a reason** | **0** — for *single-line* anchors only; see the correction below. |
+
+> **Correction to this table (documentation audit, 2026-10-23).** The `2510`
+> figure is a count of every numeric line-reference token in `architecture/`,
+> bare `:N` references included. It is **not** a count of distinct `file:line`
+> citations, and the "left indicative: 0" row covers single-line anchors only:
+> the directory still carries **431** range-style anchors (`file.rs:N-M`) across
+> **404** lines of **17** documents. Measured on the current tree with
+> `grep -ohE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' architecture/*.md | wc -l`
+> (1161 `file:line` citation tokens across 21 documents, 1103 of them into
+> `.rs` files) and
+> `grep -ohE '\.rs:[0-9]+-[0-9]+' architecture/*.md | wc -l` (431 range-style
+> anchor occurrences). A range is neither a single line nor a symbol-name
+> reference, so those anchors remain multi-line claims. The claim in
+> `architecture/overview.md` that "every anchor now names a line that was read,
+> or names the construct symbolically" was too strong and has been corrected
+> there.
 
 Per document (re-pointed): `validation-model.md` 103, `ci-consumer-seam.md` 228,
 `process-execution.md` 34, `determinism.md` 59, `bootstrap.md` 103,
@@ -172,7 +196,7 @@ file's stale-anchor note now records that the gap is closed.
 Closed. The residual drift named at `architecture/overview.md:67-71` — the
 aggregate-sidecar, `release-manifest.json` placement, path-absolutization
 call-site, and end-to-end-orchestration (`1754`) sub-anchors — was resolved by
-symbol name against the current tree: `crates/eggpack-cli/src/main.rs:1450-1462`
+symbol name against the current tree: `crates/eggpack-cli/src/main.rs:1532-1544`
 (the manifest write beside the finalized root), `main.rs:999` and
 `main.rs:1002-1004` (the placeholder size replaced with the observed size and
 re-validated), `main.rs:1129`/`1153`/`1172` (the three path adapters),
@@ -183,7 +207,7 @@ re-validated), `main.rs:1129`/`1153`/`1172` (the three path adapters),
 command's argv). The note in `architecture/overview.md` now records the gap as
 closed.
 
-### 5.3 `architecture/overview.md:326-328`
+### 5.3 `architecture/overview.md:448-450`
 
 Verified, not changed. The sentence now reads: "No production spawn site is
 unbounded: `core`, `cli`, and `ci` share one bounded runner, and every
@@ -582,6 +606,8 @@ corrected. This was a documentation defect, not a code defect.
 
 ### 13.5 Informational — nothing was left indicative
 
-No anchor in `architecture/` was left indicative. Where a claim did not fit one
-line, a symbol-name reference was used instead, and the twelve such
-replacements are counted in §4.
+No **single-line** anchor in `architecture/` was left indicative. Where a claim
+did not fit one line, a symbol-name reference was used instead, and the twelve
+such replacements are counted in §4. Range-style anchors (`file.rs:N-M`) are a
+different thing: they were checked as ranges, and the directory still carries
+431 of them across 404 lines. See the correction note under §4's table.

@@ -41,11 +41,14 @@ What this buys: tests can reach `pub(crate)` and private items without widening
 visibility, which matters for crates that keep internal invariants private
 (`qualification.rs` reaches `qualify_target_for_host` internals directly). The
 cost is review burden. `eggpack-ci` no longer carries its tests inline: the
-crate is a module tree, and its 79 unit tests live in
-`crates/eggpack-ci/src/tests.rs` (7538 lines), declared out of line by the
+crate is a module tree, and its 80 unit tests live in
+`crates/eggpack-ci/src/tests.rs` (7638 lines), declared out of line by the
 `#[cfg(test)] mod tests;` at `crates/eggpack-ci/src/lib.rs:18-19`.
-`eggpack-cli` puts 27 tests in a 4531-line `main.rs`, which also means the
-binary's tests only run through the binary target, never as a library.
+`eggpack-cli` puts 27 unit tests in a 4617-line `main.rs`, which also means the
+binary's unit tests only run through the binary target, never as a library.
+The CLI crate also has two integration targets — `tests/contract_expand.rs`
+(8 tests) and `tests/operator_commands.rs` (30 tests) — so its operator family
+is exercised as a library-facing surface rather than only through the binary.
 
 **Out-of-line test modules.** Two crates declare `mod tests;` rather than an
 inline module: `crates/eggpack-ci/src/lib.rs:18-19` and

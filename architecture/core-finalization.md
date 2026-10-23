@@ -95,8 +95,8 @@ staging directory never enters the manifest.
 
 `release-manifest.json` is **not** written by this file — the manifest is
 returned in memory as a value (`:309-312`). Serialization to a file beside the
-finalized root happens in `eggpack-cli` (`crates/eggpack-cli/src/main.rs:1450-1462`
-and the M003a handoff at `crates/eggpack-cli/src/main.rs:2141-2155`, which asserts the file is absent inside
+finalized root happens in `eggpack-cli` (`crates/eggpack-cli/src/main.rs:1532-1544`
+and the M003a handoff at `crates/eggpack-cli/src/main.rs:2227-2241`, which asserts the file is absent inside
 the root) and, for staging, in `eggpack-github`
 (`crates/eggpack-github/src/lib.rs:32`, `FIXED_MANIFEST_NAME`). The
 "beside, never inside" rule is therefore enforced by those crates, not here.
@@ -126,8 +126,8 @@ the root) and, for staging, in `eggpack-github`
 ## File-digest authority
 
 `eggpack-core` has exactly **one** file-digest implementation: `file_digest`
-(`crates/eggpack-core/src/digest.rs:102-114`), with a typed refusal reason for
-every way a digest can be refused (`DigestError`, `digest.rs:31-46`). Manifest
+(`crates/eggpack-core/src/digest.rs:110-125`), with a typed refusal reason for
+every way a digest can be refused (`DigestError`, `digest.rs:31-47`). Manifest
 aggregation (`lib.rs:372`, `lib.rs:419`), finalization
 (`:316-323`), and candidate qualification (`qualification.rs:1218-1221`) all
 route through it, and `eggpack-ci` / `eggpack-github` consume the same public
@@ -140,9 +140,9 @@ consistent. Concretely, the path is inspected with `symlink_metadata` before
 the open and refused unless it is a regular non-symlink file; an empty file is
 refused **before** it is read, so a zero-length input can never produce a
 digest record; the bytes are streamed through a fixed 64 KiB buffer
-(`digest.rs:117-136`) and the byte count is accumulated with overflow checking
-(`digest.rs:139-141`); and the path is inspected again after the read
-(`digest.rs:144-150`), refusing a path that became a symlink, stopped being a
+(`digest.rs:128-147`) and the byte count is accumulated with overflow checking
+(`digest.rs:150-152`); and the path is inspected again after the read
+(`digest.rs:155-166`), refusing a path that became a symlink, stopped being a
 regular file, or changed length while it was read.
 
 That last step is the time-of-check/time-of-use guard. The symlink rejection is
@@ -222,7 +222,7 @@ decides whether to serialize it.
 | `copy_verified` | `:395-423` | `create_new` copy + post-copy digest re-check |
 | `create_tar_gzip` | `:426-470` | deterministic tar+gzip assembly |
 | `write_checksum` | `:472-489` | `{digest}  {name}` sidecar from final bytes |
-| `file_digest` | `digest.rs:102-114` | the single producer file-digest authority |
+| `file_digest` | `digest.rs:110-125` | the single producer file-digest authority |
 | inline tests | `:492-928` | direct/bundle inventory, archive determinism, negative cases, concurrency |
 
 ## Boundaries / non-goals

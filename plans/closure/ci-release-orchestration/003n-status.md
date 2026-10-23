@@ -42,19 +42,19 @@ The 845-line function interleaved several concerns. It is now a sequence of name
 
 | Concern | Helper |
 |---|---|
-| render state | `ReleaseRenderContext` (`:3269`) |
-| policy and shape validation | `validate_release_render_policy` (`:3307`) |
-| release-identity mode resolution | `validate_release_identity_mode` (`:3320`) |
-| trigger and input cross-checks | `validate_staging_trigger_match` (`:3341`) |
-| tool-pin validation | `validate_release_tool_pins` (`:3364`) |
-| emulated-runtime policy | `validate_emulated_runtime_policy` (`:3387`) |
-| consumer-validator map | `resolve_consumer_validator_map` (`:3415`) |
+| render state | `ReleaseRenderContext` (`crates/eggpack-ci/src/render_release.rs:379`) |
+| policy and shape validation | `validate_release_render_policy` (`crates/eggpack-ci/src/render_release.rs:417`) |
+| release-identity mode resolution | `validate_release_identity_mode` (`crates/eggpack-ci/src/render_release.rs:430`) |
+| trigger and input cross-checks | `validate_staging_trigger_match` (`crates/eggpack-ci/src/render_release.rs:451`) |
+| tool-pin validation | `validate_release_tool_pins` (`crates/eggpack-ci/src/render_release.rs:474`) |
+| emulated-runtime policy | `validate_emulated_runtime_policy` (`crates/eggpack-ci/src/render_release.rs:497`) |
+| consumer-validator map | `resolve_consumer_validator_map` (`crates/eggpack-ci/src/render_release.rs:525`) |
 | step emission | `emit_source_checkout_step`, `emit_runtime_identity_download_step`, `emit_tool_install_and_verify_steps` |
-| header and permission emission | `emit_release_workflow_header` (`:3457`) |
+| header and permission emission | `emit_release_workflow_header` (`crates/eggpack-ci/src/render_release.rs:567`) |
 | job emission | `emit_preflight_job`, `emit_resolve_job`, `emit_build_jobs`, `emit_qualification_jobs`, `emit_consumer_validation_jobs`, `emit_gate_job`, `emit_aggregate_job`, `emit_stage_job` |
-| final shape validation | `validate_rendered_release_workflow` (`:4204`) |
+| final shape validation | `validate_rendered_release_workflow` (`crates/eggpack-ci/src/render_release.rs:1316`) |
 
-`render_release_github_inner` (`:4258`) remains the single entry point, and the public `render_release_github` and `render_reusable_release_github` signatures are unchanged.
+`render_release_github_inner` (`crates/eggpack-ci/src/render_release.rs:1370`) remains the single entry point, and the public `render_release_github` and `render_reusable_release_github` signatures are unchanged.
 
 ### One staging-payload builder
 
@@ -99,7 +99,7 @@ Two new cross-cutting tests make the duplication a thing that cannot silently re
 | `src/error.rs` | 19 | `CiError` and `fail` |
 | `src/validate.rs` | 60 | bounded identifier, metadata, and release-identity validators |
 | `src/planning.rs` | 370 | `CIPlan` types, projection, validation |
-| `src/policy.rs` | 734 | pins, runner mappings, tool provisioning, workflow policy |
+| `src/policy.rs` | 739 | pins, runner mappings, tool provisioning, workflow policy |
 | `src/runner.rs` | 475 | `RunnerCommand` and its `argv` / `to_shell` |
 | `src/render_github.rs` | 256 | the build-workflow renderer and shared render helpers |
 | `src/drift.rs` | 106 | `DriftReport`, the one comparison, the three check functions |

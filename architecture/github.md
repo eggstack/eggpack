@@ -32,7 +32,9 @@ boundary is enforced in code, not by convention.
 | No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2380-2381`, `2026`, `2032` |
 
 `--clobber` is a workspace-wide non-goal enforced statically in `eggpack-ci`
-(`crates/eggpack-ci/src/lib.rs3777`, `:6901`), not by a flag validated here.
+(`crates/eggpack-ci/src/render_release.rs:1309`, `:1316`), not by a flag
+validated here; the rendered workflow is asserted not to contain it by
+`crates/eggpack-ci/src/tests.rs:2237`.
 Publication remains a separate human action: nothing in this crate ever flips a
 draft to published.
 
@@ -401,7 +403,7 @@ Deliberately **not** enforced here, listed honestly:
   is no `tracing`/`log` call in `lib.rs`.
 - **`--clobber` is not a flag in this crate at all**; it is a workspace-level
   non-goal guarded statically in `eggpack-ci`
-  (`crates/eggpack-ci/src/render_release.rs:1314-1315`,
+  (`crates/eggpack-ci/src/render_release.rs:1323-1324`,
   `crates/eggpack-ci/src/tests.rs:2236-2237`).
 - **No authenticity, signature, or provenance claim.** Digests in the payload,
   the upload responses and the receipt are SHA-256 integrity facts only
@@ -423,7 +425,7 @@ belongs to `eggpack-manifest` (`validate_sha256_hex`,
 `crates/eggpack-manifest/src/lib.rs:98`); `validate_sha256`
 (`crates/eggpack-github/src/lib.rs:571`) applies it and keeps this crate's
 wording. The file digest belongs to `eggpack-core` (`file_digest`,
-`crates/eggpack-core/src/digest.rs:102`); `digest_file`
+`crates/eggpack-core/src/digest.rs:110`); `digest_file`
 (`crates/eggpack-github/src/lib.rs:604`) applies it and maps each refusal to
 this crate's staging diagnostic. The exact-tag safety rule belongs to
 `eggpack-core` (`validate_exact_tag_safety`,
@@ -464,7 +466,7 @@ Dependents: `eggpack-cli` is a hard dependency
 rendered workflow invokes exactly those two runner commands and never publishes
 or clobbers (`crates/eggpack-ci/src/runner.rs:41-49`, `crates/eggpack-ci/src/runner.rs:71-82`,
 `crates/eggpack-ci/src/runner.rs:135-137`,
-`crates/eggpack-ci/src/tests.rs:1062-1065`, `crates/eggpack-ci/src/tests.rs:4640`).
+`crates/eggpack-ci/src/tests.rs:1062-1065`, `crates/eggpack-ci/src/tests.rs:4740`).
 
 ## Related deep dives
 
