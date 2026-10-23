@@ -10,6 +10,22 @@ Producer-side planning, bounded Cargo building and qualification, local finaliza
 
 A declared compatibility floor is now *recorded*, not merely implied. `FloorVerificationStatus` (`src/floor.rs`) is a finite, closed status — never a free-form string, never an `Option<bool>` — and it is carried both on the plan (`PlannedTarget::floor_status`) and on the qualification evidence (`QualificationEvidence::floor`). `NotDeclared` means the target declares no floor; `ToolchainBound` means the floor was bound into the build toolchain by the cargo-zigbuild triple rewrite and the toolchain is trusted to honour it; `Verified` means the produced bytes were independently inspected and satisfy the declared floor; `Unverified(reason)` means a floor was declared and the bytes did not confirm it, for a bounded reason; `NotSatisfied` means the bytes require a newer runtime than the declared floor. The status is computed from the inspected bytes — never from a smoke run — through a bounded ELF reader that reads the program headers, the dynamic table, and the `GLIBC_x.y` version requirements, and compares them in the direction that matters: a binary requiring a newer glibc than declared does not satisfy the floor. A contradicted floor is false, so it fails the qualification for that target rather than being reported as merely unverified; an unverifiable floor is a recorded status, not a failed release. A macOS deployment floor is not independently verified yet and is recorded as `Unverified(FloorKindNotVerifiable)`.
 
+`eggpack-core` owns the one bounded process runner. `run_bounded_cancellable`
+(build), `run_qualification_process` and `run_qemu_process` (qualification),
+`run_git_bounded` (revision verification), and `run_interpreter_bounded` (an
+external consumer validator's Python interpreter) all reach the same private
+runner. It clears the environment except for a documented per-allowance
+allowlist, bounds the wall time and the retained output, terminates the whole
+process group or job object on every failure path so no descendant outlives the
+run, and joins the reader threads under a budget derived from the run's own
+remaining deadline — a reader still parked at its budget is detached and the run
+fails closed. An over-limit stream is detected at the moment of excess and the
+group is terminated then, not at the deadline; the observable outcome is
+unchanged. Captured output never crosses the boundary: callers learn the
+outcome and the retained byte counts only. `run_interpreter_bounded` takes an
+`InterpreterCommandSpec` whose argument vector is OS-native, so a validated
+absolute path reaches the interpreter byte-exact.
+
 `cargo_command` exposes typed shell-free Cargo/CargoZigbuild intent for provider renderers. `execute_target` uses a caller-owned absolute repository root and a pre-existing private work root; each invocation/target gets a new Cargo target directory. The local process runner only launches Cargo, rustc, or Zig, clears inherited environment state except a small toolchain/path allowlist, and never returns captured output contents. Process-tree timeout cleanup uses `command-group` process groups/jobs.
 
 Windows Cargo builds require an initialized Visual Studio developer environment. The Windows CI lane runs `ilammy/msvc-dev-cmd` before builder qualification and verifies that `link.exe` resolves beneath `VCToolsInstallDir`; this supplies the MSVC linker, SDK, and library environment used by Cargo and build scripts.

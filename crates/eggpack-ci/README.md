@@ -67,6 +67,22 @@ the stage job (`--installer-presentation` plus `--source-root` from staging
 inputs; absent for M003c-compatible staging). Graphs without validators or
 wrappers render byte-identical to M003c.
 
+The consumer validator's execution is not this crate's own: it runs through
+`eggpack_core::run_interpreter_bounded`, the shared bounded runner. The
+interpreter is restricted to the finite `python3`/`python` names, the argument
+vector is OS-native so a validated absolute path reaches the interpreter
+byte-exact, the environment is cleared except for the shared allowlist plus the
+caller's explicit `PATH` override, the whole process group (or job object) is
+terminated on every failure path so no descendant outlives the run, and the
+reader-thread joins are bounded by the run's own deadline so a descendant that
+inherited a pipe cannot wedge the job. The runner outcome maps onto the
+consumer-validation outcome exactly: success is `Passed`, a non-zero exit is
+`Failed(NonZeroExit)`, an exceeded deadline is `Failed(Timeout)`, an exceeded
+output bound is `Failed(OutputLimit)`, an observed cancellation is
+`Failed(Cancelled)`, and an interpreter that cannot be launched is
+`Failed(InterpreterUnavailable)`. No script output is recorded, and the
+diagnostics are unchanged.
+
 This crate owns no producer rule of its own. The host/target match, the
 compatibility floor, the exact-tag safety rule, and the file digest belong to
 `eggpack-core`; the SHA-256 hex acceptance set belongs to `eggpack-manifest`.

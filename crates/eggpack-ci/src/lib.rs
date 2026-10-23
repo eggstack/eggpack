@@ -4424,63 +4424,46 @@ fn consumer_evidence_shell(
     Ok(evidence)
 }
 
-fn read_limited(stream: Option<std::process::ChildStdout>, limit: usize) -> (Vec<u8>, bool) {
-    use std::io::Read;
-    let Some(mut stream) = stream else {
-        return (Vec::new(), false);
-    };
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 8192];
-    loop {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(count) => {
-                // The bound is checked before the bytes are retained, so the
-                // accumulator never grows past `limit` even transiently.
-                if bytes.len().saturating_add(count) > limit {
-                    // Drain is abandoned; caller kills the child and the
-                    // pipe closes on drop.
-                    return (bytes, true);
-                }
-                bytes.extend_from_slice(&chunk[..count]);
-            }
-            Err(_) => break,
-        }
-    }
-    (bytes, false)
-}
+/// Retained-output bound for the bounded `--version` interpreter preflight.
+const PREFLIGHT_OUTPUT_LIMIT: usize = 8192;
 
-fn read_limited_stderr(stream: Option<std::process::ChildStderr>, limit: usize) -> (Vec<u8>, bool) {
-    use std::io::Read;
-    let Some(mut stream) = stream else {
-        return (Vec::new(), false);
-    };
-    let mut bytes = Vec::new();
-    let mut chunk = [0u8; 8192];
-    loop {
-        match stream.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(count) => {
-                if bytes.len().saturating_add(count) > limit {
-                    return (bytes, true);
-                }
-                bytes.extend_from_slice(&chunk[..count]);
-            }
-            Err(_) => break,
-        }
+/// Build the bounded command spec for one consumer-validator invocation.
+///
+/// The argument vector is OS-native so a validated absolute path reaches the
+/// interpreter byte-exact, and the explicit environment override carries the
+/// caller's PATH so a hermetic interpreter lookup stays hermetic. Everything
+/// else — the deadline, the output bounds, the environment allowlist, the
+/// process-group termination, and the bounded reader joins — belongs to the
+/// shared runner in `eggpack-core`.
+fn validator_spec(
+    exe: &str,
+    path_value: &str,
+    request: &ConsumerValidationRequest<'_>,
+    args: Vec<std::ffi::OsString>,
+) -> eggpack_core::InterpreterCommandSpec {
+    let mut env = std::collections::BTreeMap::new();
+    env.insert("PATH".to_owned(), path_value.to_owned());
+    eggpack_core::InterpreterCommandSpec {
+        executable: exe.to_owned(),
+        args,
+        cwd: request.work_dir.to_path_buf(),
+        env,
+        timeout: Duration::from_millis(request.validator.timeout_ms),
+        stdout_limit: request.validator.stdout_limit,
+        stderr_limit: request.validator.stderr_limit,
+        expected_stdout: None,
     }
-    (bytes, false)
 }
 
 /// Execute one consumer validator against the exact candidate.
 ///
 /// Shell-free fixed invocation `Python3 <script> <candidate>` with cleared
-/// environment (PATH plus `SYSTEMROOT` on Windows only), explicit working
-/// directory, null stdin, bounded timeout/output, and exact candidate
-/// identity verification. Returns bounded evidence without script output
-/// contents; only caller misuse (invalid config, non-absolute paths,
-/// malformed expectations, unusable working directory) returns `CiError`.
-/// If Python is unavailable, validation fails with
+/// environment (the shared runner's documented allowlist), explicit working
+/// directory, null stdin, bounded timeout/output, process-group termination,
+/// and exact candidate identity verification. Returns bounded evidence
+/// without script output contents; only caller misuse (invalid config,
+/// non-absolute paths, malformed expectations, unusable working directory)
+/// returns `CiError`. If Python is unavailable, validation fails with
 /// `InterpreterUnavailable` rather than silently skipping.
 pub fn run_consumer_validator(
     request: &ConsumerValidationRequest<'_>,
@@ -4640,113 +4623,32 @@ fn hash_candidate_file(path: &Path) -> Result<(u64, String), eggpack_core::Diges
     eggpack_core::file_digest(path)
 }
 
-fn validator_command(
-    exe: &str,
-    path_value: &str,
-    request: &ConsumerValidationRequest<'_>,
-    script_arg: Option<&Path>,
-    candidate_arg: Option<&Path>,
-) -> std::process::Command {
-    let mut command = std::process::Command::new(exe);
-    // Shell-free fixed argv; cleared environment with a documented
-    // allowlist (PATH everywhere, SYSTEMROOT on Windows for CPython).
-    // No network authority is granted by Eggpack; stdin is null.
-    command.env_clear();
-    command.env("PATH", path_value);
-    #[cfg(windows)]
-    {
-        if let Ok(system_root) = std::env::var("SYSTEMROOT") {
-            command.env("SYSTEMROOT", system_root);
-        }
-    }
-    command.current_dir(request.work_dir);
-    command.stdin(std::process::Stdio::null());
-    command.stdout(std::process::Stdio::piped());
-    command.stderr(std::process::Stdio::piped());
-    match (script_arg, candidate_arg) {
-        (Some(script), Some(candidate)) => {
-            command.arg(script);
-            command.arg(candidate);
-        }
-        (None, None) => {
-            command.arg("--version");
-        }
-        _ => {}
-    }
-    command
-}
-
+/// Bounded `--version` preflight for the Python 3 interpreter.
+///
+/// The probe runs through the shared bounded runner, so it inherits the
+/// process-group termination, the bounded reader joins, and the shared
+/// environment allowlist. The version banner is matched inside the runner
+/// and never crosses the boundary: the caller learns only whether the
+/// interpreter identified itself as Python 3.
 fn run_interpreter_preflight(
     exe: &str,
     path_value: &str,
     request: &ConsumerValidationRequest<'_>,
 ) -> bool {
-    let mut command = validator_command(exe, path_value, request, None, None);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
-        Err(_) => return false,
-    };
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let stdout_handle = std::thread::spawn(move || read_limited(stdout, 8192));
-    let stderr_handle = std::thread::spawn(move || read_limited_stderr(stderr, 8192));
-    let deadline =
-        std::time::Instant::now() + Duration::from_millis(request.validator.timeout_ms.min(30_000));
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break None;
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err(_) => break None,
-        }
-    };
-    let (out, _) = stdout_handle.join().unwrap_or_default();
-    let (err, _) = stderr_handle.join().unwrap_or_default();
-    let Some(status) = status else {
-        return false;
-    };
-    if !status.success() {
-        return false;
-    }
-    let combined = [out, err].concat();
-    let text = String::from_utf8_lossy(&combined);
-    text.contains("Python 3")
-}
-
-/// Join a finished reader thread without blocking; true when over-limit.
-/// Join both reader threads and report whether either hit its output bound.
-///
-/// Used on every early exit from the validator loop. The child is killed first,
-/// so its pipes close and these joins return; leaving the handles to drop
-/// detaches threads that still hold a pipe no one drains, and their completion
-/// is part of the run's time bound.
-fn drain_readers(
-    stdout: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>,
-    stderr: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>,
-) -> bool {
-    let mut over = false;
-    if let Some(handle) = stdout.take() {
-        over |= handle.join().unwrap_or_default().1;
-    }
-    if let Some(handle) = stderr.take() {
-        over |= handle.join().unwrap_or_default().1;
-    }
-    over
-}
-
-fn take_finished_over(handle: &mut Option<std::thread::JoinHandle<(Vec<u8>, bool)>>) -> bool {
-    if handle.as_ref().is_some_and(|thread| thread.is_finished()) {
-        if let Some(joined) = handle.take().map(|thread| thread.join()) {
-            return joined.map(|(_, over)| over).unwrap_or(false);
-        }
-    }
-    false
+    let mut spec = validator_spec(
+        exe,
+        path_value,
+        request,
+        vec![std::ffi::OsString::from("--version")],
+    );
+    spec.timeout = Duration::from_millis(request.validator.timeout_ms.min(30_000));
+    spec.stdout_limit = PREFLIGHT_OUTPUT_LIMIT;
+    spec.stderr_limit = PREFLIGHT_OUTPUT_LIMIT;
+    spec.expected_stdout = Some("Python 3".to_owned());
+    matches!(
+        eggpack_core::run_interpreter_bounded(&spec, None),
+        Ok(evidence) if evidence.outcome == eggpack_core::CommandOutcome::Success
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -4975,81 +4877,52 @@ pub fn resolve_runtime_release_plan_with_mode(
     Ok(plan)
 }
 
+/// Run the consumer validator against the exact candidate.
+///
+/// The runner outcome maps onto the consumer-validation outcome exactly:
+///
+/// | Runner outcome | Consumer validation outcome |
+/// | --- | --- |
+/// | success | `Passed` |
+/// | non-zero exit | `Failed(NonZeroExit)` |
+/// | deadline exceeded | `Failed(Timeout)` |
+/// | output bound exceeded | `Failed(OutputLimit)` |
+/// | cancellation observed | `Failed(Cancelled)` |
+/// | interpreter not launchable | `Failed(InterpreterUnavailable)` |
 fn run_validator_process(
     request: &ConsumerValidationRequest<'_>,
     exe: &str,
     path_value: &str,
 ) -> ConsumerValidationOutcome {
-    use std::sync::atomic::Ordering;
-    let mut command = validator_command(
+    let spec = validator_spec(
         exe,
         path_value,
         request,
-        Some(request.script_path),
-        Some(request.candidate_path),
+        vec![
+            std::ffi::OsString::from(request.script_path),
+            std::ffi::OsString::from(request.candidate_path),
+        ],
     );
-    let mut child = match command.spawn() {
-        Ok(child) => child,
+    match eggpack_core::run_interpreter_bounded(&spec, request.cancelled) {
+        Ok(evidence) => match evidence.outcome {
+            eggpack_core::CommandOutcome::Success => ConsumerValidationOutcome::Passed,
+            eggpack_core::CommandOutcome::TimedOut => {
+                ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout)
+            }
+            eggpack_core::CommandOutcome::Cancelled => {
+                ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled)
+            }
+            eggpack_core::CommandOutcome::OutputLimitExceeded => {
+                ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit)
+            }
+            eggpack_core::CommandOutcome::Failed(_) => {
+                ConsumerValidationOutcome::Failed(ConsumerValidationFailure::NonZeroExit)
+            }
+        },
+        // The interpreter could not be launched at all.
         Err(_) => {
-            return ConsumerValidationOutcome::Failed(
-                ConsumerValidationFailure::InterpreterUnavailable,
-            );
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::InterpreterUnavailable)
         }
-    };
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let stdout_limit = request.validator.stdout_limit;
-    let stderr_limit = request.validator.stderr_limit;
-    let mut stdout_handle = Some(std::thread::spawn(move || {
-        read_limited(stdout, stdout_limit)
-    }));
-    let mut stderr_handle = Some(std::thread::spawn(move || {
-        read_limited_stderr(stderr, stderr_limit)
-    }));
-    // Prompt output-limit detection: a finished reader thread means its
-    // stream hit EOF or the bound. Join finished readers without blocking;
-    // an over-limit reader fails the run immediately.
-    let deadline = std::time::Instant::now() + Duration::from_millis(request.validator.timeout_ms);
-    let status = loop {
-        if request
-            .cancelled
-            .is_some_and(|flag| flag.load(Ordering::SeqCst))
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-            drain_readers(&mut stdout_handle, &mut stderr_handle);
-            return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled);
-        }
-        if take_finished_over(&mut stdout_handle) || take_finished_over(&mut stderr_handle) {
-            let _ = child.kill();
-            let _ = child.wait();
-            drain_readers(&mut stdout_handle, &mut stderr_handle);
-            return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit);
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => break Some(status),
-            Ok(None) => {
-                if std::time::Instant::now() >= deadline {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    drain_readers(&mut stdout_handle, &mut stderr_handle);
-                    return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout);
-                }
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                break None;
-            }
-        }
-    };
-    if drain_readers(&mut stdout_handle, &mut stderr_handle) {
-        return ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit);
-    }
-    match status {
-        Some(status) if status.success() => ConsumerValidationOutcome::Passed,
-        _ => ConsumerValidationOutcome::Failed(ConsumerValidationFailure::NonZeroExit),
     }
 }
 
@@ -8546,6 +8419,452 @@ mod tests {
             path_dirs: None,
         };
         assert!(run_consumer_validator(&bad_request).is_err());
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    // -----------------------------------------------------------------------
+    // M003m — bounded process execution convergence.
+    //
+    // The consumer validator runs through the shared bounded runner in
+    // `eggpack-core`: the supervised interpreter is terminated as a whole
+    // process group (or job object), the reader-thread joins are bounded by
+    // the run's own remaining deadline, and the environment allowlist and the
+    // output bounds follow the one shared definition.
+    // -----------------------------------------------------------------------
+
+    /// Body of the fixture descendant: append a heartbeat line, then repeat.
+    ///
+    /// The heartbeat is how a test observes that the descendant is *absent*
+    /// rather than merely that the direct child exited: a live descendant
+    /// keeps advancing the file, a terminated one stops.
+    const M003M_DESCENDANT: &str = "import os, sys, time\nhere = os.path.dirname(os.path.abspath(__file__))\npath = os.path.join(here, 'heartbeat.txt')\nstop = os.path.join(here, 'stop')\nend = time.time() + 300\nwhile time.time() < end and not os.path.exists(stop):\n    with open(path, 'a') as handle:\n        handle.write('tick\\n')\n    time.sleep(0.05)\n";
+
+    /// Body of the fixture validator: spawn the descendant, wait until it is
+    /// demonstrably alive, then hang until the run is bounded.
+    const M003M_SPAWNER: &str = "import os, subprocess, sys, time\nhere = os.path.dirname(os.path.abspath(__file__))\nchild = subprocess.Popen([sys.executable, os.path.join(here, 'descendant.py')])\nheartbeat = os.path.join(here, 'heartbeat.txt')\nwhile not os.path.exists(heartbeat) or os.path.getsize(heartbeat) == 0:\n    time.sleep(0.02)\ntime.sleep(3600)\n";
+
+    /// Body of the fixture validator whose descendant escapes the process
+    /// group, so the group kill cannot reach it and its inherited pipe stays
+    /// open after the validator itself exits.
+    #[cfg(unix)]
+    const M003M_ESCAPING_SPAWNER: &str = "import os, subprocess, sys, time\nhere = os.path.dirname(os.path.abspath(__file__))\nchild = subprocess.Popen([sys.executable, os.path.join(here, 'escaping-descendant.py')])\nheartbeat = os.path.join(here, 'heartbeat.txt')\nwhile not os.path.exists(heartbeat) or os.path.getsize(heartbeat) == 0:\n    time.sleep(0.02)\n";
+
+    /// Body of the fixture descendant that leaves the supervised process group.
+    #[cfg(unix)]
+    const M003M_ESCAPING_DESCENDANT: &str = "import os, sys, time\ntry:\n    os.setsid()\nexcept OSError:\n    pass\nhere = os.path.dirname(os.path.abspath(__file__))\npath = os.path.join(here, 'heartbeat.txt')\nstop = os.path.join(here, 'stop')\nend = time.time() + 300\nwhile time.time() < end and not os.path.exists(stop):\n    with open(path, 'a') as handle:\n        handle.write('tick\\n')\n    time.sleep(0.05)\n";
+
+    /// One bounded consumer-validation fixture: the validator, its script,
+    /// the exact candidate, and the working directory.
+    struct M003mFixture {
+        validator: ConsumerValidatorV1,
+        script: PathBuf,
+        candidate: PathBuf,
+        size: u64,
+        sha: String,
+        work: PathBuf,
+    }
+
+    /// Build one fixture from a validator and its script.
+    fn m003m_fixture(
+        parent: &Path,
+        validator: ConsumerValidatorV1,
+        script: PathBuf,
+    ) -> M003mFixture {
+        let work = parent.join("work");
+        std::fs::create_dir_all(&work).unwrap();
+        let (candidate, size, sha) = m003d_candidate(parent, "candidate", b"exact-bytes");
+        M003mFixture {
+            validator,
+            script,
+            candidate,
+            size,
+            sha,
+            work,
+        }
+    }
+
+    /// Run one consumer validation under an explicit outer bound.
+    ///
+    /// The outer bound is what turns a regression into a reported hang rather
+    /// than a silent test timeout: the returned outcome distinguishes "the run
+    /// returned a fail-closed outcome" from "the run never returned at all".
+    fn m003m_run_bounded(
+        fixture: M003mFixture,
+        cancelled: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+        outer: std::time::Duration,
+    ) -> ConsumerValidationOutcome {
+        let M003mFixture {
+            validator,
+            script,
+            candidate,
+            size,
+            sha,
+            work,
+        } = fixture;
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let request = ConsumerValidationRequest {
+                validator: &validator,
+                script_path: &script,
+                candidate_path: &candidate,
+                expected_size: size,
+                expected_sha256: &sha,
+                work_dir: &work,
+                release_id: "v9.9.9",
+                source_revision: M003D_SOURCE,
+                target: "x86_64-unknown-linux-gnu",
+                cancelled: cancelled.as_ref().map(|flag| flag.as_ref()),
+                path_dirs: None,
+            };
+            let outcome = run_consumer_validator(&request)
+                .map(|evidence| evidence.outcome)
+                .unwrap_or(ConsumerValidationOutcome::Failed(
+                    ConsumerValidationFailure::InterpreterUnavailable,
+                ));
+            let _ = sender.send(outcome);
+        });
+        receiver.recv_timeout(outer).unwrap_or_else(|_| {
+            panic!(
+                "the consumer validation never returned within {outer:?}: the reader-thread \
+                 join is not bounded, so a descendant holding the inherited pipe wedges the run"
+            )
+        })
+    }
+
+    /// Ask the fixture descendants to stop, so a descendant that survived the
+    /// run does not outlive the test.
+    fn m003m_stop_descendants(parent: &Path) {
+        let _ = std::fs::write(parent.join("stop"), b"stop\n");
+    }
+
+    /// Whether the fixture descendant is still advancing its heartbeat.
+    fn m003m_descendant_alive(heartbeat: &Path) -> bool {
+        let size = std::fs::metadata(heartbeat)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let later = std::fs::metadata(heartbeat)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        later > size
+    }
+
+    #[test]
+    fn m003m_runner_outcome_maps_onto_consumer_validation_outcome() {
+        let parent = eggpack_core_test_temp("m003m-mapping");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let validator = m003d_validator(LogicalOutputSelector::Direct);
+        let (candidate, size, sha) = m003d_candidate(&parent, "candidate", b"exact-bytes");
+        // Success.
+        let script = m003d_write_script(&parent, "pass.py", "pass\n");
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(evidence.outcome, ConsumerValidationOutcome::Passed);
+        // Non-zero exit.
+        let script = m003d_write_script(&parent, "fail.py", "import sys\nsys.exit(3)\n");
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::NonZeroExit)
+        );
+        // Deadline exceeded.
+        let mut short = validator.clone();
+        short.timeout_ms = 1_000;
+        let script = m003d_write_script(&parent, "slow.py", "import time\ntime.sleep(60)\n");
+        let evidence = run_consumer_validator(&m003d_request(
+            &short, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout)
+        );
+        // Output bound exceeded.
+        let mut limited = validator.clone();
+        limited.stdout_limit = 1024;
+        let script = m003d_write_script(
+            &parent,
+            "flood.py",
+            "import sys\nsys.stdout.write('x' * 100000)\n",
+        );
+        let evidence = run_consumer_validator(&m003d_request(
+            &limited, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit)
+        );
+        // Cancellation observed.
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut slow = validator.clone();
+        slow.timeout_ms = 60_000;
+        let script = m003d_write_script(&parent, "hang.py", "import time\ntime.sleep(60)\n");
+        let cancel_flag = flag.clone();
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let outcome = m003m_run_bounded(
+            m003m_fixture(&parent, slow, script),
+            Some(flag.clone()),
+            std::time::Duration::from_secs(60),
+        );
+        canceller.join().unwrap();
+        assert_eq!(
+            outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled)
+        );
+        // Interpreter not launchable. Windows CreateProcess searches the
+        // application directory, the working directory, and the system
+        // directories unconditionally, so an emptied PATH cannot simulate a
+        // missing interpreter there. The spawn/preflight failure branches are
+        // platform-independent code proven on the Linux/macOS lanes, while the
+        // Windows lane proves every other row of the mapping.
+        #[cfg(not(windows))]
+        {
+            let script = m003d_write_script(&parent, "ok.py", "pass\n");
+            let empty: Vec<PathBuf> = Vec::new();
+            let evidence = run_consumer_validator(&m003d_request(
+                &validator,
+                &script,
+                &candidate,
+                size,
+                &sha,
+                &work,
+                Some(&empty),
+            ))
+            .unwrap();
+            assert_eq!(
+                evidence.outcome,
+                ConsumerValidationOutcome::Failed(
+                    ConsumerValidationFailure::InterpreterUnavailable
+                )
+            );
+        }
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003m_process_group_termination_leaves_no_live_descendant() {
+        // The validator spawns a descendant and then hangs. The bounded run
+        // must terminate the whole group, so the descendant does not outlive
+        // the run. On Windows this is the job-object lane: the descendant is
+        // assigned to the same job and dies with it.
+        let parent = eggpack_core_test_temp("m003m-group");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let heartbeat = parent.join("heartbeat.txt");
+        m003d_write_script(&parent, "descendant.py", M003M_DESCENDANT);
+        let script = m003d_write_script(&parent, "spawner.py", M003M_SPAWNER);
+        let mut validator = m003d_validator(LogicalOutputSelector::Direct);
+        validator.timeout_ms = 3_000;
+        let outcome = m003m_run_bounded(
+            m003m_fixture(&parent, validator, script),
+            None,
+            std::time::Duration::from_secs(60),
+        );
+        assert!(
+            matches!(outcome, ConsumerValidationOutcome::Failed(_)),
+            "the bounded run must fail closed, not pass: {outcome:?}"
+        );
+        // The descendant really ran: its heartbeat is non-empty.
+        let ticks = std::fs::metadata(&heartbeat)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        assert!(ticks > 0, "the fixture descendant never ran");
+        // The descendant is gone: its heartbeat stopped advancing.
+        assert!(
+            !m003m_descendant_alive(&heartbeat),
+            "the descendant outlived the run: the process group was not terminated"
+        );
+        m003m_stop_descendants(&parent);
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003m_bounded_join_returns_instead_of_hanging() {
+        // The descendant inherits the validator's stdout and holds it open
+        // past the deadline. The run must still return, with a fail-closed
+        // outcome, instead of parking on an unbounded reader-thread join.
+        let parent = eggpack_core_test_temp("m003m-join");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let heartbeat = parent.join("heartbeat.txt");
+        m003d_write_script(&parent, "descendant.py", M003M_DESCENDANT);
+        let script = m003d_write_script(&parent, "spawner.py", M003M_SPAWNER);
+        let mut validator = m003d_validator(LogicalOutputSelector::Direct);
+        validator.timeout_ms = 3_000;
+        let started = std::time::Instant::now();
+        let outcome = m003m_run_bounded(
+            m003m_fixture(&parent, validator, script),
+            None,
+            std::time::Duration::from_secs(60),
+        );
+        let elapsed = started.elapsed();
+        assert!(
+            matches!(outcome, ConsumerValidationOutcome::Failed(_)),
+            "the bounded run must fail closed, not pass: {outcome:?}"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(30),
+            "the bounded run took {elapsed:?}; the deadline did not bound the run"
+        );
+        // The descendant really held the inherited pipe open: it ran, and it
+        // was still running when the run ended.
+        let ticks = std::fs::metadata(&heartbeat)
+            .map(|meta| meta.len())
+            .unwrap_or(0);
+        assert!(ticks > 0, "the fixture descendant never ran");
+        m003m_stop_descendants(&parent);
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn m003m_parked_reader_fails_closed_when_the_descendant_escapes_the_group() {
+        // The descendant leaves the process group, so the group kill cannot
+        // reach it and its inherited pipe stays open after the validator
+        // exits. Only the bounded reader join can end the run, and a reader
+        // still parked at its budget is detached and the run fails closed.
+        let parent = eggpack_core_test_temp("m003m-parked");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let heartbeat = parent.join("heartbeat.txt");
+        m003d_write_script(&parent, "escaping-descendant.py", M003M_ESCAPING_DESCENDANT);
+        let script = m003d_write_script(&parent, "spawner.py", M003M_ESCAPING_SPAWNER);
+        let mut validator = m003d_validator(LogicalOutputSelector::Direct);
+        validator.timeout_ms = 10_000;
+        let started = std::time::Instant::now();
+        let outcome = m003m_run_bounded(
+            m003m_fixture(&parent, validator, script),
+            None,
+            std::time::Duration::from_secs(60),
+        );
+        let elapsed = started.elapsed();
+        // The descendant is still alive, so the pipe was still open when the
+        // run ended: the run ended on the bounded join, not on EOF.
+        assert!(
+            m003m_descendant_alive(&heartbeat),
+            "the descendant did not outlive the validator, so the bounded join was not exercised"
+        );
+        assert_eq!(
+            outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit),
+            "a parked reader must fail the run closed"
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(30),
+            "the bounded run took {elapsed:?}; the drain budget did not bound the run"
+        );
+        m003m_stop_descendants(&parent);
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003m_output_limit_terminates_the_run_before_its_deadline() {
+        // A chatty validator is terminated at the moment of excess, not at its
+        // deadline, and reports the output-limit failure.
+        let parent = eggpack_core_test_temp("m003m-output-limit");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let script = m003d_write_script(
+            &parent,
+            "flood.py",
+            "import sys, time\nsys.stdout.write('x' * 200000)\nsys.stdout.flush()\ntime.sleep(60)\n",
+        );
+        let mut validator = m003d_validator(LogicalOutputSelector::Direct);
+        validator.timeout_ms = 30_000;
+        validator.stdout_limit = 1024;
+        let (candidate, size, sha) = m003d_candidate(&parent, "candidate", b"exact-bytes");
+        let started = std::time::Instant::now();
+        let evidence = run_consumer_validator(&m003d_request(
+            &validator, &script, &candidate, size, &sha, &work, None,
+        ))
+        .unwrap();
+        let elapsed = started.elapsed();
+        assert_eq!(
+            evidence.outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit)
+        );
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "the output bound was only enforced at the deadline: the run took {elapsed:?}"
+        );
+        m003m_stop_descendants(&parent);
+        std::fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn m003m_cancellation_terminates_the_group_and_reports_cancelled() {
+        // A cancelled run terminates the whole group and reports the
+        // cancellation; the descendant does not outlive it.
+        let parent = eggpack_core_test_temp("m003m-cancel");
+        let work = parent.join("work");
+        std::fs::create_dir(&work).unwrap();
+        let heartbeat = parent.join("heartbeat.txt");
+        m003d_write_script(&parent, "descendant.py", M003M_DESCENDANT);
+        let script = m003d_write_script(&parent, "spawner.py", M003M_SPAWNER);
+        let mut validator = m003d_validator(LogicalOutputSelector::Direct);
+        validator.timeout_ms = 60_000;
+        let (candidate, size, sha) = m003d_candidate(&parent, "candidate", b"exact-bytes");
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel_flag = flag.clone();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let request = ConsumerValidationRequest {
+                validator: &validator,
+                script_path: &script,
+                candidate_path: &candidate,
+                expected_size: size,
+                expected_sha256: &sha,
+                work_dir: &work,
+                release_id: "v9.9.9",
+                source_revision: M003D_SOURCE,
+                target: "x86_64-unknown-linux-gnu",
+                cancelled: Some(cancel_flag.as_ref()),
+                path_dirs: None,
+            };
+            let outcome = run_consumer_validator(&request)
+                .map(|evidence| evidence.outcome)
+                .unwrap_or(ConsumerValidationOutcome::Failed(
+                    ConsumerValidationFailure::InterpreterUnavailable,
+                ));
+            let _ = sender.send(outcome);
+        });
+        // Cancel once the descendant is demonstrably alive.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while std::fs::metadata(&heartbeat)
+            .map(|meta| meta.len())
+            .unwrap_or(0)
+            == 0
+        {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the fixture descendant never started"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        let outcome = receiver
+            .recv_timeout(std::time::Duration::from_secs(60))
+            .expect("the cancelled run never returned");
+        worker.join().unwrap();
+        assert_eq!(
+            outcome,
+            ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled)
+        );
+        assert!(
+            !m003m_descendant_alive(&heartbeat),
+            "the descendant outlived the cancelled run: the process group was not terminated"
+        );
+        m003m_stop_descendants(&parent);
         std::fs::remove_dir_all(parent).unwrap();
     }
 

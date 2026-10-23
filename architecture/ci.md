@@ -192,9 +192,12 @@ crate's own end-to-end orchestration tests can drive the real downstream crates
 without a network.
 
 Notably absent: `command-group` and any YAML emitter. The process-execution
-contract that core enforces is **not** shared with this crate — the consumer
-validator has its own independent runner. See `process-execution.md` for that
-gap.
+contract is nevertheless **shared**: the consumer validator runs through
+`eggpack_core::run_interpreter_bounded` (`crates/eggpack-ci/src/lib.rs:4892`),
+so the crate gets core's process-group (or job-object) termination, bounded
+reader-thread joins, the shared environment allowlist, and the shared output
+bounds without taking a `command-group` dependency of its own. See
+`process-execution.md`.
 
 Dependents: `eggpack-cli`, which exposes `ci generate` and `ci check` and the
 nine internal `ci _*` runner commands that the generated workflow invokes.
@@ -211,8 +214,8 @@ nine internal `ci _*` runner commands that the generated workflow invokes.
   YAML emitter
 - [validation-model.md](validation-model.md) — the fail-closed rules enforced on
   every document in this crate
-- [process-execution.md](process-execution.md) — the independent runner used by
-  the consumer validator
+- [process-execution.md](process-execution.md) — the shared bounded runner the
+  consumer validator runs through
 - [github.md](github.md) — where staging intent is actually performed
 - [testing-and-portability.md](testing-and-portability.md) — the golden corpus
   and the Windows lane for this crate

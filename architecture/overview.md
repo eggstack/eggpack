@@ -323,9 +323,9 @@ These are the review units that cut across crates. Each has a dedicated file.
 - **Safety:** `#![forbid(unsafe_code)]` workspace-wide (`unsafe_code = "deny"`),
   no shell interpretation of generated inputs, bounded process execution with
   timeouts/output limits/cancellation, environment allowlists, symlink
-  rejection on output paths. No production spawn site is unbounded: `core` and
-  `cli` share one bounded runner, and `ci`'s independent reimplementation is the
-  only site without process-group kill.
+  rejection on output paths. No production spawn site is unbounded: `core`,
+  `cli`, and `ci` share one bounded runner, and every supervised process is
+  terminated as a process group or job object.
 
 ## Review paths
 

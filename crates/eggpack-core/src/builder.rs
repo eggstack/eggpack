@@ -6,6 +6,7 @@ use eggpack_contract::{DistributionContract, ExpandedAssets};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ffi::OsString,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -15,25 +16,32 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Retained-output bound the builder commands request by default.
 const MAX_OUTPUT: usize = 256 * 1024;
+/// Ceiling for the retained-output bound of any bounded process.
+///
+/// This is the single output bound the shared runner enforces. The builder
+/// commands keep their tighter default (`MAX_OUTPUT`); the ceiling is wide
+/// enough to admit the consumer-validator case, whose configured bound is
+/// larger and is validated by its own owner.
+const MAX_PROCESS_OUTPUT: usize = 8 * 1024 * 1024;
 /// Wall-time bound for the sanitized `git rev-parse` verification spawn.
 const GIT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Retained-output bound for the `git` verification spawn: a bare object name.
 const GIT_OUTPUT_LIMIT: usize = 4 * 1024;
 /// Floor on the post-reap drain budget.
 ///
-/// On the timeout and cancellation paths the caller's deadline has already
-/// passed, but the killed process group's pipes still have to reach EOF, so
-/// the drain budget never collapses to zero.
+/// On the timeout, cancellation, and output-limit paths the caller's deadline
+/// has already passed, but the killed process group's pipes still have to
+/// reach EOF, so the drain budget never collapses to zero.
 const MIN_DRAIN_GRACE: Duration = Duration::from_secs(1);
 /// Ceiling on the post-reap drain budget, so a generous caller deadline does
 /// not turn a parked reader into a long wait.
 ///
-/// The group is only killed on the timeout and cancellation paths, so a
-/// descendant that outlives a normally-exited child cannot be reaped from
-/// here and a longer wait would not produce EOF. The pipes are either closed
-/// already or held open by a leaked descendant, so the run fails closed
-/// instead.
+/// The group is killed on the failure paths, but a descendant that outlived a
+/// normally-exited child keeps its own pipe open, and a longer wait would not
+/// produce EOF. The pipes are either closed already or held open by a leaked
+/// descendant, so the run fails closed instead.
 const MAX_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 /// Restore POSIX exec bits on a transferred candidate before spawning it.
@@ -121,6 +129,30 @@ enum ExecutableAllowance {
     Candidate,
     Qemu,
     Git,
+    Interpreter,
+}
+
+/// Cancellation source observed by the bounded runner.
+///
+/// The runner polls it on the same cadence as the deadline, so a cancelled
+/// run ends promptly instead of at some later point.
+enum Cancellation<'a> {
+    /// No cancellation source; only the deadline applies.
+    None,
+    /// The builder's own cancellation flag.
+    Build(&'a BuildCancellation),
+    /// A caller-owned atomic flag.
+    Flag(&'a std::sync::atomic::AtomicBool),
+}
+
+impl Cancellation<'_> {
+    fn is_cancelled(&self) -> bool {
+        match self {
+            Cancellation::None => false,
+            Cancellation::Build(cancellation) => cancellation.is_cancelled(),
+            Cancellation::Flag(flag) => flag.load(std::sync::atomic::Ordering::SeqCst),
+        }
+    }
 }
 
 /// Explicit shell-free process command. Executable and argv are separate OS arguments.
@@ -160,6 +192,31 @@ pub struct BoundCommand {
     pub binary: String,
     /// Process description.
     pub command: CommandSpec,
+}
+
+/// Explicit shell-free interpreter command for a bounded consumer-validator run.
+///
+/// The argument vector is OS-native so a validated absolute path reaches the
+/// interpreter byte-exact, and the executable stays inside the finite
+/// interpreter allowlist the shared runner enforces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterpreterCommandSpec {
+    /// Interpreter executable name.
+    pub executable: String,
+    /// Ordered OS-native arguments.
+    pub args: Vec<OsString>,
+    /// Working directory.
+    pub cwd: PathBuf,
+    /// Explicit environment overrides only.
+    pub env: BTreeMap<String, String>,
+    /// Maximum wall time.
+    pub timeout: Duration,
+    /// Maximum retained stdout bytes.
+    pub stdout_limit: usize,
+    /// Maximum retained stderr bytes.
+    pub stderr_limit: usize,
+    /// Optional tool version substring checked internally and never returned.
+    pub expected_stdout: Option<String>,
 }
 
 /// Command exit classification.
@@ -400,13 +457,51 @@ pub fn cargo_command(
     })
 }
 
-/// Run a direct child process group with a deadline and bounded retained output.
 /// Run a process with a deadline and caller cancellation, cleaning up its process group.
 pub fn run_bounded_cancellable(
     spec: &CommandSpec,
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
-    run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Builder)
+    run_bounded_inner(
+        spec,
+        Cancellation::Build(cancellation),
+        ExecutableAllowance::Builder,
+    )
+}
+
+/// Run a bounded consumer-validator interpreter process group.
+///
+/// The supervised interpreter is terminated as a whole process group (or job
+/// object) on every failure path, so no descendant outlives the run; the
+/// reader-thread joins are bounded by the run's own remaining deadline, so a
+/// descendant that inherited a pipe cannot park the run past its deadline;
+/// and the environment is cleared except for the shared allowlist. Captured
+/// output never crosses the boundary: the caller learns only the outcome and
+/// the retained byte counts.
+///
+/// The interpreter is restricted to the finite Python 3 interpreter names.
+/// A caller-supplied cancellation flag is observed on the same poll cadence
+/// as the deadline.
+pub fn run_interpreter_bounded(
+    spec: &InterpreterCommandSpec,
+    cancelled: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<ProcessEvidence, BuildError> {
+    let cancellation = match cancelled {
+        Some(flag) => Cancellation::Flag(flag),
+        None => Cancellation::None,
+    };
+    let run = BoundedRun {
+        executable: spec.executable.as_str(),
+        args: &spec.args,
+        cwd: spec.cwd.as_path(),
+        env: &spec.env,
+        timeout: spec.timeout,
+        stdout_limit: spec.stdout_limit,
+        stderr_limit: spec.stderr_limit,
+        expected_stdout: spec.expected_stdout.as_deref(),
+        expected_stdout_exact: None,
+    };
+    run_bounded(&run, cancellation, ExecutableAllowance::Interpreter)
 }
 
 /// Run a bounded `git` process group that must echo exactly `expected` on stdout.
@@ -468,46 +563,91 @@ fn run_git_resolve_bounded(
         expected_stdout: None,
         expected_stdout_exact: Some(expected.to_owned()),
     };
-    run_bounded_inner(&spec, None, ExecutableAllowance::Git)
+    run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Git)
 }
 
 pub(crate) fn run_qualification_process(
     spec: &CommandSpec,
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
-    run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Candidate)
+    run_bounded_inner(
+        spec,
+        Cancellation::Build(cancellation),
+        ExecutableAllowance::Candidate,
+    )
 }
 
 pub(crate) fn run_qemu_process(
     spec: &CommandSpec,
     cancellation: &BuildCancellation,
 ) -> Result<ProcessEvidence, BuildError> {
-    run_bounded_inner(spec, Some(cancellation), ExecutableAllowance::Qemu)
+    run_bounded_inner(
+        spec,
+        Cancellation::Build(cancellation),
+        ExecutableAllowance::Qemu,
+    )
+}
+
+/// Normalized bounded-run parameters, shared by every public entry point.
+///
+/// The runner has one implementation; the entry points differ only in the
+/// executable allowance, the argument representation, and the cancellation
+/// source they carry.
+struct BoundedRun<'a> {
+    executable: &'a str,
+    args: &'a [OsString],
+    cwd: &'a Path,
+    env: &'a BTreeMap<String, String>,
+    timeout: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+    expected_stdout: Option<&'a str>,
+    expected_stdout_exact: Option<&'a str>,
 }
 
 fn run_bounded_inner(
     spec: &CommandSpec,
-    cancellation: Option<&BuildCancellation>,
+    cancellation: Cancellation<'_>,
+    allowance: ExecutableAllowance,
+) -> Result<ProcessEvidence, BuildError> {
+    let args: Vec<OsString> = spec.args.iter().map(OsString::from).collect();
+    let run = BoundedRun {
+        executable: spec.executable.as_str(),
+        args: &args,
+        cwd: spec.cwd.as_path(),
+        env: &spec.env,
+        timeout: spec.timeout,
+        stdout_limit: spec.stdout_limit,
+        stderr_limit: spec.stderr_limit,
+        expected_stdout: spec.expected_stdout.as_deref(),
+        expected_stdout_exact: spec.expected_stdout_exact.as_deref(),
+    };
+    run_bounded(&run, cancellation, allowance)
+}
+
+fn run_bounded(
+    run: &BoundedRun<'_>,
+    cancellation: Cancellation<'_>,
     allowance: ExecutableAllowance,
 ) -> Result<ProcessEvidence, BuildError> {
     let executable_allowed = match allowance {
         ExecutableAllowance::Builder => {
-            matches!(spec.executable.as_str(), "cargo" | "rustc" | "zig")
+            matches!(run.executable, "cargo" | "rustc" | "zig")
         }
-        ExecutableAllowance::Candidate => Path::new(&spec.executable).is_absolute(),
-        ExecutableAllowance::Qemu => matches!(
-            spec.executable.as_str(),
-            "qemu-x86_64" | "qemu-aarch64" | "qemu-arm"
-        ),
-        ExecutableAllowance::Git => spec.executable == "git",
+        ExecutableAllowance::Candidate => Path::new(run.executable).is_absolute(),
+        ExecutableAllowance::Qemu => {
+            matches!(run.executable, "qemu-x86_64" | "qemu-aarch64" | "qemu-arm")
+        }
+        ExecutableAllowance::Git => run.executable == "git",
+        ExecutableAllowance::Interpreter => matches!(run.executable, "python3" | "python"),
     };
     if !executable_allowed
-        || spec.timeout.is_zero()
-        || spec.timeout > Duration::from_secs(86_400)
-        || spec.stdout_limit == 0
-        || spec.stderr_limit == 0
-        || spec.stdout_limit > MAX_OUTPUT
-        || spec.stderr_limit > MAX_OUTPUT
+        || run.timeout.is_zero()
+        || run.timeout > Duration::from_secs(86_400)
+        || run.stdout_limit == 0
+        || run.stderr_limit == 0
+        || run.stdout_limit > MAX_PROCESS_OUTPUT
+        || run.stderr_limit > MAX_PROCESS_OUTPUT
     {
         return Err(build_err("invalid process bounds or executable"));
     }
@@ -516,14 +656,14 @@ fn run_bounded_inner(
     // candidate must be executable again before its smoke spawns it;
     // bytes (and therefore recorded size/digest) are unaffected by mode.
     if matches!(allowance, ExecutableAllowance::Candidate)
-        && ensure_candidate_executable(Path::new(&spec.executable)).is_err()
+        && ensure_candidate_executable(Path::new(run.executable)).is_err()
     {
         return Err(build_err("candidate is not executable"));
     }
-    let mut command = Command::new(&spec.executable);
+    let mut command = Command::new(run.executable);
     command
-        .args(&spec.args)
-        .current_dir(&spec.cwd)
+        .args(run.args)
+        .current_dir(run.cwd)
         .env_clear()
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -586,7 +726,7 @@ fn run_bounded_inner(
             }
         }
     }
-    command.envs(&spec.env);
+    command.envs(run.env);
     let mut child = command
         .group_spawn()
         .map_err(|_| build_err("process spawn failed"))?;
@@ -603,21 +743,21 @@ fn run_bounded_inner(
     let out = Arc::new(Mutex::new((Vec::new(), false)));
     let err = Arc::new(Mutex::new((Vec::new(), false)));
     let out2 = out.clone();
-    let out_limit = spec.stdout_limit;
+    let out_limit = run.stdout_limit;
     let t1 = thread::spawn(move || drain(stdout, out2, out_limit));
     let err2 = err.clone();
-    let err_limit = spec.stderr_limit;
+    let err_limit = run.stderr_limit;
     let t2 = thread::spawn(move || drain(stderr, err2, err_limit));
-    let until = Instant::now() + spec.timeout;
-    let (timed_out, cancelled) = loop {
-        if cancellation.is_some_and(BuildCancellation::is_cancelled) {
+    let until = Instant::now() + run.timeout;
+    let (timed_out, cancelled, over_limit) = loop {
+        if cancellation.is_cancelled() {
             child
                 .kill()
                 .map_err(|_| build_err("cancelled process-group termination failed"))?;
             child
                 .wait()
                 .map_err(|_| build_err("cancelled process-group wait failed"))?;
-            break (false, true);
+            break (false, true, false);
         }
         if Instant::now() >= until {
             child
@@ -626,14 +766,26 @@ fn run_bounded_inner(
             child
                 .wait()
                 .map_err(|_| build_err("process-group wait failed"))?;
-            break (true, false);
+            break (true, false, false);
+        }
+        // Prompt output-limit detection: a reader that has already seen more
+        // than its bound ends the run now, at the moment of excess, instead
+        // of letting a chatty process run until its deadline.
+        if stream_over_limit(&out) || stream_over_limit(&err) {
+            child
+                .kill()
+                .map_err(|_| build_err("output-limit process-group termination failed"))?;
+            child
+                .wait()
+                .map_err(|_| build_err("output-limit process-group wait failed"))?;
+            break (false, false, true);
         }
         if child
             .try_wait()
             .map_err(|_| build_err("process wait failed"))?
             .is_some()
         {
-            break (false, false);
+            break (false, false, false);
         }
         thread::sleep(Duration::from_millis(20));
     };
@@ -649,7 +801,14 @@ fn run_bounded_inner(
         .clamp(MIN_DRAIN_GRACE, MAX_DRAIN_GRACE);
     let drain_until = Instant::now() + drain_budget;
     let drained = join_drained(t1, drain_until, "stdout reader failed")?
-        && join_drained(t2, drain_until, "stderr reader failed")?;
+        & join_drained(t2, drain_until, "stderr reader failed")?;
+    if !drained {
+        // A reader was still parked at its budget, so the write end it waits
+        // on is held by a descendant that outlived the supervised child. The
+        // run fails closed below, and the group is terminated here so that
+        // descendant does not outlive the run either.
+        let _ = child.kill();
+    }
     let status = child
         .try_wait()
         .map_err(|_| build_err("process wait failed"))?
@@ -662,18 +821,17 @@ fn run_bounded_inner(
         .lock()
         .map_err(|_| build_err("stderr state unavailable"))?
         .clone();
-    let expected_missing =
-        spec.expected_stdout
-            .as_ref()
-            .is_some_and(|expected| !String::from_utf8_lossy(&stdout).contains(expected))
-            || spec.expected_stdout_exact.as_ref().is_some_and(|expected| {
-                String::from_utf8_lossy(&stdout).trim() != expected.as_str()
-            });
+    let expected_missing = run
+        .expected_stdout
+        .is_some_and(|expected| !String::from_utf8_lossy(&stdout).contains(expected))
+        || run
+            .expected_stdout_exact
+            .is_some_and(|expected| String::from_utf8_lossy(&stdout).trim() != expected);
     let outcome = if timed_out {
         CommandOutcome::TimedOut
     } else if cancelled {
         CommandOutcome::Cancelled
-    } else if !drained || out_over || err_over {
+    } else if over_limit || !drained || out_over || err_over {
         CommandOutcome::OutputLimitExceeded
     } else if expected_missing {
         CommandOutcome::Failed(-1)
@@ -708,6 +866,15 @@ fn join_drained(
     }
     handle.join().map_err(|_| build_err(reader_error))?;
     Ok(true)
+}
+
+/// Whether a drained stream has already passed its retained-output bound.
+///
+/// The bound is checked before the bytes are retained, so the accumulator
+/// never grows past its limit even transiently; this reads the same flag so
+/// the runner can end the run at the moment of excess.
+fn stream_over_limit(capture: &Arc<Mutex<(Vec<u8>, bool)>>) -> bool {
+    capture.lock().map(|state| state.1).unwrap_or(false)
 }
 
 fn drain<R: Read>(mut reader: R, capture: Arc<Mutex<(Vec<u8>, bool)>>, limit: usize) {
@@ -1110,7 +1277,10 @@ mod tests {
         assert_eq!(c.env["CARGO_TARGET_DIR"], "/private/target");
         let mut arbitrary = c;
         arbitrary.executable = "sh".into();
-        assert!(run_bounded_inner(&arbitrary, None, ExecutableAllowance::Builder).is_err());
+        assert!(
+            run_bounded_inner(&arbitrary, Cancellation::None, ExecutableAllowance::Builder)
+                .is_err()
+        );
     }
     #[test]
     fn zigbuild_floor_uses_only_gnu_target_syntax() {
@@ -1429,7 +1599,8 @@ mod tests {
             expected_stdout: None,
             expected_stdout_exact: None,
         };
-        let result = run_bounded_inner(&spec, None, ExecutableAllowance::Builder).unwrap();
+        let result =
+            run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder).unwrap();
         assert_eq!(result.outcome, CommandOutcome::Success);
         assert!(result.stdout_bytes <= 1024);
     }
@@ -1447,7 +1618,7 @@ mod tests {
             expected_stdout_exact: None,
         };
         assert!(matches!(
-            run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+            run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder)
                 .unwrap()
                 .outcome,
             CommandOutcome::Failed(_)
@@ -1477,7 +1648,7 @@ mod tests {
             expected_stdout_exact: None,
         };
         assert_eq!(
-            run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+            run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder)
                 .unwrap()
                 .outcome,
             CommandOutcome::OutputLimitExceeded
@@ -1532,7 +1703,7 @@ mod tests {
                 warm_timeout.to_string_lossy().into_owned(),
             );
             assert_eq!(
-                run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder)
                     .unwrap()
                     .outcome,
                 CommandOutcome::Success
@@ -1546,7 +1717,7 @@ mod tests {
                 timeout_started.to_string_lossy().into_owned(),
             );
             assert_eq!(
-                run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder)
                     .unwrap()
                     .outcome,
                 CommandOutcome::TimedOut
@@ -1566,7 +1737,7 @@ mod tests {
                 warm_cancel.to_string_lossy().into_owned(),
             );
             assert_eq!(
-                run_bounded_inner(&spec, None, ExecutableAllowance::Builder)
+                run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder)
                     .unwrap()
                     .outcome,
                 CommandOutcome::Success
@@ -1659,7 +1830,8 @@ mod tests {
             expected_stdout_exact: None,
         };
         let started = Instant::now();
-        let evidence = run_bounded_inner(&spec, None, ExecutableAllowance::Candidate).unwrap();
+        let evidence =
+            run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Candidate).unwrap();
         assert_eq!(
             evidence.outcome,
             CommandOutcome::OutputLimitExceeded,
