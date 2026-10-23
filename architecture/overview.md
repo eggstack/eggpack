@@ -92,9 +92,9 @@ invented.
 - Anchors checked by that pass: **2510** citation tokens. That is the pass's own
   count of every numeric line-reference token in `architecture/`, bare `:N`
   references included — it is **not** a count of distinct `file:line` citations.
-  Measured on the current tree, `architecture/` holds **1161** `file:line`
-  citation tokens across 21 documents (**1103** of them into `.rs` files), and
-  `plans/` holds **185** more, so **1346** across `architecture/` and `plans/`.
+  Measured on the current tree, `architecture/` holds **1144** `file:line`
+  citation tokens across 21 documents (**1086** of them into `.rs` files), and
+  `plans/` holds **181** more, so **1325** across `architecture/` and `plans/`.
   Measured with
   `grep -ohE '[A-Za-z0-9_./-]+\.[A-Za-z0-9]+:[0-9]+' architecture/*.md | wc -l`
   and the same expression over `architecture/ plans/`.
@@ -107,15 +107,15 @@ invented.
 - **Left indicative with a reason: 0** — but that count covers *single-line*
   anchors only, and the claim it made ("every anchor now names a line that was
   read, or names the construct symbolically") was too strong. The directory
-  still carries **431** range-style anchors (`file.rs:N-M`), spread over **404**
-  lines of **17** documents. A range is neither a single line nor a symbol-name
+  still carries **418** range-style anchors (`file.rs:N-M`), spread over **391**
+  lines of **16** documents. A range is neither a single line nor a symbol-name
   reference: each was checked as a range, not as one read line. The per-document
   range-anchor line counts are `ci-consumer-seam.md` 81,
-  `process-execution.md` 65, `ci-rendering.md` 57, `determinism.md` 54,
-  `cli.md` 40, `validation-model.md` 27, `core-finalization.md` 19,
+  `process-execution.md` 65, `ci-rendering.md` 58, `determinism.md` 54,
+  `cli.md` 29, `validation-model.md` 27, `core-finalization.md` 19,
   `core-qualification.md` 13, `testing-and-portability.md` 11,
-  `core-planning.md` 10, `github.md` 9, `contract.md` 9, `overview.md` 3,
-  `core-build.md` 2, `bootstrap.md` 2, `manifest.md` 1, `core.md` 1. Measured with
+  `core-planning.md` 10, `github.md` 9, `contract.md` 9, `core-build.md` 2,
+  `bootstrap.md` 2, `manifest.md` 1, `core.md` 1. Measured with
   `grep -ohE '\.rs:[0-9]+-[0-9]+' architecture/*.md | wc -l` for occurrences and
   `grep -lE '\.rs:[0-9]+-[0-9]+' architecture/*.md | xargs grep -cE '\.rs:[0-9]+-[0-9]+'`
   for lines.
@@ -127,8 +127,12 @@ invented.
   `validation-model.md`, `core-finalization.md`, `manifest.md`, `bootstrap.md`,
   `contract.md`, `cli.md`, `github.md`, and `core.md`.
 - Documents whose cited files were unchanged since their last update, and whose
-  anchors were therefore confirmed rather than re-pointed: `ci.md`,
-  `ci-rendering.md`, `core-planning.md`, and `core-qualification.md`.
+  anchors were therefore confirmed rather than re-pointed: `core-planning.md`
+  and `core-qualification.md`. `ci.md` and `ci-rendering.md` were in this set in
+  the 2026-10-23 pass, but that pass did not catch their prose errors: both
+  described the CI crate as a thirteen-file module tree, and `ci-rendering.md`
+  counted the crate's test functions wrongly. Both are corrected, so they
+  belong with the re-pointed documents rather than the confirmed ones.
 - The two standing gap notes above — `ci-consumer-seam.md`'s stale anchors and
   `cli.md`'s residual drift — are closed by this pass.
 - The per-crate line counts and the pinned baseline were re-measured in the same
