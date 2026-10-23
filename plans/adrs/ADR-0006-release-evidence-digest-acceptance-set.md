@@ -1,8 +1,8 @@
 # ADR-0006: Release Evidence Digest Acceptance Set
 
-Status: **proposed**
+Status: **accepted** (Option A)
 
-Date: 2026-10-23
+Date: 2026-10-23 (accepted 2026-10-23)
 
 Decision owners: project maintainers
 
@@ -26,16 +26,17 @@ Affected subsystem roadmaps:
 
 ## 1. Status note
 
-This record is **proposed**, not accepted. It exists because a post-implementation
-review found that Eggpack carries **three different SHA-256 acceptance rules** for
-the same concept, and because the choice between them is a public compatibility
-decision rather than an internal refactor.
+This record is **accepted** (Option A), decided by the project maintainers on
+2026-10-23. It exists because a post-implementation review found that Eggpack
+carries **three different SHA-256 acceptance rules** for the same concept, and
+because the choice between them is a public compatibility decision rather than
+an internal refactor.
 
 Accepting this ADR authorizes
 `plans/implementation/ci-release-orchestration/003l-producer-rule-authority-convergence-corrective.md`
-to implement the selected rule set. Until it is accepted, M003l's digest-validator
-work package is **blocked**, and every other milestone in this review chain stays
-independently implementable.
+to implement the selected rule set. The digest-validator work package in M003l
+is therefore **unblocked**. Every other milestone in this review chain stays
+independently implementable and is unaffected by this decision.
 
 ## 2. Context
 
@@ -157,8 +158,12 @@ version-1 documents in the field continue to parse under a tightened rule.
 
 ## 5. Decision
 
-**Recommended: Option A — reject the all-zeros digest everywhere, keeping
+**Accepted: Option A — reject the all-zeros digest everywhere, keeping
 `ReleaseManifest` at `schema_version: 1`.**
+
+Option B is rejected: it would leave two behaviours for one rule, which is the
+class of duplication this review chain exists to remove. Option C is rejected.
+Option D is rejected as disproportionate.
 
 Concretely, on acceptance:
 

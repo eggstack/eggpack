@@ -37,11 +37,7 @@ Use an ADR when a decision establishes ownership, a public compatibility contrac
 
 ## Proposed records
 
-- ADR-0006 — release evidence digest acceptance set. Decides whether the
-  all-zeros SHA-256 sentinel is refused by every producer path and whether the
-  published `ReleaseManifest` acceptance set narrows, which is a compatibility
-  change to the published `eggpack-manifest` crate. Gates the
-  digest-acceptance work package of CI M003l only.
+_None. ADR-0006 was the last proposed record and was accepted on 2026-10-23._
 
 ## Accepted records
 
@@ -49,4 +45,5 @@ Use an ADR when a decision establishes ownership, a public compatibility contrac
 - ADR-0002 — contract/plan/manifest separation;
 - ADR-0003 — checked-in generated CI and explicit publication gate;
 - ADR-0004 — first-party native Cargo/cargo-zigbuild adapter boundary;
-- ADR-0005 — native qualification is independent of build strategy when the qualification host matches the target OS/architecture.
+- ADR-0005 — native qualification is independent of build strategy when the qualification host matches the target OS/architecture;
+- ADR-0006 — release evidence digest acceptance set (accepted 2026-10-23, Option A): the all-zeros SHA-256 sentinel is refused by every producer path, `ReleaseManifest` stays at `schema_version: 1`, and the published `eggpack-manifest` crate takes a `0.1.1` patch release carrying the tightened rule. Authorized the digest-acceptance work package of CI M003l.
