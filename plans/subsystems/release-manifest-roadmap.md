@@ -69,7 +69,9 @@ Publication completed on `8d661e4eb9da1806e5d7c7606939d24e9aceb2c0`: `eggpack-ma
 
 Only `eggpack-manifest` was published. `eggpack-contract`, `eggpack-core`, `eggpack-bootstrap`, `eggpack-ci`, `eggpack-github`, and `eggpack-cli` remain unpublished; no workspace-wide release is implied by the single-package publication.
 
-Post-publication downstream review confirmed that Eggup consumed this handoff and completed the registry promotion it was waiting on: Eggup M004 published `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` in that dependency order from publication source `eggstack/eggup@02a1d32931be29cc3d8980833643b2cd822f2d28` (hosted run `37090397398`, green on Stable, MSRV, macOS, and Windows) and closed at `eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915`; `eggstack/eggup@3b82d5397e728649a666690868a1e2d0fe42460d` then reconciled Eggup's own stale blocked-state prose. The published `eggup-eggpack 0.1.2` resolves `eggpack-manifest` from crates.io at exact `=0.1.0` with no Git or path edge, and Eggup's adapter-only and Eggsact-shaped registry-only external graphs both resolve and pass smoke. M003a recorded that receipt on the Eggpack side and is closed; it did not reopen M003 and implied no package or runtime change. No further Release Manifest implementation is implied.
+Post-publication downstream review confirmed that Eggup consumed this handoff and completed the registry promotion it was waiting on: Eggup M004 published `eggup-acquisition 0.1.2` -> `eggup-eggfetch 0.1.2` -> `eggup-eggpack 0.1.2` in that dependency order from publication source `eggstack/eggup@02a1d32931be29cc3d8980833643b2cd822f2d28` (hosted run `37090397398`, green on Stable, MSRV, macOS, and Windows) and closed at `eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915`; `eggstack/eggup@3b82d5397e728649a666690868a1e2d0fe42460d` then reconciled Eggup's own stale blocked-state prose. The published `eggup-eggpack 0.1.2` resolves `eggpack-manifest` from crates.io at exact `=0.1.0` with no Git or path edge, and Eggup's adapter-only and Eggsact-shaped registry-only external graphs both resolve and pass smoke. M003a recorded that receipt on the Eggpack side and is closed; it did not reopen M003 and implied no package or runtime change.
+
+One further Release Manifest implementation **is** implied, and it was missing from this roadmap until M004 was registered: ADR-0006 accepted on 2026-10-23 obliges the published crate to take a `0.1.1` patch release, and no plan or closure record tracked that obligation. The crate has carried `0.1.1` in-tree since `9cf0bf8`; crates.io exposes only `0.1.0`. M004 owns that publication and the compatibility record ADR-0006 §5.4 requires.
 
 ## 5. Target architecture
 
@@ -110,6 +112,8 @@ manifest M002 final-artifact builder
     |        +--> Eggup M004 package/API promotion [CLOSED DOWNSTREAM; CONSUMED `=0.1.0`]
     |        |
     |        `--> manifest M003a post-publication downstream closure reconciliation [CLOSED; DOCS ONLY]
+    |        |
+    |        `--> manifest M004 `eggpack-manifest 0.1.1` publication + compatibility event [ACTIVE]
     +--> Eggup interoperability
     +--> bootstrap/CI aggregation
     +--> provenance/signing
@@ -163,6 +167,22 @@ Status: **closed**. Plan: `plans/implementation/release-manifest/003a-post-publi
 
 Reconcile Eggpack's active registry, this roadmap, the Eggup interoperability roadmap, and an appended M003 downstream-receipt addendum with the fact that Eggup consumed `eggpack-manifest 0.1.0` and closed its M004 registry promotion. Preserve M003's historical closure body, append rather than rewrite historical evidence, and prove an empty production/package/workflow diff. No Rust, Cargo, workflow, tag, release, crates.io, or external-repository mutation was authorized, and none occurred.
 
+### M004 — `eggpack-manifest 0.1.1` publication and compatibility event
+
+Class: compatibility / packaging / manual publication prerequisite
+
+Hard dependency: accepted ADR-0006 and the CI/Release M003l implementation (`9cf0bf8`), which set the crate's version to `0.1.1` and implemented the narrowed digest acceptance set. Satisfied.
+
+Status: **active**. Plan: `plans/implementation/release-manifest/004-eggpack-manifest-0.1.1-publication-and-compatibility-event.md`. Closure: `plans/closure/release-manifest/004-status.md`.
+
+ADR-0006 §5.2 and §9 obligate the published crate to take a `0.1.1` patch release carrying the narrowed digest acceptance set. The crate has carried `0.1.1` in-tree since `9cf0bf8` and its sources have not changed since, but the version has never been published: crates.io exposes only `0.1.0`. ADR-0006 §5.4 further requires the narrowing to be recorded as a compatibility event in a release-manifest closure record, and no such record exists. This milestone publishes the patch release through the manual publication boundary and writes that record.
+
+The `0.1.1` package carries **two** narrowings of this crate's public acceptance set. The first is ADR-0006's digest rule. The second arrived with commit `3ef806f`: `ReleaseManifest::validate` now ends with `check_document_bound`, so a manifest whose canonical encoding exceeds `MAX_DOCUMENT_BYTES` is refused where `0.1.0` accepted and serialized it. The second narrowing had been recorded only as an implementation note in `architecture/manifest.md`, so it would have shipped unannounced. This milestone records both.
+
+The affected downstream consumer is `eggup-eggpack`, which consumes registry `eggpack-manifest =0.1.0` — an exact pin, so the patch release does not move it automatically. The consumer-side bump requires a plan registered in the Eggup repository; this milestone records the obligation and does not modify that repository.
+
+The `0.1.1` publication discharges the deferred README polish M003 recorded: the published README's repository-only relative reference becomes an absolute repository URL that resolves on `main`.
+
 ## 8. Cross-cutting requirements
 
 Schema changes require compatibility rules. Unknown schema majors fail typed. Unknown security-sensitive semantics fail closed.
@@ -192,3 +212,4 @@ Satisfied: Eggpack's own crates consume the crate as a workspace member, the rea
 | M002 | closed | `plans/implementation/release-manifest/002-final-artifact-manifest-builder.md` | `plans/closure/release-manifest/002-status.md` | implementation and hosted CI passed |
 | M003 | closed | `plans/implementation/release-manifest/003-eggpack-manifest-0.1.0-publication-and-compatibility-baseline.md` | `plans/closure/release-manifest/003-status.md` | published `eggpack-manifest 0.1.0` from `8d661e4`, hosted run 37064833069 green, tag `eggpack-manifest-v0.1.0`, registry-only consumer proof green |
 | M003a | closed | `plans/implementation/release-manifest/003a-post-publication-downstream-closure-reconciliation.md` | `plans/closure/release-manifest/003a-status.md` | docs-only reconciliation of the closed Eggup M004 downstream closure (`eggstack/eggup@ea1f1c5e29302e5feca4599db9342d3a5ac93915`; formal status cleanup `eggstack/eggup@3b82d5397e728649a666690868a1e2d0fe42460d`); M003 remains closed; no production/package/workflow changes |
+| M004 | **active** | `plans/implementation/release-manifest/004-eggpack-manifest-0.1.1-publication-and-compatibility-event.md` | `plans/closure/release-manifest/004-status.md` | ADR-0006 §5.2/§9 publication obligation plus the ADR-0006 §5.4 compatibility record; the crate has carried `0.1.1` since `9cf0bf8` and crates.io still exposes only `0.1.0`; two narrowings ship in the package and only one was recorded |

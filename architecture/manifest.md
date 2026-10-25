@@ -42,7 +42,7 @@ claim about intent, qualification, or installation (crate doc `:4`: this crate
 | `MAX_RECORDS: usize = 256` | `:16` | Ceiling on any one bundle-entry or archive-member list. |
 | `MAX_EVIDENCE_REFERENCES: usize = 64` | `:18` | Ceiling on `evidence_references`. |
 | `Sha256Error` | `:56-63` | Typed refusal: `Length`, `NotLowercaseHex`, `AllZeros`; `reason()` `:65-75`. The all-zeros refusal is ADR-0006's. |
-| `ALL_ZEROS_SHA256` | `:84` | The refused all-zeros sentinel, named once. |
+| `ALL_ZEROS_SHA256` (private) | `:84` | The refused all-zeros sentinel, named once. |
 | `validate_sha256_hex` | `:98-112` | The one SHA-256 hex acceptance rule in the workspace (ADR-0006 Option A): exactly 64 lowercase hex characters **and not the all-zeros digest**. |
 | `ManifestError` | `:27-34` | `#[non_exhaustive]`: `Invalid(String)`, `UnsupportedVersion(u32)`, `TooLarge`. `Display` `:36-44`; `Error` `:45`. |
 | `ReleaseManifest` | `:123-137` | Top-level document: identity block, `targets`, optional `evidence_references`. |
@@ -54,7 +54,8 @@ claim about intent, qualification, or installation (crate doc `:4`: this crate
 | `ByteEvidence` | `:212-217` | `{ size, sha256 }` — size and digest without a name. |
 | `ReleaseManifest::target` | `:221-227` | Exact canonical-triple lookup; re-validates first; never resolves aliases or nearest-target. |
 | `ReleaseManifest::from_json` | `:229-237` | Byte-length bound → `serde_json` parse → full `validate()`. |
-| `ReleaseManifest::validate` | `:239-322` | Version, bounds, uniqueness, cross-record relationships. No I/O. |
+| `ReleaseManifest::validate` | `:239-305` | Version, bounds, uniqueness, cross-record relationships, then the document bound. No I/O. |
+| `ReleaseManifest::check_document_bound` (private) | `:309-320` | Measures the canonical encoding and refuses it past `MAX_DOCUMENT_BYTES`; called from `validate` `:304`. |
 | `ReleaseManifest::to_json` | `:324-341` | `validate()`, sort a **clone** canonically, compact serialization. |
 | `ArtifactRecord::sha256_bytes` | `:345-359` | Decode validated lowercase hex into `[u8; 32]`. |
 | `ByteEvidence::sha256_bytes` | `:362-374` | Same hex decode, without a name. |
@@ -293,6 +294,9 @@ Two consequences are load-bearing for a downstream consumer:
   now carries `version = "0.1.1"`; the workspace version stays `0.1.0` for the
   other six crates, and `^0.1.0` dependents resolve `0.1.1` unchanged. The
   `0.1.1` publication is a **separate human action** and has not been performed.
+  Release Manifest M004 (`plans/implementation/release-manifest/004-eggpack-manifest-0.1.1-publication-and-compatibility-event.md`)
+  is the milestone that owns that publication and the compatibility record for
+  both narrowings.
 
 **`eggup-eggpack` is the affected downstream consumer.** It consumes registry
 `eggpack-manifest =0.1.0` and must be given the `0.1.1` patch release and told
@@ -306,6 +310,50 @@ The decision itself is recorded at
 `plans/adrs/ADR-0006-release-evidence-digest-acceptance-set.md` (Status:
 **accepted**), and the implementation that converges the rules is recorded at
 `plans/closure/ci-release-orchestration/003l-status.md`.
+
+### The document-bound narrowing is a second, separate compatibility event
+
+The `0.1.1` package carries **two** narrowings of this crate's public
+acceptance set, not one. The digest rule above is ADR-0006's. The second
+arrived by a different route and was, until the Release Manifest M004 review,
+recorded only as an implementation note rather than as a compatibility event.
+
+It came from commit `3ef806f` ("close 31 audited defects across all seven
+crates"), not from ADR-0006. `ReleaseManifest::validate` now ends with
+`check_document_bound` (`:304`), which measures the canonical encoding and
+returns `ManifestError::TooLarge` past `MAX_DOCUMENT_BYTES` (`:309-320`).
+
+The behaviour change is concrete. `validate`, `to_json`, and `target` are
+public. Under `0.1.0`, a manifest that satisfied every *structural* bound but
+whose canonical encoding exceeded 1 MiB was **accepted** by `validate()` and
+**serialized** by `to_json()` — so `0.1.0` could emit a document its own
+`from_json` would refuse to read back. Under `0.1.1` the same manifest is
+refused by both, with `TooLarge`.
+
+Measured against identical fixtures on both versions (256 targets × 256
+members): the canonical length is 25,689,453 bytes; `0.1.0` `validate()`
+returns `Ok(())` and `to_json()` returns `Ok(25,689,453)`, while `0.1.1`
+`validate()` returns `Err("release manifest exceeds the 1 MiB limit")` and
+`to_json()` returns `Err(TooLarge)`.
+
+The rule is not over-tightened: a canonical length of 999,768 bytes still
+validates and serializes under `0.1.1`.
+
+What this means for a downstream consumer is narrow and enumerable. A consumer
+that only *reads* real producer output is unaffected — no document a real
+producer emits approaches 1 MiB, and `from_json` already refused such documents
+in `0.1.0`, so the refused input was never one that could have been read back
+either way. A consumer that *constructs* a manifest programmatically and
+serializes it now receives `TooLarge` where it previously received a document
+its own reader would have rejected. No field, no schema version, and no error
+variant changed; `TooLarge` already existed and was already reachable through
+`from_json`.
+
+This event is recorded as a compatibility event in the release-manifest
+closure record for the `0.1.1` publication —
+`plans/closure/release-manifest/004-status.md` — which is the record
+ADR-0006 §5.4 requires for the published crate's narrowed acceptance set. It
+is stated here as well because ADR-0006 §5.4 requires both surfaces.
 
 One clarification against a natural assumption: `homepage`, `documentation`,
 `keywords`, and `categories` are **not** unique to this crate —

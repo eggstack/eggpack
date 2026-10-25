@@ -256,7 +256,11 @@ only), and the only crate here that is published for third-party consumption
 published crate takes a pending `0.1.1` patch release carrying the ADR-0006
 all-zeros refusal; the crate is already at `0.1.1` in
 `crates/eggpack-manifest/Cargo.toml`, and publication of that patch is
-outstanding. Owns
+outstanding — Release Manifest M004 owns it. That patch carries **two**
+narrowings of the published crate's acceptance set: the ADR-0006 digest rule
+and the document bound that `ReleaseManifest::validate` now measures, so a
+manifest whose canonical encoding exceeds `MAX_DOCUMENT_BYTES` is refused
+where `0.1.0` accepted and serialized it. Owns
 `ReleaseManifest` plus `TargetRecord`, `ArtifactForm`, `ArtifactRecord`,
 `BundleRecord`, `ArchiveMemberRecord`, and `ByteEvidence`, with hard bounds
 `MAX_DOCUMENT_BYTES`, `MAX_TARGETS`, `MAX_RECORDS`, and
