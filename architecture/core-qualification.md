@@ -396,7 +396,7 @@ rejection, and direct/bundle/archive inventories.
   `eggpack_contract::DistributionContract`, `serde`, and `std` (`:9-23`). The
   candidate bytes are digested by the crate's single file-digest authority
   (`crate::file_digest`), not by a private SHA-256 stream in this module.
-  Crate-level dependencies are `Cargo.toml:14-23`; this file has no
+  Crate-level dependencies are `Cargo.toml:17-26`; this file has no
   independent set.
 - In-crate dependents: `finalization.rs` re-validates this record
   (`finalization.rs:193-196`) and gates on it — `Passed`, or `Deferred` when the

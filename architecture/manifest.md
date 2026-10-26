@@ -389,7 +389,7 @@ authority.
 
 | Dependent | Kind | Location |
 | --- | --- | --- |
-| `eggpack-core` | normal | `crates/eggpack-core/Cargo.toml:16`; builds manifests (`crates/eggpack-core/src/finalization.rs:58`, `crates/eggpack-core/src/lib.rs:16`) |
+| `eggpack-core` | normal | `crates/eggpack-core/Cargo.toml:19`; builds manifests (`crates/eggpack-core/src/finalization.rs:58`, `crates/eggpack-core/src/lib.rs:16`) |
 | `eggpack-bootstrap` | normal | `crates/eggpack-bootstrap/Cargo.toml:16` |
 | `eggpack-github` | normal | `crates/eggpack-github/Cargo.toml:16` |
 | `eggpack-cli` | normal | `crates/eggpack-cli/Cargo.toml:22` |

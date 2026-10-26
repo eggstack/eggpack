@@ -625,6 +625,44 @@ fn run_bounded_inner(
     run_bounded(&run, cancellation, allowance)
 }
 
+/// Terminate the supervised process group, tolerating an already-empty group.
+///
+/// The group's only member is the supervised child. When that child has
+/// already exited it stays in the group as a zombie until it is reaped, and
+/// the group is empty only once it is reaped. Signalling a group that holds
+/// nothing is reported by the kernel as `ESRCH` ("no such process group"),
+/// and `command-group` documents that a group which has already exited
+/// produces an error from `kill`.
+///
+/// The two supported platforms disagree about the zombie case: Linux signals
+/// a zombie successfully, while macOS reports `ESRCH` for it. A run whose
+/// child exited just before the runner noticed that its output bound was
+/// exceeded would therefore terminate cleanly on one platform and fail on
+/// the other — and it would report an output-bound violation as a launch
+/// failure, because the caller maps every runner error onto that outcome.
+///
+/// `ESRCH` is the kernel's own statement that the group holds no process, so
+/// treating it as success is exact rather than permissive: there is provably
+/// nothing left to terminate, and the guarantee that no descendant outlives
+/// the run still holds. Every other errno remains a hard failure, so a group
+/// that exists but cannot be signalled still fails the run closed.
+///
+/// The check is Unix-only. A Windows job object is terminated through
+/// `TerminateJobObject`, which reports a different condition for an empty
+/// job and uses a different error space — where the value `3` means
+/// `ERROR_PATH_NOT_FOUND`, not `ESRCH`.
+fn terminate_process_group(
+    child: &mut command_group::GroupChild,
+    message: &str,
+) -> Result<(), BuildError> {
+    match child.kill() {
+        Ok(()) => Ok(()),
+        #[cfg(unix)]
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
+        Err(_) => Err(build_err(message)),
+    }
+}
+
 fn run_bounded(
     run: &BoundedRun<'_>,
     cancellation: Cancellation<'_>,
@@ -751,18 +789,14 @@ fn run_bounded(
     let until = Instant::now() + run.timeout;
     let (timed_out, cancelled, over_limit) = loop {
         if cancellation.is_cancelled() {
-            child
-                .kill()
-                .map_err(|_| build_err("cancelled process-group termination failed"))?;
+            terminate_process_group(&mut child, "cancelled process-group termination failed")?;
             child
                 .wait()
                 .map_err(|_| build_err("cancelled process-group wait failed"))?;
             break (false, true, false);
         }
         if Instant::now() >= until {
-            child
-                .kill()
-                .map_err(|_| build_err("process-group termination failed"))?;
+            terminate_process_group(&mut child, "process-group termination failed")?;
             child
                 .wait()
                 .map_err(|_| build_err("process-group wait failed"))?;
@@ -772,9 +806,7 @@ fn run_bounded(
         // than its bound ends the run now, at the moment of excess, instead
         // of letting a chatty process run until its deadline.
         if stream_over_limit(&out) || stream_over_limit(&err) {
-            child
-                .kill()
-                .map_err(|_| build_err("output-limit process-group termination failed"))?;
+            terminate_process_group(&mut child, "output-limit process-group termination failed")?;
             child
                 .wait()
                 .map_err(|_| build_err("output-limit process-group wait failed"))?;
@@ -1603,6 +1635,29 @@ mod tests {
             run_bounded_inner(&spec, Cancellation::None, ExecutableAllowance::Builder).unwrap();
         assert_eq!(result.outcome, CommandOutcome::Success);
         assert!(result.stdout_bytes <= 1024);
+    }
+    /// A process group whose only member has already exited and been reaped
+    /// holds no process, so terminating it is reported as "no such process
+    /// group". That is not a failed termination — there is nothing left to
+    /// terminate — and treating it as one turns a completed run into an
+    /// error.
+    ///
+    /// Linux signals a zombie process group successfully while macOS reports
+    /// `ESRCH` for it, so the same run terminated cleanly on one platform and
+    /// failed on the other, reporting an output-bound violation as a launch
+    /// failure.
+    #[cfg(unix)]
+    #[test]
+    fn terminating_an_already_exited_process_group_is_not_a_failure() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 0"]);
+        let mut child = command.group_spawn().unwrap();
+        // Reap the child: the group then holds no process at all.
+        child.wait().unwrap();
+        // The dependency reports the empty group as an error.
+        assert!(child.kill().is_err());
+        // The runner treats that as "nothing left to terminate".
+        assert!(terminate_process_group(&mut child, "test termination").is_ok());
     }
     #[test]
     fn nonzero_tool_exit_is_not_success() {

@@ -239,7 +239,7 @@ decides whether to serialize it.
 
 ## Dependencies / dependents
 
-- Own deps used by this file (`crates/eggpack-core/Cargo.toml:14-23`):
+- Own deps used by this file (`crates/eggpack-core/Cargo.toml:17-26`):
   `eggpack-contract` (`expected_release_files`, `DistributionContract`,
   `ExpandedAssets`, `:7`), `eggpack-manifest` (returned document type, `:57`),
   `flate2` (`:8`), `tar` (`:436`, `:442`), plus `std::fs` / `std::io`. The

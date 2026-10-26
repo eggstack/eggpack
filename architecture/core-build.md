@@ -279,9 +279,9 @@ cases (`:1792-1848`); a real local Cargo fixture producing a direct candidate
 
 ## Dependencies / dependents
 
-- Own dependencies used here: `command-group 5.0.1` (`Cargo.toml:21`, process groups), `toml
-  0.8` (`Cargo.toml:20`, `from_toml` at `builder.rs:303`), `serde` derive (`Cargo.toml:17`),
-  `eggpack-contract` (`Cargo.toml:15`, `DistributionContract` + `ExpandedAssets` at
+- Own dependencies used here: `command-group 5.0.1` (`Cargo.toml:24`, process groups), `toml
+  0.8` (`Cargo.toml:23`, `from_toml` at `builder.rs:303`), `serde` derive (`Cargo.toml:20`),
+  `eggpack-contract` (`Cargo.toml:18`, `DistributionContract` + `ExpandedAssets` at
   `builder.rs:5`), and `std` process/thread/IO primitives. `sha2` is a **crate-level**
   dependency but is not used in this file (it is used by the digest authority in
   `src/digest.rs`).

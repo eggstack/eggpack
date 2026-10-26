@@ -250,7 +250,7 @@ implied.
 
 ## Dependencies / dependents
 
-Own dependencies (`crates/eggpack-core/Cargo.toml:14-23`):
+Own dependencies (`crates/eggpack-core/Cargo.toml:17-26`):
 
 | Crate | Used here for |
 | --- | --- |

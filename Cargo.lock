@@ -226,6 +226,7 @@ dependencies = [
  "eggpack-contract",
  "eggpack-manifest",
  "flate2",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

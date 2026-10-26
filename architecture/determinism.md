@@ -191,7 +191,7 @@ than Eggpack code:
 - Compression level is `Compression::default()`. Deterministic for a given
   `flate2` version, but not a value Eggpack asserts.
 - `flate2` resolves with default features, so the pure-Rust `miniz_oxide`
-  backend is used (`crates/eggpack-core/Cargo.toml:23`; `cargo tree -p
+  backend is used (`crates/eggpack-core/Cargo.toml:26`; `cargo tree -p
   eggpack-core` confirms the `flate2 → miniz_oxide` path). Switching to the
   `zlib-rs` backend would change compressed bytes for identical input; the
   workspace does not enable it.

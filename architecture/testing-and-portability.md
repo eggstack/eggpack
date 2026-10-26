@@ -34,7 +34,7 @@ Two topologies coexist.
 
 **Inline `mod tests`.** Eight modules declared inside `src/*.rs`:
 `bootstrap/src/lib.rs:1066`, `cli/src/main.rs:1628`, `contract/src/lib.rs:1780`,
-`core/src/lib.rs:770`, `core/src/builder.rs:1216`, `core/src/finalization.rs:491`,
+`core/src/lib.rs:770`, `core/src/builder.rs:1248`, `core/src/finalization.rs:491`,
 `core/src/qualification.rs:1314`, and `manifest/src/lib.rs:424`.
 
 What this buys: tests can reach `pub(crate)` and private items without widening
@@ -241,7 +241,7 @@ outputs, so running them twice buys nothing.
 | `ilammy/msvc-dev-cmd@v1` (arch x64) | 43-46 | Rust's MSVC toolchain needs an initialized developer environment before any Cargo build; without it `link.exe` is absent and the real-Cargo tests fail with a linker error, not a code failure |
 | Verify initialized MSVC linker environment | 47-56 | Fails fast and legibly: throws if `VCToolsInstallDir` is unset, and throws if `link.exe` resolves *outside* that directory. Guards against silently picking up a different `link.exe` on `PATH` |
 | Windows builder real Cargo candidate smoke | 57-59 | `real_local_cargo_fixture_builds_a_direct_candidate`; the only lane that proves a real Cargo build links on Windows |
-| Process-group timeout and cancellation | 60-62 | `timeout_kills_and_waits_for_the_process_group` (`crates/eggpack-core/src/builder.rs:1659`); process-group/job semantics differ most on Windows |
+| Process-group timeout and cancellation | 60-62 | `timeout_kills_and_waits_for_the_process_group` (`crates/eggpack-core/src/builder.rs:1714`); process-group/job semantics differ most on Windows |
 | Core tests serialized for diagnosis | 63-65 | `-- --test-threads=1`. A serialization workaround: the suite exhibits nondeterministic failures under parallel execution on Windows, so the Windows lane trades coverage speed for signal |
 | Windows CI crate tests | 66-68 | `-p eggpack-ci` on Windows — the CI crate has no `#[cfg(windows)]` block left; its Windows paths are runtime target checks (`crates/eggpack-ci/src/render_github.rs:230`, `crates/eggpack-ci/src/handoff.rs:380`) plus `cfg!(windows)` (`crates/eggpack-ci/src/consumer_validator.rs:220`), which Linux never exercises |
 | Verify pwsh 7 + `tar.exe` | 69-75 | `tar.exe` ships in the Windows image but is not guaranteed; the archive qualification lane requires both, so prerequisite failure is separated from test failure |

@@ -399,7 +399,7 @@ order is declaration order and is preserved. Round-trip stability is asserted at
 `tests/fixtures.rs:49-59`.
 
 Dependents, each by path plus `version = "0.1.0"`: `eggpack-core`
-(`crates/eggpack-core/Cargo.toml:15`), `eggpack-bootstrap`
+(`crates/eggpack-core/Cargo.toml:18`), `eggpack-bootstrap`
 (`crates/eggpack-bootstrap/Cargo.toml:15`), `eggpack-ci` (`crates/eggpack-ci/Cargo.toml:15`),
 `eggpack-github` (`crates/eggpack-github/Cargo.toml:15`), and `eggpack-cli`
 (`crates/eggpack-cli/Cargo.toml:19`). `eggpack-manifest` does **not** depend on this crate; it has
