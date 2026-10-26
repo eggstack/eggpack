@@ -1,6 +1,6 @@
 # Release Manifest Milestone 004 — `eggpack-manifest 0.1.1` Publication and Compatibility Event Record
 
-Status: active
+Status: closed
 
 Closure record: `plans/closure/release-manifest/004-status.md`
 
@@ -389,6 +389,18 @@ honestly, and treat the version as occupied.
   body is not rewritten.
 
 ## 13. Handoff after closure
+
+**Closed on 2026-10-26.** `eggpack-manifest 0.1.1` is published to crates.io
+from `4ce4fb850ffa0e141f1a807b60c150173507a92b`, checksum
+`352c3e327159615b763298e911e239f1decc4a2c9e28c28be8ddd28e50515e37`, not
+yanked, tagged `eggpack-manifest-v0.1.1`; hosted run `40263953007` green on
+all four lanes; the registry-only consumer proof passes against the published
+artifact and observes both narrowings. The compatibility record ADR-0006 §5.4
+requires is `plans/closure/release-manifest/004-status.md`, and it covers
+both narrowings the package carries. The consumer-side obligation in ADR-0006
+§5.5 remains open and is owned by the Eggup repository.
+
+## 14. Handoff after closure
 
 The published `eggpack-manifest 0.1.1` becomes the current registry version.
 `eggup-eggpack` is given the patch release and the narrowed acceptance set,

@@ -39,11 +39,16 @@ So "it's optional, so it's safe" is false here. A shape change to the published
 manifest is a compatibility event, not a convenience. It needs a plan, an ADR if
 it establishes a public compatibility contract, and downstream coordination.
 
-`eggpack-manifest 0.1.0` is live on crates.io and consumed by `eggup-eggpack`
-downstream. The published `src/lib.rs` is byte-identical to the
-consumer-qualified pin the consumer was tested against — that equality is a
-deliberate, recorded property, not an accident. The other six workspace crates
-are unpublished; do not publish one as a side effect of unrelated work.
+`eggpack-manifest 0.1.1` is live on crates.io. `0.1.0` remains published and
+resolvable. `0.1.1` carries two narrowings of the published acceptance set —
+the ADR-0006 all-zeros digest refusal and the document bound that
+`ReleaseManifest::validate` now measures — and both are recorded as
+compatibility events in
+`plans/closure/release-manifest/004-status.md`. `eggup-eggpack` consumes
+`=0.1.0` and is the named affected consumer; it pins an exact version, so it
+does not pick up `0.1.1` automatically, and its bump needs a plan registered
+in the Eggup repository. The other six workspace crates are unpublished; do
+not publish one as a side effect of unrelated work.
 
 ## The two documents say different things
 

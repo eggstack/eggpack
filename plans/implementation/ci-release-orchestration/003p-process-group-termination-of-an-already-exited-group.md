@@ -1,6 +1,6 @@
 # CI/Release Orchestration Milestone 003p — Process-Group Termination of an Already-Exited Group
 
-Status: active
+Status: closed
 
 Closure record: `plans/closure/ci-release-orchestration/003p-status.md`
 
@@ -273,6 +273,15 @@ Stop, and do not publish, if any of these hold:
 - `AGENTS.md` — the current handoff.
 
 ## 13. Handoff after closure
+
+**Closed on 2026-10-26.** The macOS lane is green: hosted run `40263176191`
+on `27cb16c` passed on all four lanes, after four runs that failed on macOS
+and produced the measured errno that established the cause. The 2026-10-23
+review chain has now run on hosted CI and is green, and Release Manifest M004
+— the `eggpack-manifest 0.1.1` publication and the ADR-0006 §5.4
+compatibility record — is no longer blocked by it.
+
+## 14. Handoff after closure
 
 The shared bounded runner has one documented termination rule across all four
 supported platforms. The 2026-10-23 review chain has now run on hosted CI,

@@ -253,10 +253,10 @@ redefine a layout name; downstream crates reference these types instead.
 Single `src/lib.rs`. Leaf parser/serializer with no I/O (`serde` + `serde_json`
 only), and the only crate here that is published for third-party consumption
 (`eggpack-manifest 0.1.0` on crates.io, consumed by `eggup-eggpack`). The
-published crate takes a pending `0.1.1` patch release carrying the ADR-0006
-all-zeros refusal; the crate is already at `0.1.1` in
-`crates/eggpack-manifest/Cargo.toml`, and publication of that patch is
-outstanding — Release Manifest M004 owns it. That patch carries **two**
+published crate took a `0.1.1` patch release carrying the ADR-0006
+all-zeros refusal, published from
+`4ce4fb850ffa0e141f1a807b60c150173507a92b` and tagged
+`eggpack-manifest-v0.1.1` under Release Manifest M004. That patch carries **two**
 narrowings of the published crate's acceptance set: the ADR-0006 digest rule
 and the document bound that `ReleaseManifest::validate` now measures, so a
 manifest whose canonical encoding exceeds `MAX_DOCUMENT_BYTES` is refused

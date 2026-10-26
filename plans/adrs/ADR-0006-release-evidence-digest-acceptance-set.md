@@ -254,3 +254,28 @@ follow-on. Option C is rejected. Option D is rejected as disproportionate.
 ## 10. Supersession
 
 Superseded only by a later accepted ADR.
+
+## 11. Dated note — the publication obligation was discharged on 2026-10-26
+
+This ADR's decision body above is the record as written on 2026-10-23 and is
+not rewritten. What follows records what happened afterwards.
+
+On 2026-10-26 the obligation in §5.2 and §9 was discharged. `eggpack-manifest
+0.1.1` was published to crates.io from publication source commit
+`4ce4fb850ffa0e141f1a807b60c150173507a92b`, with checksum
+`352c3e327159615b763298e911e239f1decc4a2c9e28c28be8ddd28e50515e37`, not
+yanked, tagged `eggpack-manifest-v0.1.1`. `0.1.0` remains published and
+resolvable. The hosted run on the publication source commit was `40263953007`,
+green on all four lanes, and the local gate was green.
+
+The §5.4 compatibility record is `plans/closure/release-manifest/004-status.md`
+— the release-manifest closure record this ADR names. It records **two**
+narrowings, not one: the digest rule this ADR decided, and the document bound
+that `3ef806f` introduced separately, which narrows what `ReleaseManifest::
+validate` and `to_json` accept. The second was not covered by any ADR and had
+no compatibility record until then, so it would have shipped unannounced.
+
+The §5.5 consumer obligation is **not** discharged. `eggup-eggpack` pins
+`eggpack-manifest = "=0.1.0"`, an exact requirement, so publishing `0.1.1`
+does not move it. The consumer-side bump requires a plan registered in the
+Eggup repository, and this ADR does not authorize a change there.
