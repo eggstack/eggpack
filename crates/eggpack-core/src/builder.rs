@@ -659,7 +659,14 @@ fn terminate_process_group(
         Ok(()) => Ok(()),
         #[cfg(unix)]
         Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
-        Err(_) => Err(build_err(message)),
+        Err(error) => {
+            eprintln!(
+                "DIAG-KILL: raw_os_error={:?} kind={:?} message={error}",
+                error.raw_os_error(),
+                error.kind()
+            );
+            Err(build_err(message))
+        }
     }
 }
 
