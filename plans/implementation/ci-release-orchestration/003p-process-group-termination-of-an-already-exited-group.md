@@ -54,15 +54,26 @@ documents that a group which has already exited produces an error.
 The group's only member is the supervised child. When that child has already
 exited it stays in the group as a zombie until it is reaped, and the group
 holds no process at all once it is reaped. The two supported platforms
-disagree about the zombie case: **Linux signals a zombie successfully, while
-macOS reports `ESRCH` for it.**
+disagree about the zombie case, and **not in the way the errno suggests**:
+
+- **Linux** — `killpg` signals a zombie successfully, so the group signal
+  succeeds.
+- **macOS** — `killpg` refuses to signal a group that holds an unsignalable
+  zombie and reports the *whole* group signal as **`EPERM`**, not `ESRCH`.
+
+The errno was measured, not assumed. A temporary diagnostic on the
+consumer-validator path named the runner error
+(`output-limit process-group termination failed`); a second one on the group
+signal named the errno (`raw_os_error=Some(1)`, "Operation not permitted").
+Both diagnostics were removed once the cause was identified; the commits
+that carried them are `b03e5c4` and `16fee25`.
 
 A validator that writes past its bound and exits immediately therefore
 produces a different result per platform:
 
 - **Linux** — `killpg` succeeds, the group is reaped, the run breaks out with
   the output-limit flag set, and the outcome is `OutputLimitExceeded`.
-- **macOS** — `killpg` reports `ESRCH`, the runner treats that as a hard
+- **macOS** — `killpg` reports `EPERM`, the runner treats that as a hard
   failure, and the caller maps every runner error onto
   `InterpreterUnavailable`.
 
@@ -86,21 +97,27 @@ terminated through `TerminateJobObject`, which succeeds for an empty job.
 
 ## 2. Why ready
 
-- The failure is reproduced and explained. It is not a flake: the platform
-  difference is deterministic in the kernel, and the macOS lane failed on
-  both affected tests in the same run.
-- The fix is local to one helper and does not change any outcome the runner
-  reports for a group that still exists.
-- The regression is reproducible on the review machine: reaping a child and
-  then signalling its group reports the empty group as an error on Linux too,
-  so the test fails without the fix here and does not depend on macOS.
+- The failure is reproduced and explained, down to the errno. It is not a
+  flake: the platform difference is deterministic in the kernel, the macOS
+  lane failed on both affected tests in every run, and a diagnostic run
+  reported the errno directly.
+- The fix is local to one helper and one decision function, and does not
+  change any outcome the runner reports for a group that holds a live
+  process.
+- The rule is testable on the review machine without macOS. The empty-group
+  case is reproduced on Linux too — reaping a child and then signalling its
+  group reports the empty group as an error there as well — and the decision
+  itself is a pure function of the errno and the child's state, so it is
+  pinned directly.
 
 ## 3. Objective
 
-1. Make the shared bounded runner treat "the group holds no process" as a
-   completed termination rather than a failed one, on all three kill paths.
+1. Make the shared bounded runner treat "there is nothing left to terminate"
+   as a completed termination rather than a failed one, on all three kill
+   paths — decided by observing whether the supervised child has exited,
+   not by reading the errno.
 2. Keep every other termination failure a hard failure, so a group that
-   exists but cannot be signalled still fails the run closed.
+   holds a live process and cannot be signalled still fails the run closed.
 3. Prove the behaviour with a regression test that fails without the fix.
 4. Re-base the citations in `architecture/process-execution.md` and the other
    architecture deep dives onto the corrected tree.
@@ -126,8 +143,11 @@ would change a published-ish surface to paper over a defect in its callee.
   descendant may outlive the run.
 - A group that holds no process is already terminated. `ESRCH` is the
   kernel's own statement of that fact, and it is treated as success.
-- Every other errno from the group signal remains a hard failure. The run
-  fails closed.
+- A group whose only member is the unreaped zombie of a child that has
+  already exited holds nothing that can outlive the run. macOS reports that
+  signal as `EPERM`, and it is treated as success.
+- A group that holds a **live** process and cannot be signalled remains a
+  hard failure. The run fails closed.
 - The check is Unix-only. A Windows job object uses a different error space,
   where the value `3` is `ERROR_PATH_NOT_FOUND` and not `ESRCH`.
 - No public API changes. `eggpack-core`'s public surface, `eggpack-ci`'s
@@ -141,12 +161,15 @@ would change a published-ish surface to paper over a defect in its callee.
 ### 6.1 The termination helper
 
 A single private helper in `crates/eggpack-core/src/builder.rs` owns the
-group signal and the `ESRCH` interpretation. All three kill paths call it.
+group signal, and a second private function owns the decision about whether
+a failed signal may be ignored. All three kill paths call the helper.
 
-### 6.2 The regression test
+### 6.2 The regression tests
 
-The test reaps a child, asserts that the dependency reports the empty group
-as an error, and asserts that the runner does not.
+Two tests. The first reaps a child, asserts that the dependency reports the
+empty group as an error, and asserts that the runner does not. The second
+pins the decision itself: `ESRCH` is benign, `EPERM` is benign only when the
+child has exited, and `EPERM` with a live child is not benign.
 
 ### 6.3 The citation re-base
 
@@ -161,8 +184,8 @@ citations are re-based the same way, because the new platform-specific
 ### 6.4 The deep dive
 
 `architecture/process-execution.md` gains a subsection stating the platform
-difference, the `ESRCH` rule, why it is exact rather than permissive, and
-why the check is Unix-only.
+difference, the measured errno, the rule, why it is exact rather than
+permissive, and why the check is Unix-only.
 
 ## 7. Out of scope
 
@@ -224,7 +247,7 @@ Stop, and do not publish, if any of these hold:
 
 - the local gate is not green;
 - hosted CI is not green on the exact publication candidate commit;
-- the regression test does not fail without the fix;
+- the regression tests do not fail without the fix;
 - the CI crate's public API or the generated bytes changed;
 - a citation lands on a construct other than the one its sentence claims.
 
