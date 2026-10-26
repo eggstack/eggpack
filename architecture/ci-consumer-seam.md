@@ -210,9 +210,9 @@ narrower and still real. The *shape* of the invocation is fixed and finite — o
 interpreter, one script path, one candidate path, no shell, no argument vector, no
 env map (`consumer_validator.rs:526-534`). The *environment* is built by the
 shared runner, which clears it and re-adds a five-variable allowlist
-(`crates/eggpack-core/src/builder.rs:705`, `:724`); the CI side contributes only
+(`crates/eggpack-core/src/builder.rs:735`, `:724`); the CI side contributes only
 the caller's explicit `PATH` (`consumer_validator.rs:299-300`), stdin is null
-(`builder.rs:706`), and the working directory is explicit
+(`builder.rs:736`), and the working directory is explicit
 (`consumer_validator.rs:304`). The *outcome is bounded*: timeout, output limits, a
 seven-value classification; a validator cannot hang or flood the job. This is a
 **separation-of-concerns** mechanism: `Passed` means an independent script exited
@@ -240,9 +240,9 @@ bounded runner in `eggpack-core`:
 
 Everything the old private runner did is therefore core's contract, not the CI
 crate's: process-group/job termination on every failure path, a cleared
-environment with a five-variable allowlist (`builder.rs:705`, `:724`), null
-stdin (`builder.rs:706`), the exact output truncation in `drain`
-(`builder.rs:912-928`, which keeps `n.min(limit - len)`), and the bounded reader
+environment with a five-variable allowlist (`builder.rs:735`, `:724`), null
+stdin (`builder.rs:736`), the exact output truncation in `drain`
+(`builder.rs:942-958`, which keeps `n.min(limit - len)`), and the bounded reader
 joins. The runner outcome maps onto the consumer-validation outcome exactly
 (`consumer_validator.rs:536-555`): success → `Passed`, non-zero exit →
 `Failed(NonZeroExit)`, deadline → `Failed(Timeout)`, output bound →
@@ -442,7 +442,7 @@ Where enforcement is weaker than it looks:
 The two gaps that the private CI runner used to have — output retention above the
 cap, and a preflight that discarded its over-limit flags — are gone with it. Both
 now belong to the shared runner: `drain` truncates exactly
-(`crates/eggpack-core/src/builder.rs:912-928`) and the preflight's over-limit
+(`crates/eggpack-core/src/builder.rs:942-958`) and the preflight's over-limit
 outcome is a non-success runner outcome, which the CI side maps to
 `Failed(InterpreterUnavailable)` (`consumer_validator.rs:503-506`).
 

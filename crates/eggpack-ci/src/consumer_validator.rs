@@ -549,8 +549,7 @@ fn run_validator_process(
             }
         },
         // The interpreter could not be launched at all.
-        Err(e) => {
-            eprintln!("DIAG-CONSUMER-VALIDATOR: runner error: {e}");
+        Err(_) => {
             ConsumerValidationOutcome::Failed(ConsumerValidationFailure::InterpreterUnavailable)
         }
     }

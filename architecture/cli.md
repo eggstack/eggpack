@@ -607,7 +607,7 @@ characters (`411-416`), then delegates to `eggpack_core::run_git_bounded`
 peel, `git rev-parse --verify refs/tags/<tag>^{commit}`
 (`builder.rs:535-541`); both use the same bounded runner with a 30 s deadline
 (`builder.rs:29`), a 4 KiB retained-output cap (`builder.rs:31`), a
-`command-group` process group, and a cleared environment (`builder.rs:705`).
+`command-group` process group, and a cleared environment (`builder.rs:735`).
 See
 [process-execution.md](process-execution.md) for the workspace spawn contract.
 

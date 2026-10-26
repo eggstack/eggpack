@@ -625,46 +625,69 @@ fn run_bounded_inner(
     run_bounded(&run, cancellation, allowance)
 }
 
-/// Terminate the supervised process group, tolerating an already-empty group.
+/// Whether a failed group signal can be ignored.
+///
+/// `ESRCH` means the group holds no process at all, which is exactly the
+/// state the signal was meant to reach.
+///
+/// Otherwise the supervised child may have exited between the decision to
+/// terminate and the signal itself. It then stays in the group as a zombie
+/// until it is reaped, and an unreaped zombie cannot be signalled: Linux
+/// signals the group anyway, while macOS refuses the whole group and reports
+/// `EPERM`. When the child has already exited there is no child left to
+/// terminate, so the failure is benign for the same reason `ESRCH` is.
+///
+/// A group that holds a live process and still cannot be signalled is a hard
+/// failure. That is the case where the child has not exited and the errno is
+/// not `ESRCH`, and the run must fail closed.
+#[cfg(unix)]
+fn group_signal_failure_is_benign(error: &std::io::Error, child_exited: bool) -> bool {
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        return true;
+    }
+    child_exited
+}
+
+/// Terminate the supervised process group, tolerating a group with nothing
+/// left to terminate.
 ///
 /// The group's only member is the supervised child. When that child has
 /// already exited it stays in the group as a zombie until it is reaped, and
-/// the group is empty only once it is reaped. Signalling a group that holds
-/// nothing is reported by the kernel as `ESRCH` ("no such process group"),
-/// and `command-group` documents that a group which has already exited
-/// produces an error from `kill`.
+/// the group holds no process at all once it is reaped. Signalling a group
+/// that holds nothing is reported by the kernel as `ESRCH` — "no such
+/// process group" — and `command-group` documents that a group which has
+/// already exited produces an error from `kill`.
 ///
-/// The two supported platforms disagree about the zombie case: Linux signals
-/// a zombie successfully, while macOS reports `ESRCH` for it. A run whose
-/// child exited just before the runner noticed that its output bound was
-/// exceeded would therefore terminate cleanly on one platform and fail on
-/// the other — and it would report an output-bound violation as a launch
-/// failure, because the caller maps every runner error onto that outcome.
+/// The two supported platforms disagree about the zombie case. Linux signals
+/// a zombie successfully, while macOS refuses to signal a group that holds
+/// one and reports `EPERM` for the whole group. A run whose child exited just
+/// before the runner noticed that its output bound was exceeded would
+/// therefore terminate cleanly on one platform and fail on the other, and it
+/// would report an output-bound violation as a launch failure, because the
+/// caller maps every runner error onto that outcome.
 ///
-/// `ESRCH` is the kernel's own statement that the group holds no process, so
-/// treating it as success is exact rather than permissive: there is provably
-/// nothing left to terminate, and the guarantee that no descendant outlives
-/// the run still holds. Every other errno remains a hard failure, so a group
-/// that exists but cannot be signalled still fails the run closed.
-///
-/// The check is Unix-only. A Windows job object is terminated through
-/// `TerminateJobObject`, which reports a different condition for an empty
-/// job and uses a different error space — where the value `3` means
-/// `ERROR_PATH_NOT_FOUND`, not `ESRCH`.
+/// This is exact rather than permissive. `ESRCH` is the kernel's own
+/// statement that the group holds no process, and a child that has already
+/// exited is not a process that can outlive the run. A descendant that
+/// outlives the child is caught by the drain budget, which fails the run
+/// closed. Every other case — a group that holds a live process and cannot
+/// be signalled — remains a hard failure.
 fn terminate_process_group(
     child: &mut command_group::GroupChild,
     message: &str,
 ) -> Result<(), BuildError> {
     match child.kill() {
         Ok(()) => Ok(()),
-        #[cfg(unix)]
-        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(()),
         Err(error) => {
-            eprintln!(
-                "DIAG-KILL: raw_os_error={:?} kind={:?} message={error}",
-                error.raw_os_error(),
-                error.kind()
-            );
+            // `try_wait` reaps a child that has already exited, so this both
+            // observes and clears the zombie that made the signal fail.
+            let child_exited = matches!(child.try_wait(), Ok(Some(_)));
+            #[cfg(unix)]
+            if group_signal_failure_is_benign(&error, child_exited) {
+                return Ok(());
+            }
+            #[cfg(not(unix))]
+            let _ = child_exited;
             Err(build_err(message))
         }
     }
@@ -1649,9 +1672,10 @@ mod tests {
     /// terminate — and treating it as one turns a completed run into an
     /// error.
     ///
-    /// Linux signals a zombie process group successfully while macOS reports
-    /// `ESRCH` for it, so the same run terminated cleanly on one platform and
-    /// failed on the other, reporting an output-bound violation as a launch
+    /// Linux signals a zombie process group successfully while macOS refuses
+    /// to signal a group that holds one and reports `EPERM` for the whole
+    /// group, so the same run terminated cleanly on one platform and failed
+    /// on the other, reporting an output-bound violation as a launch
     /// failure.
     #[cfg(unix)]
     #[test]
@@ -1665,6 +1689,25 @@ mod tests {
         assert!(child.kill().is_err());
         // The runner treats that as "nothing left to terminate".
         assert!(terminate_process_group(&mut child, "test termination").is_ok());
+    }
+    /// The rule that decides whether a failed group signal may be ignored.
+    ///
+    /// `ESRCH` means the group holds no process. A group whose only member
+    /// is the unreaped zombie of an exited child is refused by macOS with
+    /// `EPERM`, and is benign for the same reason: there is no child left to
+    /// terminate. A group that holds a live process and cannot be signalled
+    /// is a hard failure, and the run fails closed.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_group_signal_is_benign_only_when_nothing_is_left_to_terminate() {
+        let no_such_group = std::io::Error::from_raw_os_error(libc::ESRCH);
+        let not_permitted = std::io::Error::from_raw_os_error(libc::EPERM);
+        // The group is empty.
+        assert!(group_signal_failure_is_benign(&no_such_group, false));
+        // The group holds only the zombie of a child that already exited.
+        assert!(group_signal_failure_is_benign(&not_permitted, true));
+        // The group holds a live process that cannot be signalled.
+        assert!(!group_signal_failure_is_benign(&not_permitted, false));
     }
     #[test]
     fn nonzero_tool_exit_is_not_success() {

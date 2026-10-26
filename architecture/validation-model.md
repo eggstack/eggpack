@@ -109,7 +109,7 @@ be a breaking change to that document only.
 
 | Crate | Enforcing sites |
 | --- | --- |
-| core | `lib.rs:654`, `lib.rs:680`, `lib.rs:716`, `builder.rs:310`, `builder.rs:1061`, `finalization.rs:74`, `qualification.rs:138`, `qualification.rs:337`, `qualification.rs:593` |
+| core | `lib.rs:654`, `lib.rs:680`, `lib.rs:716`, `builder.rs:310`, `builder.rs:1091`, `finalization.rs:74`, `qualification.rs:138`, `qualification.rs:337`, `qualification.rs:593` |
 | bootstrap | `lib.rs:323`, `lib.rs:409` |
 | ci | `consumer_validator.rs:80`, `:184`, `handoff.rs:78`, `:192`, `identity.rs:105`, `:199`, `planning.rs:191`, `:235`, `release_plan.rs:171` |
 | github | `lib.rs:175`, `:339`, `:433`, `:792`, `:929` |
