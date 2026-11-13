@@ -233,8 +233,9 @@ outputs, so running them twice buys nothing.
 `macos-latest` and `windows-latest`, `dtolnay/rust-toolchain@stable` only —
 **no MSRV lane on macOS or Windows**. Every step from line 43 to line 84 is
 `matrix.os == 'windows-latest'`-gated; both OSes then run plain
-`cargo check` (85) and `cargo test --workspace --all-targets --all-features --locked`
-(86). The Windows-only steps, in order:
+`cargo check` (85) and `cargo test --workspace --all-targets --all-features --locked -- --test-threads=1`
+(86). Serial execution keeps concurrent local Cargo fixture builds out of the
+operator integration-test run. The Windows-only steps, in order:
 
 | Step | Lines | Why it exists |
 |---|---|---|
