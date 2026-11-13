@@ -147,6 +147,15 @@ their behavior and the file's 7638-line count are unchanged. All 64 numeric
 architecture/planning citation ranges into that test file were checked against
 the unchanged source lines; none points to the edited lines, so no anchor moved.
 
+**2026-11-13 — Windows operator fixture paths.** The temporary-root helper in
+`crates/eggpack-cli/tests/operator_commands.rs` now uses a short PID/counter
+component, avoiding full test names in nested Windows Cargo build paths.
+That source file is now 2428 lines (three fewer); the six operator-test anchors
+in `cli.md` were re-based by function name and verified at their new lines.
+`operator.rs`'s failed-build diagnostic now includes only typed process
+classification and byte counts; its line count and the surrounding anchors are
+unchanged.
+
 ## How to read this document
 
 This file has two jobs, deliberately:
@@ -378,7 +387,7 @@ generated steps safe.
 | `src/main.rs` | 4617 | dispatch, the `ci` family, `contract expand`, file-safety helpers |
 | `src/operator.rs` | 1094 | the six local producer operator commands |
 | `tests/contract_expand.rs` | 381 | `eggpack contract expand` integration tests (8 tests) |
-| `tests/operator_commands.rs` | 2431 | operator-family integration tests (30 tests) |
+| `tests/operator_commands.rs` | 2428 | operator-family integration tests (30 tests) |
 
 The operator family gained three optional flags and three tightened behaviours
 in the 2026-10-23 review chain; `cli.md` documents each in full, and this card
