@@ -1,6 +1,6 @@
 # Bootstrap Installers Roadmap
 
-Status: active; M002b corrective closed
+Status: complete
 
 Long-term references:
 
@@ -123,6 +123,6 @@ Bootstrap has no remaining open work from the M003 decision pass. The only follo
 
 ## 13. 2026-10-08 corrective addendum — M002b
 
-**M002b ready:** `plans/implementation/bootstrap-installers/002b-windows-posix-archive-test-portability-corrective.md`. At `3ef806fedc9d7683948e5678ec0d3c7b78c06f0e`, hosted Windows run 37649332862 fails to compile POSIX-only test uses of `std::os::unix::fs::PermissionsExt` in the PowerShell archive test lane; Linux stable/MSRV and macOS passed. This is test portability, not a reversal of M002/M002a/M003 historical closures, nor a new installer feature. Keep POSIX archive runtime coverage on Unix and PowerShell runtime coverage on Windows. Full four-lane strict closure at `plans/closure/bootstrap-installers/002b-status.md` is a hard gate for CI M003i. This addendum supersedes prior 'no open bootstrap work' statements as to current corrective work.
+**Historical M002b ready handoff (closed below):** `plans/implementation/bootstrap-installers/002b-windows-posix-archive-test-portability-corrective.md`. At `3ef806fedc9d7683948e5678ec0d3c7b78c06f0e`, hosted Windows run 37649332862 fails to compile POSIX-only test uses of `std::os::unix::fs::PermissionsExt` in the PowerShell archive test lane; Linux stable/MSRV and macOS passed. This is test portability, not a reversal of M002/M002a/M003 historical closures, nor a new installer feature. Keep POSIX archive runtime coverage on Unix and PowerShell runtime coverage on Windows. Full four-lane strict closure at `plans/closure/bootstrap-installers/002b-status.md` is a hard gate for CI M003i. At that time, this addendum superseded prior 'no open bootstrap work' statements; M002b is now closed below.
 
 **M002b closed** on implementation `88ddf2e796ac3674b306b51726c65ed7cc9bd29a`; hosted run `37806244313` passed Linux stable, Linux 1.89, macOS, and Windows. The POSIX archive runtime test is Unix-gated and still executes on both Unix lanes; the Windows `pwsh 7` + `tar.exe` PowerShell runtime test remains enabled and passed. Formal evidence: `plans/closure/bootstrap-installers/002b-status.md`. This strict closure unblocks CI M003i.

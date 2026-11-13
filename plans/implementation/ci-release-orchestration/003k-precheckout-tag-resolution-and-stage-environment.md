@@ -1,6 +1,6 @@
 # CI Release Orchestration M003k — Pre-checkout Tag Resolution and Staging Approval Gate
 
-Status: in progress. Producer baseline: `eggstack/eggpack@559d940af0fe6a2951eb17de1fcbecbf9e0bb6ce` (M003j implementation). Downstream trigger/evidence: `dbowm91/wg-basic@bd7c085d191ccf147e0f4dab72fde7cc8818f3fd`; R001 requires canonical tag validation and immutable commit resolution before any source checkout, plus reviewer-gated staging.
+Status: **closed** — strict evidence is recorded at `plans/closure/ci-release-orchestration/003k-status.md`. Producer baseline: `eggstack/eggpack@559d940af0fe6a2951eb17de1fcbecbf9e0bb6ce` (M003j implementation). Downstream trigger/evidence: `dbowm91/wg-basic@bd7c085d191ccf147e0f4dab72fde7cc8818f3fd`; R001 required canonical tag validation and immutable commit resolution before any source checkout, plus reviewer-gated staging.
 
 Subsystem roadmap: `plans/subsystems/ci-release-orchestration-roadmap.md`. Canonical authority: ADR-0003; `plans/003-planning-process.md`; CI M003i/M003j closure records.
 
@@ -36,7 +36,7 @@ Invalid tags, missing refs, resolution ambiguity/failure, invalid OIDs, or check
 
 ## Verification
 
-Run focused `eggpack-ci` tests; `cargo fmt --all -- --check`; `cargo test --workspace --all-targets --all-features --locked`; `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `scripts/check-local.sh`; and hosted Linux stable/MSRV/macOS/Windows CI. Regenerate wg-basic workflow at the new immutable producer revision and run its release-contract, native candidate, and systemd lifecycle lanes. Do not stage or publish any release. Local `scripts/check-local.sh` passed on 2026-10-10; hosted run `38027143275` passed all four lanes on the current producer head. Independent PR review/merge and downstream evidence are pending.
+Run focused `eggpack-ci` tests; `cargo fmt --all -- --check`; `cargo test --workspace --all-targets --all-features --locked`; `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`; `scripts/check-local.sh`; and hosted Linux stable/MSRV/macOS/Windows CI. Regenerate wg-basic workflow at the new immutable producer revision and run its release-contract, native candidate, and systemd lifecycle lanes. Do not stage or publish any release. The local `scripts/check-local.sh` was recorded as passing on 2026-10-10. Hosted run `38027470046` passed all four lanes at final PR head `fb81aa1400e1f333f6500075f78d944a9242b673`; PR #1 merged at `1103a1affc62a210f1102a769457db80d9188bc8`. The downstream R001 strict closure records exact-head generator, security, CI, and Distribution Foundation evidence. See the closure record for the unexercised live-tag preflight and review-record limitations.
 
 ## Acceptance and closure
 

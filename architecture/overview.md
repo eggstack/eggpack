@@ -141,6 +141,12 @@ invented.
   pass: the CI crate is now a 14-file module tree, and the crate table records
   one row per crate with that crate's breakdown in its own card.
 
+**2026-11-13 — local Clippy compatibility edit.** Three SHA-256 rejection
+assertions in `crates/eggpack-ci/src/tests.rs` now use `.is_err()` directly;
+their behavior and the file's 7638-line count are unchanged. All 64 numeric
+architecture/planning citation ranges into that test file were checked against
+the unchanged source lines; none points to the edited lines, so no anchor moved.
+
 ## How to read this document
 
 This file has two jobs, deliberately:

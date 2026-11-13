@@ -6870,9 +6870,9 @@ fn m003l_sha256_acceptance_set_is_identical_at_every_call_site() {
         );
     }
     // The all-zeros placeholder is refused at every call site.
-    assert!(!validate_sha256_hex(&"0".repeat(64)).is_ok());
-    assert!(!eggpack_manifest::validate_sha256_hex(&"0".repeat(64)).is_ok());
-    assert!(!eggpack_core::validate_sha256_hex(&"0".repeat(64)).is_ok());
+    assert!(validate_sha256_hex(&"0".repeat(64)).is_err());
+    assert!(eggpack_manifest::validate_sha256_hex(&"0".repeat(64)).is_err());
+    assert!(eggpack_core::validate_sha256_hex(&"0".repeat(64)).is_err());
 }
 
 // ---------------------------------------------------------------------
