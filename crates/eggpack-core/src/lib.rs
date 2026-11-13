@@ -3,29 +3,29 @@
 //! Producer-side release planning and finalized artifact evidence.
 
 mod builder;
+pub mod digest;
 mod finalization;
+mod floor;
 mod qualification;
 pub use builder::*;
+pub use digest::*;
 pub use finalization::*;
+pub use floor::*;
 pub use qualification::*;
 
 use eggpack_contract::{
     expected_release_files, validate_release_inventory, DistributionContract, ExpandedAssets,
     ExtrasPolicy, ReleaseInventory,
 };
+pub use eggpack_manifest::{validate_sha256_hex, Sha256Error};
 use eggpack_manifest::{
     ArchiveMemberRecord, ArtifactForm, ArtifactRecord, BundleRecord, ByteEvidence, ReleaseManifest,
     TargetRecord,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    fmt,
-    fs::{self, File},
-    io::{BufReader, Read},
-    path::{Path, PathBuf},
-};
+#[cfg(test)]
+use std::fs;
+use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 #[cfg(test)]
 pub(crate) fn test_temp_dir(label: &str) -> PathBuf {
@@ -81,7 +81,15 @@ impl std::error::Error for CoreError {}
 fn err(s: impl Into<String>) -> CoreError {
     CoreError(s.into())
 }
-fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
+/// Whether a host requirement matches a canonical target triple.
+///
+/// This is the **single** producer-side host/target match rule. Architecture
+/// is a triple prefix (`x86_64-`, `aarch64-`, `armv7-`) and the operating
+/// system is a triple predicate (`-linux-`, `-apple-darwin`, `-windows-`).
+///
+/// `Qualification::Native` is host-matched against this predicate, and
+/// `eggpack-ci` calls it instead of carrying an independent copy.
+pub fn host_matches_target(host: HostRequirement, triple: &str) -> bool {
     let arch = match host.arch {
         HostArch::X86_64 => triple.starts_with("x86_64-"),
         HostArch::Aarch64 => triple.starts_with("aarch64-"),
@@ -115,7 +123,89 @@ fn valid_tool_version(value: &str) -> bool {
             .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
-fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
+/// Why a declared compatibility floor does not apply to a target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FloorApplicabilityError {
+    /// A glibc floor was declared for a target that is not GNU/Linux.
+    NotGlibcTarget,
+    /// A macOS floor was declared for a target that is not macOS.
+    NotMacosTarget,
+    /// A macOS floor was declared for a cargo-zigbuild build.
+    MacosFloorUnderZigbuild,
+}
+
+/// The compatibility-floor half of the floor rule that concerns the target
+/// triple alone.
+///
+/// A glibc floor applies only to a `-linux-gnu` triple and a macOS floor only
+/// to an `-apple-darwin` triple. The strategy half of the same rule lives in
+/// [`floor_applies_to_strategy`]; the two are composed by the canonical
+/// [`validate_floor_applicability`].
+fn floor_applies_to_triple(
+    floor: &CompatibilityFloor,
+    triple: &str,
+) -> Result<(), FloorApplicabilityError> {
+    match floor {
+        CompatibilityFloor::None => Ok(()),
+        CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-gnu") => {
+            Err(FloorApplicabilityError::NotGlibcTarget)
+        }
+        CompatibilityFloor::Macos { .. } if !triple.ends_with("-apple-darwin") => {
+            Err(FloorApplicabilityError::NotMacosTarget)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The compatibility-floor half of the floor rule that concerns the build
+/// strategy alone.
+///
+/// A macOS floor cannot be satisfied by a cargo-zigbuild build: the cross
+/// tool does not produce a macOS deployment target, so the declared floor
+/// could never be proven.
+fn floor_applies_to_strategy(
+    floor: &CompatibilityFloor,
+    strategy: BuildStrategy,
+) -> Result<(), FloorApplicabilityError> {
+    match (floor, strategy) {
+        (CompatibilityFloor::Macos { .. }, BuildStrategy::CargoZigbuild) => {
+            Err(FloorApplicabilityError::MacosFloorUnderZigbuild)
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Whether the declared compatibility floor applies to a target triple and a
+/// build strategy.
+///
+/// This is the **single** producer-side floor-applicability rule. It composes
+/// the two halves of the rule: a glibc floor requires a `-linux-gnu` triple
+/// and a macOS floor requires an `-apple-darwin` triple, and a macOS floor is
+/// incompatible with a cargo-zigbuild build.
+///
+/// `eggpack-ci` applies it to a projected plan instead of re-deriving the
+/// floor rules.
+pub fn validate_floor_applicability(
+    floor: &CompatibilityFloor,
+    strategy: BuildStrategy,
+    triple: &str,
+) -> Result<(), FloorApplicabilityError> {
+    floor_applies_to_triple(floor, triple)?;
+    floor_applies_to_strategy(floor, strategy)
+}
+
+/// Validate one target policy against its canonical target triple.
+///
+/// This is the **single** producer-side policy validation rule. It covers the
+/// toolchain requirement shape, the cross-tool presence rule for the selected
+/// strategy, the compatibility-floor applicability rule, and the
+/// native-qualification host match.
+///
+/// `eggpack-ci` applies it to a `CIPlan` instead of re-deriving any of those
+/// rules. The macOS-floor-under-cargo-zigbuild refusal is enforced where the
+/// build command is derived, so policy resolution keeps its outcome; the
+/// canonical floor rule covers it.
+pub fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError> {
     if policy.toolchain.rust.is_empty()
         || policy.toolchain.rust.len() > 64
         || !policy
@@ -154,14 +244,18 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
             }
         }
     }
-    match policy.floor {
-        CompatibilityFloor::Glibc { .. } if !triple.contains("-linux-gnu") => {
-            return Err(err("glibc floor applies only to GNU/Linux targets"))
-        }
-        CompatibilityFloor::Macos { .. } if !triple.ends_with("-apple-darwin") => {
-            return Err(err("macOS floor applies only to macOS targets"))
-        }
-        _ => {}
+    if let Err(error) = floor_applies_to_triple(&policy.floor, triple) {
+        return Err(match error {
+            FloorApplicabilityError::NotGlibcTarget => {
+                err("glibc floor applies only to GNU/Linux targets")
+            }
+            FloorApplicabilityError::NotMacosTarget => {
+                err("macOS floor applies only to macOS targets")
+            }
+            FloorApplicabilityError::MacosFloorUnderZigbuild => {
+                err("macOS floor cannot use cargo-zigbuild")
+            }
+        });
     }
     if policy.qualification == Qualification::Native {
         let host = policy.qualification_host.unwrap_or(HostRequirement {
@@ -173,6 +267,72 @@ fn validate_policy(policy: &TargetPolicy, triple: &str) -> Result<(), CoreError>
                 "native qualification requires a qualification host matching the target OS/arch",
             ));
         }
+    }
+    Ok(())
+}
+
+/// Why an exact release tag was refused for safety reasons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExactTagSafetyError {
+    /// The tag is empty or longer than the documented bound.
+    OutOfBounds,
+    /// The tag contains a control character.
+    ControlCharacters,
+    /// The tag contains a character that is special to a query or a shell.
+    QueryOrInjectionCharacters,
+    /// The tag has an unsafe path shape.
+    UnsafePathShape,
+    /// The tag has a shape that is unsafe as a git ref path.
+    UnsafeGitRefPath,
+}
+
+/// The longest exact release tag that is considered at all.
+const MAX_EXACT_TAG_BYTES: usize = 128;
+
+/// Whether an exact release tag is safe to handle.
+///
+/// This is the **single** exact-tag safety rule in the workspace. It carries
+/// the union of the two concern sets that previously existed as separate
+/// partial rules:
+///
+/// - the git-ref-path concerns — a tag used as
+///   `refs/tags/<tag>^{commit}` must not contain `..`, must not begin or end
+///   with `/`, must not end with `.`, must not contain `@{`, must not contain
+///   `^`, `:`, `*`, `[` or `~`, and must not carry an empty, `.`-leading, or
+///   `.lock`-ending path component;
+/// - the shell-metacharacter concerns — a tag arriving from a workflow
+///   dispatch input must not contain `?`, `#`, `@`, a space, `\`, `'`, `"`,
+///   `` ` `` or `$`.
+///
+/// A tag is accepted only if it satisfies every concern, so the accepted set
+/// is the intersection of the two former accepted sets: this rule can only
+/// refuse more, never accept more.
+///
+/// This validator is **safety only**. The canonical *format* check — a
+/// `vX.Y.Z` stable version — is a separate, named concern with its own
+/// diagnostic, and a tag that is safe but not canonical is refused by the
+/// format check.
+pub fn validate_exact_tag_safety(tag: &str) -> Result<(), ExactTagSafetyError> {
+    if tag.is_empty() || tag.len() > MAX_EXACT_TAG_BYTES {
+        return Err(ExactTagSafetyError::OutOfBounds);
+    }
+    if tag.chars().any(char::is_control) {
+        return Err(ExactTagSafetyError::ControlCharacters);
+    }
+    if tag.contains(['?', '#', '@', ' ', '\\', '\'', '"', '`', '$']) {
+        return Err(ExactTagSafetyError::QueryOrInjectionCharacters);
+    }
+    if tag.contains("..") || tag.starts_with('/') || tag.ends_with('/') {
+        return Err(ExactTagSafetyError::UnsafePathShape);
+    }
+    if tag.ends_with('.')
+        || tag.contains("@{")
+        || tag.contains(['^', ':', '*', '[', '~'])
+        || tag.split('/').any(|component| {
+            component.is_empty() || component.starts_with('.') || component.ends_with(".lock")
+        })
+    {
+        return Err(ExactTagSafetyError::UnsafeGitRefPath);
     }
     Ok(())
 }
@@ -209,7 +369,8 @@ pub fn build_manifest(
                 .release_files
                 .get(name)
                 .ok_or_else(|| err("required artifact path missing"))?;
-            let (size, sha256) = digest_file(path)?;
+            let (size, sha256) = file_digest(path)
+                .map_err(|error| err(format!("finalized file {}", error.reason())))?;
             Ok(ArtifactRecord {
                 name: name.to_string(),
                 size,
@@ -255,7 +416,8 @@ pub fn build_manifest(
                             .archive_members
                             .get(&m.source)
                             .ok_or_else(|| err("required archive member path missing"))?;
-                        let (size, sha256) = digest_file(p)?;
+                        let (size, sha256) = file_digest(p)
+                            .map_err(|error| err(format!("finalized file {}", error.reason())))?;
                         Ok(ArchiveMemberRecord {
                             source: m.source.clone(),
                             install: m.install_name.clone(),
@@ -286,41 +448,6 @@ pub fn build_manifest(
         .validate()
         .map_err(|_| err("constructed manifest violates schema-v1 bounds"))?;
     Ok(manifest)
-}
-
-fn digest_file(path: &Path) -> Result<(u64, String), CoreError> {
-    // The symlink rejection is a property of the path policy, so it stays a
-    // path observation. The read then happens through the handle that was
-    // opened, and the evidence recorded is of those bytes: a path replaced
-    // between the check and the open can no longer make the digest describe
-    // some other file than the one that was inspected.
-    let link_metadata =
-        fs::symlink_metadata(path).map_err(|_| err("finalized file is unavailable"))?;
-    if !link_metadata.file_type().is_file() {
-        return Err(err("finalized input is not a regular non-symlink file"));
-    }
-    let file = File::open(path).map_err(|_| err("finalized file cannot be opened"))?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut size = 0u64;
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = reader
-            .read(&mut buf)
-            .map_err(|_| err("finalized file read failed"))?;
-        if n == 0 {
-            break;
-        }
-        size = size
-            .checked_add(n as u64)
-            .ok_or_else(|| err("file size overflow"))?;
-        hasher.update(&buf[..n]);
-    }
-    if size == 0 {
-        return Err(err("finalized files must be non-empty"));
-    }
-    let digest = hasher.finalize();
-    Ok((size, digest.iter().map(|b| format!("{b:02x}")).collect()))
 }
 
 /// Explicit finite build strategy. Planning never executes either strategy.
@@ -495,6 +622,15 @@ pub struct PlannedTarget {
     pub policy: TargetPolicy,
     /// Artifact identity derived exclusively from the contract.
     pub artifact_form: PlannedAssetForm,
+    /// Verification status of the declared compatibility floor.
+    ///
+    /// The status is derived from the policy by
+    /// [`planned_floor_status`], so a plan either states the status its
+    /// declaration implies or it is rejected. A document that omits the field
+    /// is read as `NotDeclared`, which is refused for any target that
+    /// declares a floor.
+    #[serde(default)]
+    pub floor_status: FloorVerificationStatus,
 }
 /// Contract-derived release artifact form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -508,8 +644,13 @@ pub enum PlannedAssetForm {
     Archive,
 }
 impl ReleasePlan {
-    /// Serialize the canonically ordered plan as deterministic compact JSON.
-    pub fn to_json(&self) -> Result<String, CoreError> {
+    /// Validate the plan's bounds and the agreement between each declared
+    /// floor and the floor status the plan states for it.
+    ///
+    /// A plan that declares a floor and does not state a status for it is
+    /// invalid: the status is a pure function of the policy, so a missing or
+    /// contradictory status fails closed.
+    pub fn validate(&self) -> Result<(), CoreError> {
         if self.schema_version != 1
             || self.release_id.is_empty()
             || self.source_revision.is_empty()
@@ -517,6 +658,18 @@ impl ReleasePlan {
         {
             return Err(err("invalid ReleasePlan bounds"));
         }
+        for planned in &self.targets {
+            if planned.floor_status != planned_floor_status(&planned.policy) {
+                return Err(err(
+                    "ReleasePlan floor status does not match the declared compatibility floor",
+                ));
+            }
+        }
+        Ok(())
+    }
+    /// Serialize the canonically ordered plan as deterministic compact JSON.
+    pub fn to_json(&self) -> Result<String, CoreError> {
+        self.validate()?;
         serde_json::to_string(self).map_err(|_| err("ReleasePlan serialization failed"))
     }
 }
@@ -593,10 +746,12 @@ impl PackConfig {
                 eggpack_contract::AssetForm::Bundle { .. } => PlannedAssetForm::Bundle,
                 eggpack_contract::AssetForm::Archive { .. } => PlannedAssetForm::Archive,
             };
+            let floor_status = planned_floor_status(&policy);
             targets.push(PlannedTarget {
                 target: t.triple.clone(),
                 policy,
                 artifact_form,
+                floor_status,
             });
         }
         if targets.is_empty() {
@@ -678,6 +833,71 @@ mod tests {
         assert!(invalid
             .resolve(&contract, "1.2.6", "abc", &selected)
             .is_err());
+    }
+    #[test]
+    fn a_native_cargo_glibc_floor_is_recorded_in_the_plan_and_still_resolves() {
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let config = PackConfig {
+            schema_version: 1,
+            targets: vec![TargetPolicy {
+                target: "x86_64-unknown-linux-gnu".into(),
+                strategy: BuildStrategy::NativeCargo,
+                host_os: HostOs::Linux,
+                host_arch: HostArch::X86_64,
+                qualification_host: None,
+                toolchain: ToolchainRequirement {
+                    rust: "1.89.0".into(),
+                    cargo_zigbuild: None,
+                    zig: None,
+                },
+                floor: CompatibilityFloor::Glibc {
+                    major: 2,
+                    minor: 17,
+                },
+                qualification: Qualification::Native,
+                support: SupportTier::Required,
+            }],
+        };
+        let selected = vec!["linux-x64".into()];
+        // A declared glibc floor under native Cargo is still accepted, and it
+        // is no longer dropped: it survives into the plan with a status.
+        let plan = config
+            .resolve(&contract, "1.2.6", "abc", &selected)
+            .unwrap();
+        assert_eq!(
+            plan.targets[0].policy.floor,
+            CompatibilityFloor::Glibc {
+                major: 2,
+                minor: 17
+            }
+        );
+        assert_eq!(
+            plan.targets[0].floor_status,
+            FloorVerificationStatus::Unverified(FloorUnverifiedReason::PendingInspection)
+        );
+        assert!(plan.validate().is_ok());
+        assert!(plan.to_json().is_ok());
+        // A plan whose declared floor and stated status disagree is refused.
+        let mut contradictory = plan.clone();
+        contradictory.targets[0].floor_status = FloorVerificationStatus::NotDeclared;
+        assert!(contradictory.validate().is_err());
+        assert!(contradictory.to_json().is_err());
+        // A cargo-zigbuild target binds the floor into the toolchain instead.
+        let mut cross_tool = config.clone();
+        cross_tool.targets[0].strategy = BuildStrategy::CargoZigbuild;
+        cross_tool.targets[0].toolchain.cargo_zigbuild = Some("0.23.3".into());
+        cross_tool.targets[0].toolchain.zig = Some("0.14.1".into());
+        let plan = cross_tool
+            .resolve(&contract, "1.2.6", "abc", &selected)
+            .unwrap();
+        assert_eq!(
+            plan.targets[0].floor_status,
+            FloorVerificationStatus::ToolchainBound
+        );
+        assert!(plan.validate().is_ok());
     }
     #[test]
     fn pack_config_toml_is_versioned_bounded_and_rejects_unknown_fields() {
@@ -984,6 +1204,84 @@ support="required"
                 install: "eggsact".into()
             }
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn manifest_builder_refuses_artifacts_that_are_not_regular_non_empty_files() {
+        // The manifest path routes through the crate's single file-digest
+        // authority, so it inherits its fail-closed policy: a non-regular,
+        // symlinked, empty, or missing artifact is refused rather than
+        // recorded. The authority's post-read re-check — which refuses a path
+        // that changes while it is read — cannot be staged deterministically
+        // on the supported platforms, so it is asserted directly in
+        // `digest.rs` instead of being raced here.
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let dir = test_temp_dir("core-digest-policy");
+        let names = [
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256",
+        ];
+        let mut files = BTreeMap::new();
+        for name in names {
+            let path = dir.join(name);
+            fs::write(&path, b"abc").unwrap();
+            files.insert(name.to_string(), path);
+        }
+        let input = FinalizedReleaseInput {
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![FinalizedTargetInput {
+                target: "linux-x64".into(),
+                release_files: files,
+                archive_members: BTreeMap::new(),
+            }],
+            evidence_references: vec![],
+        };
+        assert!(build_manifest(&contract, &input).is_ok());
+        fs::write(dir.join(names[0]), b"").unwrap();
+        assert!(build_manifest(&contract, &input).is_err());
+        fs::remove_file(dir.join(names[0])).unwrap();
+        assert!(build_manifest(&contract, &input).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+    #[cfg(unix)]
+    #[test]
+    fn manifest_builder_refuses_a_symlinked_artifact() {
+        let contract = DistributionContract::parse_toml_str(include_str!(
+            "../../eggpack-contract/tests/fixtures/simple-direct.toml"
+        ))
+        .unwrap();
+        let dir = test_temp_dir("core-digest-symlink");
+        let names = [
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu",
+            "eggsact-1.2.6-x86_64-unknown-linux-gnu.sha256",
+        ];
+        let mut files = BTreeMap::new();
+        for name in names {
+            let path = dir.join(name);
+            fs::write(&path, b"abc").unwrap();
+            files.insert(name.to_string(), path);
+        }
+        let input = FinalizedReleaseInput {
+            product_id: "eggsact".into(),
+            release_id: "1.2.6".into(),
+            source_revision: "a".repeat(40),
+            targets: vec![FinalizedTargetInput {
+                target: "linux-x64".into(),
+                release_files: files,
+                archive_members: BTreeMap::new(),
+            }],
+            evidence_references: vec![],
+        };
+        let artifact = dir.join(names[0]);
+        let real = dir.join("real-artifact");
+        fs::rename(&artifact, &real).unwrap();
+        std::os::unix::fs::symlink(&real, &artifact).unwrap();
+        assert!(build_manifest(&contract, &input).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
     #[test]

@@ -5,12 +5,12 @@ use crate::{
         run_qemu_process, run_qualification_process, CandidateArtifact, CommandSpec,
         ProcessEvidence,
     },
-    BuildAttempt, BuildBindingsV1, BuildCancellation, HostArch, HostOs, HostRequirement,
+    file_digest, BuildAttempt, BuildBindingsV1, BuildCancellation, DigestError,
+    FloorUnverifiedReason, FloorVerificationStatus, HostArch, HostOs, HostRequirement,
     LogicalOutputSelector, PlannedTarget, Qualification, ReleasePlan, SupportTier,
 };
 use eggpack_contract::DistributionContract;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -226,6 +226,9 @@ pub enum QualificationFailure {
     EmulatorFailed,
     /// Candidate could not be safely read or its runtime preconditions failed.
     InvalidRuntimeEnvironment,
+    /// The produced bytes require a newer runtime than the declared
+    /// compatibility floor, so the declared floor is false.
+    FloorNotSatisfied,
 }
 
 /// Supported executable file formats checked structurally.
@@ -306,6 +309,15 @@ pub struct QualificationEvidence {
     pub support: SupportTier,
     /// Typed result.
     pub status: QualificationStatus,
+    /// Verification status of the declared compatibility floor.
+    ///
+    /// The status is bound to the exact bytes this record describes: it is
+    /// computed from the inspected candidate, never from a smoke run, because
+    /// native execution is never floor proof (ADR-0005 §9). A document that
+    /// omits the field is read as `NotDeclared`, which is refused for any
+    /// target that declares a floor.
+    #[serde(default)]
+    pub floor: FloorVerificationStatus,
     /// Per-candidate evidence ordered by logical selector.
     pub candidates: Vec<QualifiedCandidateEvidence>,
     /// Configured smoke selector, if this mode has a smoke check.
@@ -335,6 +347,17 @@ impl QualificationEvidence {
                 && self.candidates.len() != attempt.candidates.len())
             || self.candidates.len() > 256
             || self.processes.len() > 1 + MAX_ARGS
+            || target.floor_status != crate::planned_floor_status(&target.policy)
+            || !crate::floor_status_admissible(
+                &target.policy.floor,
+                target.policy.strategy,
+                self.floor,
+            )
+            || (self.floor == FloorVerificationStatus::NotSatisfied)
+                != matches!(
+                    self.status,
+                    QualificationStatus::Failed(QualificationFailure::FloorNotSatisfied)
+                )
         {
             return Err(qerr(
                 "qualification evidence identity or bounds are invalid",
@@ -357,11 +380,7 @@ impl QualificationEvidence {
                 || record.package != candidate.package
                 || record.binary != candidate.binary
                 || record.size != candidate.size
-                || record.sha256.len() != 64
-                || !record
-                    .sha256
-                    .bytes()
-                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+                || crate::validate_sha256_hex(&record.sha256).is_err()
             {
                 return Err(qerr("qualification evidence candidate identity is invalid"));
             }
@@ -641,9 +660,13 @@ where
     }
 
     let mut evidence_candidates = Vec::new();
+    let mut candidate_floors = Vec::new();
     for (selector, (_, _, candidate)) in &actual {
-        match inspect_candidate(candidate, &target.target) {
-            Ok(value) => evidence_candidates.push(value),
+        match inspect_candidate(candidate, target) {
+            Ok(inspected) => {
+                candidate_floors.push(inspected.floor);
+                evidence_candidates.push(inspected.evidence);
+            }
             Err(failure) => {
                 let method = match target.policy.qualification {
                     Qualification::Native => QualificationMethod::Native,
@@ -660,6 +683,7 @@ where
                     Vec::new(),
                     None,
                     Vec::new(),
+                    FloorVerificationStatus::Unverified(FloorUnverifiedReason::UnreadableCandidate),
                 ));
             }
         }
@@ -668,6 +692,7 @@ where
             Some(selector)
         );
     }
+    let floor = crate::floor::aggregate_floor_status(&candidate_floors);
     let settings = qualification_bindings
         .targets
         .get(&target.target)
@@ -676,6 +701,28 @@ where
     let selected_smoke = smoke.and_then(|binding| actual.get(&binding.selector).map(|v| v.2));
     if smoke.is_some() && selected_smoke.is_none() {
         return Err(qerr("smoke selector is absent from candidate inventory"));
+    }
+    // A declared floor that the produced bytes contradict is false, so it
+    // fails the qualification for this target before anything executes. It is
+    // never reported as merely unverified.
+    if floor == FloorVerificationStatus::NotSatisfied {
+        let method = match target.policy.qualification {
+            Qualification::Native => QualificationMethod::Native,
+            Qualification::DeferredNative => QualificationMethod::Deferred,
+            Qualification::Emulated => QualificationMethod::QemuUser,
+            Qualification::Structural => QualificationMethod::Structural,
+        };
+        return Ok(make_evidence(
+            plan,
+            target,
+            host,
+            method,
+            QualificationStatus::Failed(QualificationFailure::FloorNotSatisfied),
+            evidence_candidates,
+            smoke.map(|s| s.selector.clone()),
+            Vec::new(),
+            floor,
+        ));
     }
 
     let (method, should_execute) = match target.policy.qualification {
@@ -695,6 +742,7 @@ where
                     evidence_candidates,
                     smoke.map(|s| s.selector.clone()),
                     Vec::new(),
+                    floor,
                 ));
             }
             (QualificationMethod::Native, true)
@@ -714,6 +762,7 @@ where
                     evidence_candidates,
                     smoke.map(|s| s.selector.clone()),
                     Vec::new(),
+                    floor,
                 ));
             }
             if !target_matches_host(&target.target, host) {
@@ -726,6 +775,7 @@ where
                     evidence_candidates,
                     smoke.map(|s| s.selector.clone()),
                     Vec::new(),
+                    floor,
                 ));
             }
             (QualificationMethod::DeferredNativeOnNativeHost, true)
@@ -745,6 +795,7 @@ where
                     evidence_candidates,
                     smoke.map(|s| s.selector.clone()),
                     Vec::new(),
+                    floor,
                 ));
             }
             if target
@@ -761,6 +812,7 @@ where
                     evidence_candidates,
                     smoke.map(|s| s.selector.clone()),
                     Vec::new(),
+                    floor,
                 ));
             }
             (QualificationMethod::QemuUser, true)
@@ -776,6 +828,7 @@ where
             evidence_candidates,
             None,
             Vec::new(),
+            floor,
         ));
     }
     let smoke = smoke.ok_or_else(|| qerr("execution qualification requires a smoke binding"))?;
@@ -807,6 +860,7 @@ where
                     evidence_candidates,
                     Some(smoke.selector.clone()),
                     processes,
+                    floor,
                 ))
             }
         };
@@ -826,6 +880,7 @@ where
                 evidence_candidates,
                 Some(smoke.selector.clone()),
                 processes,
+                floor,
             ));
         }
     }
@@ -839,6 +894,7 @@ where
             evidence_candidates,
             Some(smoke.selector.clone()),
             processes,
+            floor,
         ));
     }
     let (command, is_qemu) = if method == QualificationMethod::QemuUser {
@@ -886,6 +942,7 @@ where
                 evidence_candidates,
                 Some(smoke.selector.clone()),
                 processes,
+                floor,
             ))
         }
     };
@@ -898,13 +955,14 @@ where
     let mut status = status;
     if status == QualificationStatus::Passed {
         for (selector, (_, _, candidate)) in &actual {
-            match inspect_candidate(candidate, &target.target) {
+            match inspect_candidate(candidate, target) {
                 Ok(after) => {
                     let before = evidence_candidates
                         .iter()
                         .find(|evidence| &evidence.selector == selector)
                         .expect("preflight candidate evidence");
-                    if after.size != before.size || after.sha256 != before.sha256 {
+                    if after.evidence.size != before.size || after.evidence.sha256 != before.sha256
+                    {
                         status =
                             QualificationStatus::Failed(QualificationFailure::CandidateChanged);
                         break;
@@ -926,6 +984,7 @@ where
         evidence_candidates,
         Some(smoke.selector.clone()),
         processes,
+        floor,
     ))
 }
 
@@ -939,6 +998,7 @@ fn make_evidence(
     candidates: Vec<QualifiedCandidateEvidence>,
     smoke_selector: Option<LogicalOutputSelector>,
     processes: Vec<QualificationProcessEvidence>,
+    floor: FloorVerificationStatus,
 ) -> QualificationEvidence {
     QualificationEvidence {
         schema_version: 1,
@@ -950,6 +1010,7 @@ fn make_evidence(
         actual_host: host,
         support: target.policy.support,
         status,
+        floor,
         candidates,
         smoke_selector,
         processes,
@@ -1087,10 +1148,20 @@ fn target_identity(target: &str) -> Option<(CandidateFormat, CandidateArchitectu
     Some((format, architecture))
 }
 
+/// One inspected candidate: its byte and structural identity, plus the floor
+/// status computed from the same bytes.
+#[derive(Debug, PartialEq, Eq)]
+struct CandidateInspection {
+    /// Byte and structural identity of the candidate.
+    evidence: QualifiedCandidateEvidence,
+    /// Verification status of the declared compatibility floor.
+    floor: FloorVerificationStatus,
+}
+
 fn inspect_candidate(
     candidate: &CandidateArtifact,
-    target: &str,
-) -> Result<QualifiedCandidateEvidence, QualificationFailure> {
+    target: &PlannedTarget,
+) -> Result<CandidateInspection, QualificationFailure> {
     let metadata = fs::symlink_metadata(&candidate.path)
         .map_err(|_| QualificationFailure::InvalidRuntimeEnvironment)?;
     if !candidate.path.is_absolute()
@@ -1127,29 +1198,27 @@ fn inspect_candidate(
         return Err(QualificationFailure::InvalidRuntimeEnvironment);
     }
     let (expected_format, expected_arch) =
-        target_identity(target).ok_or(QualificationFailure::StructuralMismatch)?;
+        target_identity(&target.target).ok_or(QualificationFailure::StructuralMismatch)?;
     let format_arch = parse_binary_header(&canonical, expected_format)
         .ok_or(QualificationFailure::StructuralMismatch)?;
     if format_arch != (expected_format, expected_arch) {
         return Err(QualificationFailure::StructuralMismatch);
     }
-    let mut file =
-        File::open(&canonical).map_err(|_| QualificationFailure::InvalidRuntimeEnvironment)?;
-    let mut hasher = Sha256::new();
-    let mut size = 0u64;
-    let mut buffer = [0u8; 65536];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|_| QualificationFailure::InvalidRuntimeEnvironment)?;
-        if read == 0 {
-            break;
-        }
-        size = size
-            .checked_add(read as u64)
-            .ok_or(QualificationFailure::InvalidRuntimeEnvironment)?;
-        hasher.update(&buffer[..read]);
-    }
+    // The declared floor is inspected against these exact bytes, never
+    // against a smoke run: native execution is not floor proof (ADR-0005 §9).
+    // The status therefore describes the same bytes the digest below records.
+    let floor = crate::floor::inspect_candidate_floor(
+        &canonical,
+        &target.policy.floor,
+        target.policy.strategy,
+    );
+    // The candidate bytes are digested by the crate's single file-digest
+    // authority, so qualification evidence and the release manifest describe
+    // the same bytes under the same rules.
+    let (size, sha256) = file_digest(&canonical).map_err(|error| match error {
+        DigestError::ChangedDuringRead => QualificationFailure::CandidateChanged,
+        _ => QualificationFailure::InvalidRuntimeEnvironment,
+    })?;
     let after = fs::symlink_metadata(&candidate.path)
         .map_err(|_| QualificationFailure::CandidateChanged)?;
     if size != metadata.len()
@@ -1160,18 +1229,17 @@ fn inspect_candidate(
     {
         return Err(QualificationFailure::CandidateChanged);
     }
-    Ok(QualifiedCandidateEvidence {
-        selector: candidate.selector.clone(),
-        package: candidate.package.clone(),
-        binary: candidate.binary.clone(),
-        size,
-        sha256: hasher
-            .finalize()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect(),
-        format: expected_format,
-        architecture: expected_arch,
+    Ok(CandidateInspection {
+        evidence: QualifiedCandidateEvidence {
+            selector: candidate.selector.clone(),
+            package: candidate.package.clone(),
+            binary: candidate.binary.clone(),
+            size,
+            sha256,
+            format: expected_format,
+            architecture: expected_arch,
+        },
+        floor,
     })
 }
 
@@ -1333,6 +1401,7 @@ mod tests {
                 support: SupportTier::Required,
             },
             artifact_form: PlannedAssetForm::Direct,
+            floor_status: crate::FloorVerificationStatus::NotDeclared,
         };
         let plan = ReleasePlan {
             schema_version: 1,
@@ -1761,6 +1830,8 @@ stderr_limit = 1024
         } else {
             crate::CompatibilityFloor::None
         };
+        // The plan states the status its declaration implies.
+        target.floor_status = crate::planned_floor_status(&target.policy);
         attempt.strategy = BuildStrategy::CargoZigbuild;
         attempt.tool_summary = "rust 1.89.0 cargo-zigbuild 0.23.3 zig 0.14.1".into();
         let plan = ReleasePlan {
@@ -2114,6 +2185,7 @@ stderr_limit = 1024
                 support: SupportTier::NonGating,
             },
             artifact_form: PlannedAssetForm::Direct,
+            floor_status: crate::FloorVerificationStatus::NotDeclared,
         };
         let plan = ReleasePlan {
             schema_version: 1,
@@ -2285,15 +2357,15 @@ stderr_limit = 1024
         };
         let (_contract, _plan, target, attempt, _builds, _quals, root) =
             fixture(Qualification::Structural, &bytes);
-        let before = inspect_candidate(&attempt.candidates[0], &target.target).unwrap();
+        let before = inspect_candidate(&attempt.candidates[0], &target).unwrap();
         let mut changed = bytes.clone();
         // Keep the structural header intact on all host formats. The final
         // byte in the minimal PE fixture is part of its COFF machine field.
         changed[20] ^= 1;
         fs::write(&attempt.candidates[0].path, &changed).unwrap();
-        let after = inspect_candidate(&attempt.candidates[0], &target.target).unwrap();
-        assert_eq!(before.size, after.size);
-        assert_ne!(before.sha256, after.sha256);
+        let after = inspect_candidate(&attempt.candidates[0], &target).unwrap();
+        assert_eq!(before.evidence.size, after.evidence.size);
+        assert_ne!(before.evidence.sha256, after.evidence.sha256);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -2311,14 +2383,14 @@ stderr_limit = 1024
         fs::rename(&candidate.path, &original).unwrap();
         symlink(&original, &candidate.path).unwrap();
         assert_eq!(
-            inspect_candidate(candidate, &target.target),
+            inspect_candidate(candidate, &target),
             Err(QualificationFailure::InvalidRuntimeEnvironment)
         );
         fs::remove_file(&candidate.path).unwrap();
         fs::rename(original, &candidate.path).unwrap();
         candidate.path = PathBuf::from("relative-candidate");
         assert_eq!(
-            inspect_candidate(candidate, &target.target),
+            inspect_candidate(candidate, &target),
             Err(QualificationFailure::InvalidRuntimeEnvironment)
         );
         fs::remove_dir_all(root).unwrap();
@@ -2481,9 +2553,29 @@ stderr_limit = 1024
                 path,
                 size: bytes.len() as u64,
             };
-            let evidence = inspect_candidate(&candidate, target_name).unwrap();
-            assert_eq!(evidence.format, format);
-            assert_eq!(evidence.architecture, architecture);
+            let planned = PlannedTarget {
+                target: target_name.into(),
+                policy: TargetPolicy {
+                    target: target_name.into(),
+                    strategy: BuildStrategy::NativeCargo,
+                    host_os: HostOs::Linux,
+                    host_arch: HostArch::X86_64,
+                    qualification_host: None,
+                    toolchain: ToolchainRequirement {
+                        rust: "stable".into(),
+                        cargo_zigbuild: None,
+                        zig: None,
+                    },
+                    floor: crate::CompatibilityFloor::None,
+                    qualification: Qualification::Structural,
+                    support: SupportTier::Required,
+                },
+                artifact_form: PlannedAssetForm::Direct,
+                floor_status: crate::FloorVerificationStatus::NotDeclared,
+            };
+            let inspection = inspect_candidate(&candidate, &planned).unwrap();
+            assert_eq!(inspection.evidence.format, format);
+            assert_eq!(inspection.evidence.architecture, architecture);
             fs::remove_dir_all(root).unwrap();
         }
     }
@@ -2549,6 +2641,7 @@ stderr_limit = 1024
                     support: SupportTier::Required,
                 },
                 artifact_form: form,
+                floor_status: crate::FloorVerificationStatus::NotDeclared,
             };
             let plan = ReleasePlan {
                 schema_version: 1,
@@ -2617,5 +2710,273 @@ stderr_limit = 1024
             assert!(evidence.validate_for(&plan, &planned, &attempt).is_ok());
             fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    /// A GNU/Linux target that declares a compatibility floor, with a
+    /// candidate that carries the given symbol version requirements.
+    ///
+    /// The target triple is pinned rather than host-adaptive: a glibc floor
+    /// only applies to a GNU/Linux triple, so the fixture must name one on
+    /// every host.
+    fn floor_fixture(
+        candidate_bytes: &[u8],
+        floor: crate::CompatibilityFloor,
+    ) -> (
+        DistributionContract,
+        ReleasePlan,
+        PlannedTarget,
+        BuildAttempt,
+        BuildBindingsV1,
+        QualificationBindingsV1,
+        PathBuf,
+    ) {
+        let target_name = "x86_64-unknown-linux-gnu";
+        let root = crate::test_temp_dir("floor-qualification");
+        let path = candidate_path(&root, target_name);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, candidate_bytes).unwrap();
+        let policy = TargetPolicy {
+            target: target_name.into(),
+            strategy: BuildStrategy::NativeCargo,
+            host_os: HostOs::Linux,
+            host_arch: HostArch::X86_64,
+            qualification_host: None,
+            toolchain: ToolchainRequirement {
+                rust: "stable".into(),
+                cargo_zigbuild: None,
+                zig: None,
+            },
+            floor,
+            qualification: Qualification::Structural,
+            support: SupportTier::Required,
+        };
+        let floor_status = crate::planned_floor_status(&policy);
+        let target = PlannedTarget {
+            target: target_name.into(),
+            policy,
+            artifact_form: PlannedAssetForm::Direct,
+            floor_status,
+        };
+        let plan = ReleasePlan {
+            schema_version: 1,
+            release_id: "v1".into(),
+            source_revision: "abc123".into(),
+            targets: vec![target.clone()],
+        };
+        let build_bindings = BuildBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                target_name.into(),
+                vec![crate::BuildBinding {
+                    selector: LogicalOutputSelector::Direct,
+                    package: "fixture".into(),
+                    binary: "fixture".into(),
+                }],
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let qualification_bindings = QualificationBindingsV1 {
+            schema_version: 1,
+            targets: [(
+                target_name.into(),
+                TargetQualificationBinding { smoke: None },
+            )]
+            .into_iter()
+            .collect(),
+        };
+        let attempt = BuildAttempt {
+            release_id: plan.release_id.clone(),
+            source_revision: plan.source_revision.clone(),
+            target: target_name.into(),
+            strategy: BuildStrategy::NativeCargo,
+            tool_summary: "rust stable".into(),
+            process: ProcessEvidence {
+                outcome: CommandOutcome::Success,
+                stdout_bytes: 0,
+                stderr_bytes: 0,
+            },
+            candidates: vec![CandidateArtifact {
+                target: target_name.into(),
+                selector: LogicalOutputSelector::Direct,
+                package: "fixture".into(),
+                binary: "fixture".into(),
+                path,
+                size: candidate_bytes.len() as u64,
+            }],
+        };
+        (
+            contract(target_name),
+            plan,
+            target,
+            attempt,
+            build_bindings,
+            qualification_bindings,
+            root,
+        )
+    }
+
+    fn glibc_floor(major: u16, minor: u16) -> crate::CompatibilityFloor {
+        crate::CompatibilityFloor::Glibc { major, minor }
+    }
+
+    fn floor_candidate(versions: &[&str]) -> Vec<u8> {
+        crate::floor::test_support::ElfBuilder::new(true, true)
+            .versions(versions)
+            .build()
+    }
+
+    fn qualify_floor_fixture(
+        bytes: &[u8],
+        floor: crate::CompatibilityFloor,
+    ) -> (
+        QualificationEvidence,
+        ReleasePlan,
+        PlannedTarget,
+        BuildAttempt,
+        PathBuf,
+    ) {
+        let (contract, plan, target, attempt, builds, quals, root) = floor_fixture(bytes, floor);
+        let evidence = qualify_target_for_host(
+            &contract,
+            &plan,
+            &target,
+            &attempt,
+            &builds,
+            &quals,
+            &QualificationRuntime::default(),
+            &BuildCancellation::new(),
+            local_host(),
+        )
+        .unwrap();
+        (evidence, plan, target, attempt, root)
+    }
+
+    #[test]
+    fn a_native_glibc_floor_is_verified_against_the_inspected_bytes() {
+        let bytes = floor_candidate(&["GLIBC_2.17"]);
+        let (evidence, plan, target, attempt, root) =
+            qualify_floor_fixture(&bytes, glibc_floor(2, 17));
+        assert_eq!(evidence.floor, FloorVerificationStatus::Verified);
+        assert_eq!(evidence.status, QualificationStatus::Passed);
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_glibc_floor_contradicted_by_the_bytes_fails_the_qualification() {
+        let bytes = floor_candidate(&["GLIBC_2.34"]);
+        let (evidence, plan, target, attempt, root) =
+            qualify_floor_fixture(&bytes, glibc_floor(2, 17));
+        // The declared floor is false, so the qualification fails closed. It is
+        // never reported as merely unverified.
+        assert_eq!(
+            evidence.status,
+            QualificationStatus::Failed(QualificationFailure::FloorNotSatisfied)
+        );
+        assert_eq!(evidence.floor, FloorVerificationStatus::NotSatisfied);
+        assert!(!matches!(
+            evidence.floor,
+            FloorVerificationStatus::Unverified(_)
+        ));
+        assert!(evidence.processes.is_empty());
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_candidate_without_a_version_requirement_records_that_specifically() {
+        let bytes = floor_candidate(&[]);
+        let (evidence, plan, target, attempt, root) =
+            qualify_floor_fixture(&bytes, glibc_floor(2, 17));
+        // Compatible with any floor, but not a confirmation of one: the
+        // status says so specifically and is not a generic pass.
+        assert_eq!(
+            evidence.floor,
+            FloorVerificationStatus::Unverified(FloorUnverifiedReason::NoVersionRequirement)
+        );
+        assert_ne!(evidence.floor, FloorVerificationStatus::Verified);
+        // An unverifiable floor is a recorded status, not a failed release.
+        assert_eq!(evidence.status, QualificationStatus::Passed);
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_malformed_candidate_is_never_floor_verified() {
+        // A well-formed ELF header with a truncated dynamic table: the
+        // structural inspection still passes, the floor inspection cannot.
+        let mut bytes = floor_candidate(&["GLIBC_2.17"]);
+        bytes.truncate(bytes.len() - 8);
+        let (evidence, plan, target, attempt, root) =
+            qualify_floor_fixture(&bytes, glibc_floor(2, 17));
+        assert_eq!(
+            evidence.floor,
+            FloorVerificationStatus::Unverified(FloorUnverifiedReason::MalformedCandidate)
+        );
+        assert_ne!(evidence.floor, FloorVerificationStatus::Verified);
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        fs::remove_dir_all(root).unwrap();
+
+        // A candidate that is not an ELF image at all.
+        let (evidence, plan, target, attempt, root) =
+            qualify_floor_fixture(b"not an elf image", glibc_floor(2, 17));
+        assert_eq!(
+            evidence.floor,
+            FloorVerificationStatus::Unverified(FloorUnverifiedReason::UnreadableCandidate)
+        );
+        assert_ne!(evidence.floor, FloorVerificationStatus::Verified);
+        assert_eq!(
+            evidence.status,
+            QualificationStatus::Failed(QualificationFailure::StructuralMismatch)
+        );
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_plan_that_declares_a_floor_without_a_status_is_rejected() {
+        let bytes = floor_candidate(&["GLIBC_2.17"]);
+        let (_contract, plan, _target, _attempt, _builds, _quals, root) =
+            floor_fixture(&bytes, glibc_floor(2, 17));
+        assert_eq!(
+            plan.targets[0].policy.floor,
+            glibc_floor(2, 17),
+            "the declared floor must survive into the plan"
+        );
+        assert!(plan.validate().is_ok());
+        // A document that omits the status is read as `NotDeclared`, which is
+        // refused for a target that declares a floor.
+        let mut document =
+            serde_json::from_str::<serde_json::Value>(&plan.to_json().unwrap()).unwrap();
+        document["targets"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("floor_status");
+        let parsed: ReleasePlan = serde_json::from_value(document).unwrap();
+        assert_eq!(
+            parsed.targets[0].floor_status,
+            FloorVerificationStatus::NotDeclared
+        );
+        assert!(parsed.validate().is_err());
+        assert!(parsed.to_json().is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn evidence_that_contradicts_the_plan_floor_is_rejected() {
+        let bytes = floor_candidate(&["GLIBC_2.17"]);
+        let (mut evidence, plan, target, attempt, root) =
+            qualify_floor_fixture(&bytes, glibc_floor(2, 17));
+        // The plan declares a floor, so the evidence cannot claim that no
+        // floor was declared.
+        evidence.floor = FloorVerificationStatus::NotDeclared;
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_err());
+        // A contradiction is only admissible together with the matching
+        // failure, so a contradiction claimed with a passing record is
+        // refused too.
+        evidence.floor = FloorVerificationStatus::NotSatisfied;
+        assert!(evidence.validate_for(&plan, &target, &attempt).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

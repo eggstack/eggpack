@@ -1,6 +1,9 @@
 [package]
 name = "eggpack-manifest"
-version.workspace = true
+# ADR-0006 (Option A) narrows the published digest acceptance set, so this
+# crate carries its own patch version. The workspace version stays 0.1.0 for
+# the other six crates; `^0.1.0` dependents resolve 0.1.1 unchanged.
+version = "0.1.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

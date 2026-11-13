@@ -25,6 +25,17 @@ step/permission drift.
 
 `render_github` and `render_release_github` are pure. `check_github` and `check_release_github` compare deterministic bytes after CRLF-to-LF normalization and report drift without changing files.
 
+`check_github`, `check_release_github`, and `check_reusable_release_github` share one
+comparison: each renders its own artifact and then delegates to the same private
+comparison, so the size bound, the CRLF-to-LF-only normalization, and the
+first-difference offset are defined once and every check function behaves
+identically on identical inputs. The release renderer is likewise one
+implementation: `render_release_github_inner` validates, then delegates to named
+private helpers for policy and shape validation, release-identity resolution,
+trigger and input cross-checks, tool-pin and emulated-runtime validation, the
+workflow header and permissions, each job, each step, and the static output
+guards. None of this changes a rendered byte.
+
 Staging-enabled workflows resolve one release source for every job. `RefName`
 uses the GitHub ref and authorizes staging only for tag pushes. `DispatchInput`
 requires `workflow_dispatch.inputs.release_tag`, uses it for all release
@@ -67,7 +78,61 @@ the stage job (`--installer-presentation` plus `--source-root` from staging
 inputs; absent for M003c-compatible staging). Graphs without validators or
 wrappers render byte-identical to M003c.
 
+The consumer validator's execution is not this crate's own: it runs through
+`eggpack_core::run_interpreter_bounded`, the shared bounded runner. The
+interpreter is restricted to the finite `python3`/`python` names, the argument
+vector is OS-native so a validated absolute path reaches the interpreter
+byte-exact, the environment is cleared except for the shared allowlist plus the
+caller's explicit `PATH` override, the whole process group (or job object) is
+terminated on every failure path so no descendant outlives the run, and the
+reader-thread joins are bounded by the run's own deadline so a descendant that
+inherited a pipe cannot wedge the job. The runner outcome maps onto the
+consumer-validation outcome exactly: success is `Passed`, a non-zero exit is
+`Failed(NonZeroExit)`, an exceeded deadline is `Failed(Timeout)`, an exceeded
+output bound is `Failed(OutputLimit)`, an observed cancellation is
+`Failed(Cancelled)`, and an interpreter that cannot be launched is
+`Failed(InterpreterUnavailable)`. No script output is recorded, and the
+diagnostics are unchanged.
+
+This crate owns no producer rule of its own. The host/target match, the
+compatibility floor, the exact-tag safety rule, and the file digest belong to
+`eggpack-core`; the SHA-256 hex acceptance set belongs to `eggpack-manifest`.
+`CIPlan::validate` applies the core policy validation, the exact-tag check
+applies the core safety rule, candidate hashing applies the core file digest
+(a refusal is a typed error, not a zero-size placeholder), and
+`validate_sha256_hex` applies the manifest rule through core's re-export. Each
+call site keeps its own diagnostic wording, so this crate's messages and the
+rendered workflow bytes are unchanged.
+
 Runner labels and action commit pins are policy inputs rather than CIPlan data.
 Cross-build runners must declare preinstalled cargo-zigbuild and Zig; generated
 build jobs check the configured cargo-zigbuild version and never install tools.
 Qualification and finalization jobs install the pinned `eggpack-cli` tool and verify it before use; no unpinned binary, arbitrary repository, or curl-pipe-shell is allowed.
+
+## Module map
+
+The crate is a module tree under `src/`. `src/lib.rs` holds the crate
+documentation, the module declarations, and the `pub use` re-exports; every
+public item is reachable through the crate root exactly as it was when the
+crate was a single file, so no consumer changes an import.
+
+| Module | Responsibility |
+|---|---|
+| `src/lib.rs` | crate documentation, module declarations, public re-exports |
+| `src/error.rs` | the bounded `CiError` type and its single constructor |
+| `src/validate.rs` | bounded identifier, metadata, and release-identity string validators |
+| `src/planning.rs` | the provider-neutral `CIPlan`: schema-v1 graph types, projection, validation |
+| `src/policy.rs` | provider policy: action pins, runner mappings, tool provisioning, workflow policy documents |
+| `src/runner.rs` | the provider-neutral `RunnerCommand` and its deterministic argument rendering |
+| `src/render_github.rs` | the build workflow renderer and the rendering helpers it shares with the release renderers |
+| `src/drift.rs` | the one workflow drift comparison and the three public check functions that use it |
+| `src/handoff.rs` | the build handoff document: projection, artifact validation, staging |
+| `src/release_plan.rs` | the release CI graph: schema-v1 projection, the qualification gate, aggregation, staging intent |
+| `src/render_release.rs` | the release workflow renderers and the emission helpers that build their bytes |
+| `src/consumer_validator.rs` | the consumer-owned exact-candidate validator: configuration, evidence, bounded interpreter run |
+| `src/identity.rs` | the static workflow shape and the runtime release identity it resolves to |
+| `src/tests.rs` | the crate's test module |
+
+Items that cross a module boundary are `pub(crate)`; nothing that was private
+became publicly reachable. The crate's public API surface is pinned by
+`m003n_public_api_surface_is_unchanged` in `src/tests.rs`.

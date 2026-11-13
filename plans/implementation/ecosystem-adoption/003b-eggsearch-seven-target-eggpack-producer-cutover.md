@@ -1,6 +1,6 @@
 # Ecosystem Adoption Milestone 003b — Eggsearch Seven-Target Eggpack Producer Cutover
 
-Status: ready
+Status: **closed** — see `plans/closure/ecosystem-adoption/003b-status.md`.
 
 Class: capability / cross-repository adoption / operational qualification
 

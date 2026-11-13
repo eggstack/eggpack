@@ -12,10 +12,11 @@ requires contract-level acceptance evidence. `plans/003-planning-process.md` is
 
 ## Before you open anything
 
-1. Read `plans/registry.md` §"Next handoff". As of the last review **no
-   implementation milestone is `ready`** — the next three lines (Contract M003,
-   Bootstrap M003, Ecosystem M003 eggsearch) are *research/plan decisions*, not
-   execution. If your idea is one of them, the deliverable is a plan, not code.
+1. Read the current `plans/registry.md` status tables and §"Next handoff".
+   Milestone status changes over time; use the registry and linked subsystem
+   roadmap as the authority instead of relying on remembered status snapshots.
+   If no implementation milestone is `ready`, author or update a plan before
+   implementing work that has not been handed off.
 2. Check the subsystem roadmap (`plans/subsystems/<subsystem>-roadmap.md`). A
    plan may already exist under a name you did not guess.
 3. Only then write anything.

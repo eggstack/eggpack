@@ -5,6 +5,8 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+mod operator;
+
 fn main() {
     std::process::exit(run(std::env::args().skip(1).collect()));
 }
@@ -21,31 +23,66 @@ fn run(args: Vec<String>) -> i32 {
 
 fn dispatch(args: Vec<String>) -> Result<(), String> {
     if args.is_empty() {
-        return Err(format!("{USAGE}\n{CONTRACT_USAGE}"));
+        return Err(help_text());
     }
     if args[0] == "--version" || args[0] == "-V" {
         println!("eggpack {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args[0] == "--help" || args[0] == "-h" {
-        println!("{USAGE}");
-        println!("{CONTRACT_USAGE}");
+        println!("{}", help_text());
         return Ok(());
     }
     match args[0].as_str() {
         "ci" => ci_dispatch(&args[1..]),
         "contract" => contract_dispatch(&args[1..]),
+        command @ ("check" | "plan" | "package" | "qualify" | "collect" | "manifest") => {
+            operator::dispatch(command, &args[1..])
+        }
         other => Err(format!(
-            "unknown command {other:?}: expected 'ci' or 'contract'\n{USAGE}\n{CONTRACT_USAGE}"
+            "unknown command {other:?}: expected 'check', 'plan', 'package', 'qualify', 'collect', 'manifest', 'ci' or 'contract'\n{}",
+            help_text()
         )),
     }
 }
+
+/// Top-level usage line for the local producer operator command family.
+const OPERATOR_USAGE: &str =
+    "usage: eggpack <check|plan|package|qualify|collect|manifest|ci|contract> [options]";
 
 /// Top-level usage line for the generated-orchestration command family.
 const USAGE: &str = "usage: eggpack ci <generate|check|_resolve-release|_verify-source|_capture-build|_qualify-target|_validate-consumer|_evaluate-gate|_aggregate|_prepare-stage|_stage-github-draft> [options]";
 
 /// Usage line for the bounded local contract-expansion family (M003).
 const CONTRACT_USAGE: &str = "usage: eggpack contract expand --contract <distribution.toml> --release-id <opaque-release-id> --target <triple-or-alias> --field <canonical-target|asset|sidecar|install>";
+
+/// Render the top-level help: the command families, their classes, and the
+/// historical `ci` and `contract` usage lines unchanged.
+///
+/// The taxonomy the specification asks for lives here, where an operator reads
+/// it: every local command declares its class, and the help states plainly
+/// that no command in this set stages or publishes.
+fn help_text() -> String {
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(OPERATOR_USAGE.to_owned());
+    lines.push(String::new());
+    lines.push("local producer operator commands:".to_owned());
+    for command in &operator::COMMANDS {
+        lines.push(format!(
+            "  {:<9} {:<20} {}",
+            command.name, command.class, command.summary
+        ));
+    }
+    lines.push(String::new());
+    lines.push(
+        "No command in this set stages or publishes; staging and publication stay".to_owned(),
+    );
+    lines.push("separate, explicitly authorized actions.".to_owned());
+    lines.push(String::new());
+    lines.push(USAGE.to_owned());
+    lines.push(CONTRACT_USAGE.to_owned());
+    lines.join("\n")
+}
 
 /// Dispatch the `ci` family, preserving the historical subcommand set and
 /// the historical `unknown ci subcommand` diagnostic byte-for-byte.
@@ -504,8 +541,7 @@ fn ci_resolve_release(args: &[String]) -> Result<(), String> {
     };
     // Runtime documents land only in invocation-private workflow storage;
     // they are never written back into the repository by this command.
-    let plan_json =
-        serde_json::to_string(&plan).map_err(|_| "release plan encode failed".to_owned())?;
+    let plan_json = encode_release_plan(&plan)?;
     let graph_json = graph
         .to_json()
         .map_err(|_| "release graph encode failed".to_owned())?;
@@ -671,6 +707,194 @@ fn atomic_write(output: &Path, bytes: &[u8]) -> Result<(), String> {
                 }
             }
         }
+    }
+}
+
+/// Encode one release plan as the canonical deterministic plan document.
+///
+/// Shared by the `ci _resolve-release` runner and the `eggpack plan` operator
+/// command so both surfaces emit byte-identical plans for one resolved plan.
+fn encode_release_plan(plan: &eggpack_core::ReleasePlan) -> Result<String, String> {
+    serde_json::to_string(plan).map_err(|_| "release plan encode failed".to_owned())
+}
+
+/// Encode one release manifest as the canonical deterministic manifest document.
+///
+/// The document is decoded and re-encoded so the written bytes are exactly the
+/// bytes that decode back to the same manifest. Shared by the `ci _aggregate`
+/// runner and the `eggpack manifest` operator command.
+fn encode_release_manifest(manifest: &eggpack_manifest::ReleaseManifest) -> Result<String, String> {
+    let manifest_json = manifest
+        .to_json()
+        .map_err(|_| "manifest encode failed".to_owned())?;
+    let decoded = eggpack_manifest::ReleaseManifest::from_json(&manifest_json)
+        .map_err(|_| "manifest roundtrip failed".to_owned())?;
+    let decoded_json = decoded
+        .to_json()
+        .map_err(|_| "manifest roundtrip failed".to_owned())?;
+    if decoded_json != manifest_json {
+        return Err("staging manifest does not decode to exact manifest".to_owned());
+    }
+    Ok(manifest_json)
+}
+
+/// Read one target's handoff, evidence, and candidate bytes into a finalization
+/// input.
+///
+/// Inputs dir layout: `<target>/build-handoff.json`, `<target>/evidence.json`,
+/// `<target>/candidates/<relative_path...>`. Shared by the `ci _aggregate`
+/// runner and the `eggpack collect` operator command so both aggregate the
+/// same per-target bytes.
+fn collect_finalization_inputs(
+    inputs_dir: &Path,
+    plan: &eggpack_core::ReleasePlan,
+    targets: &[String],
+) -> Result<Vec<eggpack_core::FinalizationTargetInput>, String> {
+    let mut final_inputs = Vec::with_capacity(targets.len());
+    for target in targets {
+        let target_dir = inputs_dir.join(target);
+        let handoff_text = read_bounded(
+            &target_dir.join("build-handoff.json"),
+            1_000_000,
+            "build handoff",
+        )?;
+        let evidence_text = read_bounded(&target_dir.join("evidence.json"), 1_000_000, "evidence")?;
+        let handoff: eggpack_ci::BuildHandoffV1 =
+            eggpack_ci::BuildHandoffV1::from_json(&handoff_text)
+                .map_err(|_| "invalid handoff".to_owned())?;
+        let evidence = eggpack_ci::decode_qualification_evidence(&evidence_text)
+            .map_err(|_| "invalid evidence".to_owned())?;
+        let planned = plan
+            .targets
+            .iter()
+            .find(|t| &t.target == target)
+            .ok_or_else(|| "target is not in release plan".to_string())?;
+        let candidate_root = target_dir.join("candidates");
+        let attempt = eggpack_ci::reconstruct_attempt(plan, planned, &handoff, &candidate_root)
+            .map_err(|_| "candidate reconstruction failed".to_owned())?;
+        final_inputs.push(eggpack_core::FinalizationTargetInput {
+            target: target.clone(),
+            attempt,
+            qualification: evidence,
+        });
+    }
+    Ok(final_inputs)
+}
+
+/// Stage the canonical qualification artifact directory for one target.
+///
+/// The handoff document and the candidate bytes are written beside the
+/// evidence so gate and aggregate consume one complete per-target directory.
+/// Shared by the `ci _qualify-target` runner and the `eggpack qualify` operator
+/// command.
+fn stage_qualification_artifacts(
+    output_dir: &Path,
+    candidate_dir: &Path,
+    handoff_text: &str,
+) -> Result<(), String> {
+    atomic_write(
+        &output_dir.join("build-handoff.json"),
+        handoff_text.as_bytes(),
+    )?;
+    // Canonical per-target layout keeps candidate bytes under `candidates/`.
+    let candidates_src = {
+        let nested = candidate_dir.join("candidates");
+        if nested.exists() {
+            nested
+        } else {
+            candidate_dir.to_path_buf()
+        }
+    };
+    let handoff: eggpack_ci::BuildHandoffV1 = eggpack_ci::BuildHandoffV1::from_json(handoff_text)
+        .map_err(|_| "invalid handoff".to_owned())?;
+    let dest_candidates = output_dir.join("candidates");
+    std::fs::create_dir_all(&dest_candidates)
+        .map_err(|_| "output dir creation failed".to_owned())?;
+    for output in &handoff.outputs {
+        let source = candidates_src.join(&output.relative_path);
+        let dest = dest_candidates.join(&output.relative_path);
+        copy_candidate_bytes(&source, &dest)?;
+    }
+    Ok(())
+}
+
+/// Stage one candidate file onto its destination without ever truncating the
+/// source.
+///
+/// A hard link is preferred because it costs no bytes. The fallback copies the
+/// bytes into a fresh temporary sibling and renames that file over the
+/// destination, so the destination is never opened for writing in place: a
+/// destination that resolves to the source itself can never lose the source's
+/// bytes to a copy. The same-file case is refused before any byte is written.
+///
+/// Shared by every staging site: the `ci _capture-build` and
+/// `ci _qualify-target` runners and the operator family's `package` and
+/// `qualify` commands.
+fn copy_candidate_bytes(source: &Path, dest: &Path) -> Result<(), String> {
+    if same_location(source, dest) {
+        return Err("candidate staging source and destination are the same file".to_owned());
+    }
+    if std::fs::hard_link(source, dest).is_ok() {
+        return Ok(());
+    }
+    let parent = dest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (temp, handle) = claim_temp(&parent, "candidate")?;
+    drop(handle);
+    if std::fs::copy(source, &temp).is_err() {
+        let _ = std::fs::remove_file(&temp);
+        return Err("candidate staging failed".to_owned());
+    }
+    match std::fs::rename(&temp, dest) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            // Windows rename does not replace an existing file. The
+            // destination is moved aside rather than deleted, so a failed
+            // retry restores it instead of returning an error with the
+            // caller's file already gone.
+            let backup = if dest.exists() {
+                let (path, handle) = claim_temp(&parent, "prev")?;
+                drop(handle);
+                if std::fs::rename(dest, &path).is_err() {
+                    let _ = std::fs::remove_file(&path);
+                    let _ = std::fs::remove_file(&temp);
+                    return Err("candidate staging failed".to_owned());
+                }
+                Some(path)
+            } else {
+                None
+            };
+            match std::fs::rename(&temp, dest) {
+                Ok(()) => {
+                    if let Some(backup) = backup {
+                        let _ = std::fs::remove_file(backup);
+                    }
+                    Ok(())
+                }
+                Err(_) => {
+                    if let Some(backup) = backup {
+                        let _ = std::fs::rename(&backup, dest);
+                    }
+                    let _ = std::fs::remove_file(&temp);
+                    Err("candidate staging failed".to_owned())
+                }
+            }
+        }
+    }
+}
+
+/// Whether two paths name the same location.
+///
+/// Both paths are canonicalized, so two spellings of one location — including
+/// a symlink that points at it — compare equal. A path that does not exist
+/// yet is never the same location as an existing one.
+pub(crate) fn same_location(left: &Path, right: &Path) -> bool {
+    match (std::fs::canonicalize(left), std::fs::canonicalize(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
     }
 }
 
@@ -876,9 +1100,7 @@ fn ci_capture_build(args: &[String]) -> Result<(), String> {
             .map_err(|_| "output dir creation failed".to_owned())?;
         for (output, source) in handoff.outputs.iter().zip(staged_sources.iter()) {
             let dest = dest_candidates.join(&output.relative_path);
-            if std::fs::hard_link(source, &dest).is_err() {
-                std::fs::copy(source, &dest).map_err(|_| "candidate staging failed".to_owned())?;
-            }
+            copy_candidate_bytes(source, &dest)?;
         }
         let json = handoff
             .to_json()
@@ -973,30 +1195,7 @@ fn ci_qualify_target(args: &[String]) -> Result<(), String> {
     // build-handoff and candidate bytes alongside the evidence so gate and
     // aggregate consume one complete per-target directory.
     let handoff_text = read_bounded(&handoff_path, 1_000_000, "build handoff")?;
-    atomic_write(
-        &output_dir.join("build-handoff.json"),
-        handoff_text.as_bytes(),
-    )?;
-    let candidates_src = {
-        let nested = candidate_dir.join("candidates");
-        if nested.exists() {
-            nested
-        } else {
-            candidate_dir.clone()
-        }
-    };
-    let handoff: eggpack_ci::BuildHandoffV1 = eggpack_ci::BuildHandoffV1::from_json(&handoff_text)
-        .map_err(|_| "invalid handoff".to_owned())?;
-    let dest_candidates = output_dir.join("candidates");
-    std::fs::create_dir_all(&dest_candidates)
-        .map_err(|_| "output dir creation failed".to_owned())?;
-    for output in &handoff.outputs {
-        let source = candidates_src.join(&output.relative_path);
-        let dest = dest_candidates.join(&output.relative_path);
-        if std::fs::hard_link(&source, &dest).is_err() {
-            std::fs::copy(&source, &dest).map_err(|_| "candidate staging failed".to_owned())?;
-        }
-    }
+    stage_qualification_artifacts(&output_dir, &candidate_dir, &handoff_text)?;
     eggpack_ci::validate_qualification_artifact_dir(&output_dir)
         .map_err(|_| "staged qualification artifact validation failed".to_owned())?;
     println!("qualified {target}: {:?}", evidence.status);
@@ -1040,15 +1239,24 @@ fn absolute_path(path: &Path) -> Result<PathBuf, String> {
 /// into an absolute path without `.`/`..` components.
 ///
 /// Absolute inputs pass through unchanged. Parent-directory components are
-/// rejected: generated invocations never contain them, and direct CLI callers
-/// get a precise error instead of a later path-safety failure (M003e).
-/// Absolute-path requirements live in the core library (`inspect_candidate`,
-/// `finalize_release`); this adapter bridges the portable relative paths the
-/// renderer emits. The base is explicit so unit tests never touch the process
-/// working directory.
+/// rejected in absolute and relative paths alike: generated invocations never
+/// contain them, and direct CLI callers get a precise error instead of a
+/// later path-safety failure (M003e). Absolute-path requirements live in the
+/// core library (`inspect_candidate`, `finalize_release`); this adapter
+/// bridges the portable relative paths the renderer emits. The base is
+/// explicit so unit tests never touch the process working directory.
 fn absolutize_cli_path(raw: &Path, base: &Path) -> Result<PathBuf, String> {
     if raw.as_os_str().is_empty() {
         return Err("path must not be empty".to_owned());
+    }
+    // One rule for both forms: a path that names a parent directory is
+    // refused rather than resolved, so an absolute path cannot silently
+    // point somewhere else than the caller named.
+    if raw
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("path must not contain parent-directory components".to_owned());
     }
     if raw.is_absolute() {
         return Ok(raw.to_path_buf());
@@ -1060,9 +1268,6 @@ fn absolutize_cli_path(raw: &Path, base: &Path) -> Result<PathBuf, String> {
     for component in raw.components() {
         match component {
             std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                return Err("path must not contain parent-directory components".to_owned());
-            }
             std::path::Component::Normal(segment) => out.push(segment),
             _ => return Err("path has an unsupported component".to_owned()),
         }
@@ -1280,34 +1485,12 @@ fn ci_aggregate(args: &[String]) -> Result<(), String> {
     // Inputs dir layout: <target>/build-handoff.json, <target>/evidence.json,
     // <target>/candidates/<relative_path...>. Candidate bytes are read from the
     // per-target candidate roots supplied alongside the handoffs.
-    let mut final_inputs = Vec::new();
-    for qual in &graph.qualifications {
-        let target_dir = inputs_dir.join(&qual.target);
-        let handoff_text = read_bounded(
-            &target_dir.join("build-handoff.json"),
-            1_000_000,
-            "build handoff",
-        )?;
-        let evidence_text = read_bounded(&target_dir.join("evidence.json"), 1_000_000, "evidence")?;
-        let handoff: eggpack_ci::BuildHandoffV1 =
-            eggpack_ci::BuildHandoffV1::from_json(&handoff_text)
-                .map_err(|_| "invalid handoff".to_owned())?;
-        let evidence = eggpack_ci::decode_qualification_evidence(&evidence_text)
-            .map_err(|_| "invalid evidence".to_owned())?;
-        let planned = plan
-            .targets
-            .iter()
-            .find(|t| t.target == qual.target)
-            .ok_or_else(|| "target is not in release plan".to_string())?;
-        let candidate_root = target_dir.join("candidates");
-        let attempt = eggpack_ci::reconstruct_attempt(&plan, planned, &handoff, &candidate_root)
-            .map_err(|_| "candidate reconstruction failed".to_owned())?;
-        final_inputs.push(eggpack_core::FinalizationTargetInput {
-            target: qual.target.clone(),
-            attempt,
-            qualification: evidence,
-        });
-    }
+    let aggregate_targets: Vec<String> = graph
+        .qualifications
+        .iter()
+        .map(|qual| qual.target.clone())
+        .collect();
+    let final_inputs = collect_finalization_inputs(&inputs_dir, &plan, &aggregate_targets)?;
     let (outcome, finalized) = if graph.consumer_validators.is_empty() {
         // Stray consumer evidence without a configured validator fails
         // closed so validation can never be silently bypassed.
@@ -1351,18 +1534,7 @@ fn ci_aggregate(args: &[String]) -> Result<(), String> {
     // manifest. This file lives beside the finalized root, never inside it,
     // so M004 release-root semantics remain unchanged.
     if let Some(finalized) = finalized.as_ref() {
-        let manifest_json = finalized
-            .manifest
-            .to_json()
-            .map_err(|_| "manifest encode failed".to_owned())?;
-        let decoded = eggpack_manifest::ReleaseManifest::from_json(&manifest_json)
-            .map_err(|_| "manifest roundtrip failed".to_owned())?;
-        let decoded_json = decoded
-            .to_json()
-            .map_err(|_| "manifest roundtrip failed".to_owned())?;
-        if decoded_json != manifest_json {
-            return Err("staging manifest does not decode to exact manifest".to_owned());
-        }
+        let manifest_json = encode_release_manifest(&finalized.manifest)?;
         if let Some(parent) = output_path.parent() {
             if !parent.as_os_str().is_empty() {
                 let manifest_path = parent.join("release-manifest.json");
@@ -1574,6 +1746,10 @@ mod tests {
         // Parent-directory components are rejected even when the base exists.
         assert!(absolutize_cli_path(Path::new("../escape"), &base).is_err());
         assert!(absolutize_cli_path(Path::new("a/../../escape"), &base).is_err());
+        // An absolute path is refused for the same reason: one rule for both
+        // forms, so an absolute path cannot name a location the caller did
+        // not name.
+        assert!(absolutize_cli_path(&base.join("../escape"), &base).is_err());
         assert!(absolutize_cli_path(Path::new(""), &base).is_err());
         assert!(absolutize_cli_path(Path::new("relative"), Path::new("also-relative")).is_err());
     }

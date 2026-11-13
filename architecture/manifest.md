@@ -24,10 +24,10 @@ The workspace keeps three kinds of release statement strictly apart:
 
 The separation is structural, not documentary. Every wire type here is an
 `ArtifactRecord` or a `ByteEvidence` — a name, a `u64` size, and a 64-character
-digest (`:113-120`, `:148-153`). `TargetRecord` carries only a canonical triple
-and a form (`:78-83`); no field anywhere holds a plan, a qualification result, a
+digest (`:177-184`, `:212-217`). `TargetRecord` carries only a canonical triple
+and a form (`:142-147`); no field anywhere holds a plan, a qualification result, a
 builder identity, a signature, or an install outcome. The one advisory-looking
-field, `evidence_references`, is documented as making no trust claim (`:70-72`).
+field, `evidence_references`, is documented as making no trust claim (`:134-136`).
 So a manifest entry is a claim about bytes that finalization hashed — never a
 claim about intent, qualification, or installation (crate doc `:4`: this crate
 "does not access files, networks, or trust authorities").
@@ -41,24 +41,28 @@ claim about intent, qualification, or installation (crate doc `:4`: this crate
 | `MAX_TARGETS: usize = 256` | `:14` | Ceiling on the `targets` vector. |
 | `MAX_RECORDS: usize = 256` | `:16` | Ceiling on any one bundle-entry or archive-member list. |
 | `MAX_EVIDENCE_REFERENCES: usize = 64` | `:18` | Ceiling on `evidence_references`. |
-| `ManifestError` | `:25-34` | `#[non_exhaustive]`: `Invalid(String)`, `UnsupportedVersion(u32)`, `TooLarge`. `Display` `:36-44`; `Error` `:45`. |
-| `ReleaseManifest` | `:59-73` | Top-level document: identity block, `targets`, optional `evidence_references`. |
-| `TargetRecord` | `:78-83` | `{ target, form }` for one canonical triple. |
-| `ArtifactForm` | `:88-108` | Internally tagged `kind`: `Direct{artifact,install}`, `Bundle{entries}`, `Archive{artifact,members}`. |
-| `ArtifactRecord` | `:113-120` | `{ name, size, sha256 }` for one emitted artifact. |
-| `BundleRecord` | `:125-130` | `{ artifact, install }` — keeps each bundle artifact paired with its install identity. |
-| `ArchiveMemberRecord` | `:135-142` | `{ source, install, bytes }` — keeps member source path, install name, and member facts together. |
-| `ByteEvidence` | `:148-153` | `{ size, sha256 }` — size and digest without a name. |
-| `ReleaseManifest::target` | `:157-163` | Exact canonical-triple lookup; re-validates first; never resolves aliases or nearest-target. |
-| `ReleaseManifest::from_json` | `:165-172` | Byte-length bound → `serde_json` parse → full `validate()`. |
-| `ReleaseManifest::validate` | `:175-235` | Version, bounds, uniqueness, cross-record relationships. No I/O. |
-| `ReleaseManifest::to_json` | `:239-255` | `validate()`, sort a **clone** canonically, compact serialization. |
-| `ArtifactRecord::sha256_bytes` | `:260-262` | Decode validated lowercase hex into `[u8; 32]`. |
-| `ByteEvidence::sha256_bytes` | `:283-285` | Same hex decode, without a name. |
+| `Sha256Error` | `:56-63` | Typed refusal: `Length`, `NotLowercaseHex`, `AllZeros`; `reason()` `:65-75`. The all-zeros refusal is ADR-0006's. |
+| `ALL_ZEROS_SHA256` (private) | `:84` | The refused all-zeros sentinel, named once. |
+| `validate_sha256_hex` | `:98-112` | The one SHA-256 hex acceptance rule in the workspace (ADR-0006 Option A): exactly 64 lowercase hex characters **and not the all-zeros digest**. |
+| `ManifestError` | `:27-34` | `#[non_exhaustive]`: `Invalid(String)`, `UnsupportedVersion(u32)`, `TooLarge`. `Display` `:36-44`; `Error` `:45`. |
+| `ReleaseManifest` | `:123-137` | Top-level document: identity block, `targets`, optional `evidence_references`. |
+| `TargetRecord` | `:142-147` | `{ target, form }` for one canonical triple. |
+| `ArtifactForm` | `:152-172` | Internally tagged `kind`: `Direct{artifact,install}`, `Bundle{entries}`, `Archive{artifact,members}`. |
+| `ArtifactRecord` | `:177-184` | `{ name, size, sha256 }` for one emitted artifact. |
+| `BundleRecord` | `:189-194` | `{ artifact, install }` — keeps each bundle artifact paired with its install identity. |
+| `ArchiveMemberRecord` | `:199-206` | `{ source, install, bytes }` — keeps member source path, install name, and member facts together. |
+| `ByteEvidence` | `:212-217` | `{ size, sha256 }` — size and digest without a name. |
+| `ReleaseManifest::target` | `:221-227` | Exact canonical-triple lookup; re-validates first; never resolves aliases or nearest-target. |
+| `ReleaseManifest::from_json` | `:229-237` | Byte-length bound → `serde_json` parse → full `validate()`. |
+| `ReleaseManifest::validate` | `:239-305` | Version, bounds, uniqueness, cross-record relationships, then the document bound. No I/O. |
+| `ReleaseManifest::check_document_bound` (private) | `:309-320` | Measures the canonical encoding and refuses it past `MAX_DOCUMENT_BYTES`; called from `validate` `:304`. |
+| `ReleaseManifest::to_json` | `:324-341` | `validate()`, sort a **clone** canonically, compact serialization. |
+| `ArtifactRecord::sha256_bytes` | `:345-359` | Decode validated lowercase hex into `[u8; 32]`. |
+| `ByteEvidence::sha256_bytes` | `:362-374` | Same hex decode, without a name. |
 | Private `validate` helpers | `:263-279`, `:286-301` | Non-zero size, 64-char lowercase hex, filename registered in a caller-supplied set. |
-| `decode_sha256` (private) | `:303-319` | Strict lowercase-hex pair decoding; rejects uppercase and wrong lengths. |
-| `valid_name` / `valid_path` (private) | `:320-336` / `:337-347` | Flat-name safety + ASCII-case-folded uniqueness; relative-path safety for member `source`. |
-| Tests | `:349-1354` | 26 inline tests, including `projection_fixture_consistency` (`:723-1353`). |
+| `decode_sha256` (private) | `:376-394` | Strict lowercase-hex pair decoding; rejects uppercase and wrong lengths. |
+| `valid_name` / `valid_path` (private) | `:395-411` / `:412-422` | Flat-name safety + ASCII-case-folded uniqueness; relative-path safety for member `source`. |
+| Tests | `:425-1536` | 28 inline tests, including the pairwise projection tests and `m003l_sha256_acceptance_set_is_the_canonical_one`. |
 
 ## Schema details and bounds
 
@@ -254,15 +258,106 @@ those checked-in bytes.
 
 ## Publication status and the compatibility surface
 
-`eggpack-manifest 0.1.0` is published. Per `plans/registry.md:249` and
-`plans/registry.md:98`, it was published to crates.io from `8d661e4`, checksum
+`eggpack-manifest 0.1.0` is published. Per `plans/registry.md:141` and
+`plans/registry.md:105`, it was published to crates.io from `8d661e4`, checksum
 `2a08f24b…b629`, tag `eggpack-manifest-v0.1.0`, hosted run `37064833069` green;
 the published `src/lib.rs` is byte-identical to the consumer-qualified pin
 `678bbf04`, and an external registry-only consumer resolved exact `=0.1.0` with
 no Git or path source. The same entry records that only `eggpack-manifest` was
 published and the other six crates remain unpublished, and
-`plans/registry.md:270` records that `eggup-eggpack 0.1.2` consumes registry
+`plans/registry.md:105` records that `eggup-eggpack 0.1.2` consumes registry
 `eggpack-manifest =0.1.0`.
+
+### The ADR-0006 compatibility event
+
+**Accepted ADR-0006 (Option A) narrows this crate's public acceptance set, and
+the narrowing is a compatibility event, not a pure refactor.** Before the
+decision, three validators in the workspace disagreed about the same concept:
+`eggpack-manifest` accepted exactly 64 lowercase hex characters,
+`eggpack-github` did the same, and `eggpack-ci` refused the **all-zeros**
+digest in addition. The all-zeros string is well-formed lowercase hex that no
+real file can produce, so it is a natural sentinel for "digest not computed",
+and the disagreement about it was a live divergence rather than a cosmetic one.
+
+Option A converges every consumer onto one rule: the all-zeros digest is
+refused **everywhere**, and the acceptance set is owned by this crate through
+`validate_sha256_hex` (`crates/eggpack-manifest/src/lib.rs:98`), which
+`eggpack-core` re-exports and which `eggpack-ci` and `eggpack-github` apply
+rather than restate.
+
+Two consequences are load-bearing for a downstream consumer:
+
+- **`ReleaseManifest` stays at `schema_version: 1`.** No field is added, no
+  field is removed, and the schema version does not move. A consumer that
+  parses `ReleaseManifest v1` keeps parsing it.
+- **The published crate takes a patch release.** `crates/eggpack-manifest/Cargo.toml`
+  carries `version = "0.1.1"`; the workspace version stays `0.1.0` for the
+  other six crates, and `^0.1.0` dependents resolve `0.1.1` unchanged.
+  **`0.1.1` is published** — crates.io, checksum
+  `352c3e327159615b763298e911e239f1decc4a2c9e28c28be8ddd28e50515e37`, not
+  yanked, from publication source commit
+  `4ce4fb850ffa0e141f1a807b60c150173507a92b`, tagged
+  `eggpack-manifest-v0.1.1`. `0.1.0` remains published and resolvable.
+  Release Manifest M004 owns the publication and the compatibility record for
+  both narrowings; its closure record is
+  `plans/closure/release-manifest/004-status.md`.
+
+**`eggup-eggpack` is the affected downstream consumer.** It consumes registry
+`eggpack-manifest =0.1.0` and must be given the `0.1.1` patch release and told
+that the acceptance set is narrower. What changes for it is narrow and
+enumerable: a manifest whose recorded digest is the all-zeros sentinel is now
+refused rather than accepted. Digests that are not the sentinel were accepted
+before and are accepted now, and `schema_version` is unchanged, so the consumer
+needs no requalification beyond receiving the patch release.
+
+The decision itself is recorded at
+`plans/adrs/ADR-0006-release-evidence-digest-acceptance-set.md` (Status:
+**accepted**), and the implementation that converges the rules is recorded at
+`plans/closure/ci-release-orchestration/003l-status.md`.
+
+### The document-bound narrowing is a second, separate compatibility event
+
+The `0.1.1` package carries **two** narrowings of this crate's public
+acceptance set, not one. The digest rule above is ADR-0006's. The second
+arrived by a different route and was, until the Release Manifest M004 review,
+recorded only as an implementation note rather than as a compatibility event.
+
+It came from commit `3ef806f` ("close 31 audited defects across all seven
+crates"), not from ADR-0006. `ReleaseManifest::validate` now ends with
+`check_document_bound` (`:304`), which measures the canonical encoding and
+returns `ManifestError::TooLarge` past `MAX_DOCUMENT_BYTES` (`:309-320`).
+
+The behaviour change is concrete. `validate`, `to_json`, and `target` are
+public. Under `0.1.0`, a manifest that satisfied every *structural* bound but
+whose canonical encoding exceeded 1 MiB was **accepted** by `validate()` and
+**serialized** by `to_json()` — so `0.1.0` could emit a document its own
+`from_json` would refuse to read back. Under `0.1.1` the same manifest is
+refused by both, with `TooLarge`.
+
+Measured against identical fixtures on both versions (256 targets × 256
+members): the canonical length is 25,689,453 bytes; `0.1.0` `validate()`
+returns `Ok(())` and `to_json()` returns `Ok(25,689,453)`, while `0.1.1`
+`validate()` returns `Err("release manifest exceeds the 1 MiB limit")` and
+`to_json()` returns `Err(TooLarge)`.
+
+The rule is not over-tightened: a canonical length of 999,768 bytes still
+validates and serializes under `0.1.1`.
+
+What this means for a downstream consumer is narrow and enumerable. A consumer
+that only *reads* real producer output is unaffected — no document a real
+producer emits approaches 1 MiB, and `from_json` already refused such documents
+in `0.1.0`, so the refused input was never one that could have been read back
+either way. A consumer that *constructs* a manifest programmatically and
+serializes it now receives `TooLarge` where it previously received a document
+its own reader would have rejected. No field, no schema version, and no error
+variant changed; `TooLarge` already existed and was already reachable through
+`from_json`.
+
+This event is recorded as a compatibility event in the release-manifest
+closure record for the `0.1.1` publication —
+`plans/closure/release-manifest/004-status.md` — which is the record
+ADR-0006 §5.4 requires for the published crate's narrowed acceptance set. It
+is stated here as well because ADR-0006 §5.4 requires both surfaces.
 
 One clarification against a natural assumption: `homepage`, `documentation`,
 `keywords`, and `categories` are **not** unique to this crate —
@@ -280,25 +375,25 @@ change-control signals are already present: `#[non_exhaustive]` on
 
 | Not done here | Evidence |
 | --- | --- |
-| No filesystem, network, or process access | Crate doc `:4`; dependencies are `serde` + `serde_json` only (`crates/eggpack-manifest/Cargo.toml:19-21`). |
-| No hashing | The only digest code is hex *decoding* (`decode_sha256` `:303-319`) and format checks (`:268-277`, `:290-299`). No hash function and no `sha2` dependency; digests are computed upstream and consumed here. |
+| No filesystem, network, or process access | Crate doc `:4`; dependencies are `serde` + `serde_json` only (`crates/eggpack-manifest/Cargo.toml:23-24`). |
+| No hashing | The only digest code is hex *decoding* (`decode_sha256` `:376-394`) and format checks (`:98-112`). No hash function and no `sha2` dependency; digests are computed upstream and consumed here. |
 | No build, compile, or archive extraction | No toolchain, process, or archive dependency; no code path outside parse/validate/sort/serialize. |
-| No release selection or target aliasing | `target()` is exact match only (`:157-163`), pinned by `:1337-1352`. |
-| No origin, mirror, or URL fields | No such field in any wire struct (`:59-153`). |
+| No release selection or target aliasing | `target()` is exact match only (`:221-227`), pinned by `:760-765`. |
+| No origin, mirror, or URL fields | No such field in any wire struct (`:122-215`). |
 | No authenticity, signature, or provenance | See `ByteEvidence` above. |
 | No installed-state modeling | Owned by Eggup; see [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md). |
 | `unsafe` | Forbidden crate-wide (`:1`). |
 
 ## Dependencies / dependents
 
-Leaf: `serde` (derive) + `serde_json` (`crates/eggpack-manifest/Cargo.toml:19-21`).
+Leaf: `serde` (derive) + `serde_json` (`crates/eggpack-manifest/Cargo.toml:23-24`).
 It depends on no other workspace crate and no `eggpack-contract` type, which is
 what keeps it usable by an external consumer without pulling in the layout
 authority.
 
 | Dependent | Kind | Location |
 | --- | --- | --- |
-| `eggpack-core` | normal | `crates/eggpack-core/Cargo.toml:16`; builds manifests (`crates/eggpack-core/src/finalization.rs:58`, `crates/eggpack-core/src/lib.rs:16`) |
+| `eggpack-core` | normal | `crates/eggpack-core/Cargo.toml:19`; builds manifests (`crates/eggpack-core/src/finalization.rs:58`, `crates/eggpack-core/src/lib.rs:16`) |
 | `eggpack-bootstrap` | normal | `crates/eggpack-bootstrap/Cargo.toml:16` |
 | `eggpack-github` | normal | `crates/eggpack-github/Cargo.toml:16` |
 | `eggpack-cli` | normal | `crates/eggpack-cli/Cargo.toml:22` |

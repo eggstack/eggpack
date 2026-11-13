@@ -4,9 +4,10 @@ How this repository is planned, how a milestone is allowed to be called closed,
 and where the authority for "what is the current state" lives. This is a
 cross-cutting concern about the *process*, not about any one crate.
 
-Code baseline `61b2c03`. Planning state is a moving target: `plans/registry.md`
-is the authority for current status, and this document deliberately does **not**
-restate milestone statuses, because they change. Read the registry for those.
+Code baseline `fa82486dab83d2369d330a3cef197a3651851c26`. Planning state is a
+moving target: `plans/registry.md` is the authority for current status, and this
+document deliberately does **not** restate milestone statuses, because they
+change. Read the registry for those.
 
 This file cites no `file:line` references into `crates/`, so it does not share the
 re-verification burden described in `overview.md`. The one count table below is

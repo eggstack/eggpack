@@ -1,6 +1,6 @@
 # Ecosystem Adoption Roadmap
 
-Status: active
+Status: blocked
 
 Long-term references:
 

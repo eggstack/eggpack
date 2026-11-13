@@ -1,6 +1,6 @@
 # Bootstrap Installers Roadmap
 
-Status: active; M002b corrective closed
+Status: complete
 
 Long-term references:
 
@@ -98,11 +98,20 @@ M001 generator model and direct installer fixtures is closed and qualified. M002
 
 M003 is **closed** as an evidence/ownership decision pass (`plans/closure/bootstrap-installers/003-status.md`, reviewed against Eggpack `013e091`, eggsact `d4e6e5c`/`v1.2.7` -> `d8014cfe`, stegoeggo `v0.5.0` -> `57ca94c9`). Its two-consumer evidence gate cleared 2026-10-04 (Planning Hygiene M001) and the candidate review closed with zero production change. Three decisions are now settled rather than open:
 
-- the existing exact-installer generator generalizes across two real products without a new producer primitive, so **no M003a corrective was required**;
+- the existing exact-installer generator generalizes across two real products without a new producer primitive, so **no corrective to this M003 decision pass was required**;
 - wrapper-to-exact-installer delegation is **not warranted** and cannot be done safely without a new stable machine-readable failure/outcome protocol — a separate capability that is explicitly not authorized;
 - an **Eggup receipt handoff is rejected**: bootstrap installs exact bytes, Eggup owns transaction and rollback state, and the workspace's only receipt type (`GitHubDraftReceiptV1`) is already documented as producer staging evidence, not an install receipt.
 
-Bootstrap has no remaining open work. The only follow-up created is optional and consumer-owned: each consumer may delete its wrapper asset-name reconstruction once Contract M003 provides `eggpack contract expand --field asset`, under a plan registered in that consumer's own repository.
+Bootstrap has no remaining open work from the M003 decision pass. The only follow-up created is optional and consumer-owned: each consumer may delete its wrapper asset-name reconstruction once Contract M003 provides `eggpack contract expand --field asset`, under a plan registered in that consumer's own repository.
+
+> **Identifier note — `M003a` is not unique across this roadmap.** The row
+> `M003a ADR-0006 adversarial digest fixture corrective` in the table below is a
+> **different milestone** from the M003 two-consumer adoption/receipt decision
+> above. It belongs to the 2026-10-23 post-implementation review chain
+> (ADR-0006, CI/Release M003l), not to this M003 decision pass; it was registered
+> as `M003a` because the M003 decision pass never needed a corrective of its
+> own, so no `M003a` identifier had been taken there. Read the two M003a
+> mentions as unrelated milestones that happen to share a name.
 
 | Milestone | Status | Implementation plan | Closure record | Blockers |
 |---|---|---|---|---|
@@ -110,9 +119,10 @@ Bootstrap has no remaining open work. The only follow-up created is optional and
 | M002 bundle/archive bootstrap safety | closed historically; corrective closed | `plans/implementation/bootstrap-installers/002-bundle-archive-bootstrap-safety.md` | `plans/closure/bootstrap-installers/002-status.md` | Post-closure PowerShell archive runtime evidence gap corrected and qualified by M002a |
 | M002a PowerShell archive runtime evidence | closed | `plans/implementation/bootstrap-installers/002a-powershell-archive-runtime-evidence-corrective.md` | `plans/closure/bootstrap-installers/002a-status.md` | Closed on implementation `4d2270a` + hosted run 36154905956 (attempt 1, all lanes green) via shared closeout pass `plans/implementation/ci-release-orchestration/002a-ci-bootstrap-closure-registry-pass.md` |
 | M003 two-consumer adoption/receipt decision | closed | `plans/implementation/bootstrap-installers/003-two-consumer-adoption-and-receipt-boundary-decision.md` | `plans/closure/bootstrap-installers/003-status.md` | Closed evidence/ownership pass, zero production delta; live installer/manifest parity proven for both releases; delegation and Eggup receipt explicitly declined; no M003a required; optional consumer-side cleanup only |
+| M003a ADR-0006 adversarial digest fixture corrective | closed | `plans/implementation/bootstrap-installers/003a-adr-0006-digest-fixture-correction.md` | `plans/closure/bootstrap-installers/003a-status.md` | Five bootstrap fixtures used the all-zeros digest as a "wrong digest" placeholder; CI M003l's ADR-0006 rule made that value illegal at manifest validation, so three tests aborted at setup and the installers' digest-mismatch coverage was silently not running. The fixtures now use a well-formed but wrong digest, so the manifest validates and the installer's own check is what rejects the artifact. The all-zeros sentinel stays refused everywhere; the acceptance rule did not move |
 
 ## 13. 2026-10-08 corrective addendum — M002b
 
-**M002b ready:** `plans/implementation/bootstrap-installers/002b-windows-posix-archive-test-portability-corrective.md`. At `3ef806fedc9d7683948e5678ec0d3c7b78c06f0e`, hosted Windows run 37649332862 fails to compile POSIX-only test uses of `std::os::unix::fs::PermissionsExt` in the PowerShell archive test lane; Linux stable/MSRV and macOS passed. This is test portability, not a reversal of M002/M002a/M003 historical closures, nor a new installer feature. Keep POSIX archive runtime coverage on Unix and PowerShell runtime coverage on Windows. Full four-lane strict closure at `plans/closure/bootstrap-installers/002b-status.md` is a hard gate for CI M003i. This addendum supersedes prior 'no open bootstrap work' statements as to current corrective work.
+**Historical M002b ready handoff (closed below):** `plans/implementation/bootstrap-installers/002b-windows-posix-archive-test-portability-corrective.md`. At `3ef806fedc9d7683948e5678ec0d3c7b78c06f0e`, hosted Windows run 37649332862 fails to compile POSIX-only test uses of `std::os::unix::fs::PermissionsExt` in the PowerShell archive test lane; Linux stable/MSRV and macOS passed. This is test portability, not a reversal of M002/M002a/M003 historical closures, nor a new installer feature. Keep POSIX archive runtime coverage on Unix and PowerShell runtime coverage on Windows. Full four-lane strict closure at `plans/closure/bootstrap-installers/002b-status.md` is a hard gate for CI M003i. At that time, this addendum superseded prior 'no open bootstrap work' statements; M002b is now closed below.
 
 **M002b closed** on implementation `88ddf2e796ac3674b306b51726c65ed7cc9bd29a`; hosted run `37806244313` passed Linux stable, Linux 1.89, macOS, and Windows. The POSIX archive runtime test is Unix-gated and still executes on both Unix lanes; the Windows `pwsh 7` + `tar.exe` PowerShell runtime test remains enabled and passed. Formal evidence: `plans/closure/bootstrap-installers/002b-status.md`. This strict closure unblocks CI M003i.
