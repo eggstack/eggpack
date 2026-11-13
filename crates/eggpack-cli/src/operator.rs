@@ -559,7 +559,7 @@ fn package(args: &[String]) -> Result<(), String> {
             )
         })?;
         if attempt.process.outcome != eggpack_core::CommandOutcome::Success {
-            return Err(format!("build did not succeed for {}", planned.target));
+            return Err(format!("build {}: {:?}", planned.target, attempt.process));
         }
         let handoff = eggpack_ci::project_build_handoff(&plan, &bindings, &planned.target)
             .map_err(|error| format!("build handoff projection failed: {}", diagnostic(&error)))?;
