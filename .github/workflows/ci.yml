@@ -83,4 +83,4 @@ jobs:
         name: Focused orchestration CLI harness (CI M002a)
         run: cargo test -p eggpack-cli --all-targets --all-features --locked generated_orchestration_cli_executes_capture_to_aggregate -- --nocapture
       - run: cargo check --workspace --all-targets --locked
-      - run: cargo test --workspace --all-targets --all-features --locked -- --test-threads=1
+      - run: cargo test --workspace --all-targets --all-features --locked

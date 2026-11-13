@@ -13,7 +13,7 @@ Producer-side release construction/distribution for Eggstack. Does NOT replace E
 - Full local gate: `scripts/check-local.sh` — `fmt --check` → `check` → `clippy -D warnings` → per-crate tests → workspace tests → `doc` → `tree` → `package` → MSRV lane (`cargo +1.89.0 check/test`).
 - Fast loop: `cargo fmt --all -- --check`, `cargo check --workspace --all-targets --locked`, `cargo test -p <crate> --all-targets --all-features --locked`, `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`.
 - Single test: `cargo test -p <crate> --all-targets --all-features --locked <filter> -- --nocapture` (e.g. `-p eggpack-core real_local_cargo_fixture_builds_a_direct_candidate`).
-- The portability workspace suite runs with `-- --test-threads=1` so local Cargo fixture builds do not compete; for a focused Windows core-test diagnosis, append the same flag.
+- Windows-only serialization when diagnosing: append `-- --test-threads=1` to core tests.
 - `cargo package` for non-leaf crates requires `--config 'patch.crates-io.<dep>.path="crates/<dep>"'` flags — copy the exact invocation from `scripts/check-local.sh`. Never bare `cargo publish`.
 - CI (`.github/workflows/ci.yml`, `contents: read`): `linux` job = ubuntu × stable/1.89.0 (fmt only on stable, clippy/doc only on stable); `portability` = macOS/Windows stable with focused Windows builder, process-group, bootstrap-archive, and orchestration tests.
 

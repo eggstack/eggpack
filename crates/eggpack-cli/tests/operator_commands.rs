@@ -82,13 +82,10 @@ const REVISION: &str = "0123456789abcdef0123456789abcdef01234567";
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-fn temp_root(label: &str) -> PathBuf {
+fn temp_root(_label: &str) -> PathBuf {
     loop {
         let id = NEXT.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
-            "eggpack-cli-operator-{label}-{}-{id}",
-            std::process::id()
-        ));
+        let path = std::env::temp_dir().join(format!("eggpack-{}-{id}", std::process::id()));
         match std::fs::create_dir(&path) {
             Ok(()) => return path,
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,

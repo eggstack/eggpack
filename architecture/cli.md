@@ -707,7 +707,7 @@ capture, qualify, gate, aggregate — then asserts the negative cases. The
 operator family has the same property in the other direction: `eggpack plan`
 and `ci _resolve-release` share one encoder (`717-719`), and
 `package_qualify_collect_manifest_matches_ci_aggregate`
-(`tests/operator_commands.rs:650`) asserts that the local path produces the
+(`tests/operator_commands.rs:653`) asserts that the local path produces the
 same bytes the CI path produces.
 
 To be precise about a common confusion: no workspace crate depends on
@@ -766,12 +766,12 @@ the only way to observe its stdout contract.
 | `contract_expand::argument_errors_exit_nonzero_without_a_scalar` | `tests/contract_expand.rs:250` | One defect per invocation; truncated invocations report `missing required`; `--flag=value` accepted |
 | `contract_expand::symlinked_and_oversized_contracts_are_refused` | `tests/contract_expand.rs:312` | Symlink and size-bound refusals at the process boundary |
 | `contract_expand::the_documented_readme_example_runs_verbatim` | `tests/contract_expand.rs:350` | The CLI README example, with its documented relative paths and working directory |
-| `operator_commands::every_command_exits_zero_on_success_and_one_on_failure` | `tests/operator_commands.rs:395` | Exit-code mapping for all six commands |
-| `operator_commands::check_accepts_a_valid_input_set` | `tests/operator_commands.rs:434` | The validation class accepts a resolvable input set |
-| `operator_commands::plan_writes_the_same_bytes_as_ci_resolve_release` | `tests/operator_commands.rs:581` | One plan encoder, two surfaces |
-| `operator_commands::package_qualify_collect_manifest_matches_ci_aggregate` | `tests/operator_commands.rs:650` | The local path's final bytes equal the CI path's |
-| `operator_commands::help_names_every_command_and_its_class` | `tests/operator_commands.rs:1197` | The taxonomy is part of the help |
-| `operator_commands::existing_command_families_still_behave` | `tests/operator_commands.rs:1244` | The `ci` and `contract` families are unregressed |
+| `operator_commands::every_command_exits_zero_on_success_and_one_on_failure` | `tests/operator_commands.rs:398` | Exit-code mapping for all six commands |
+| `operator_commands::check_accepts_a_valid_input_set` | `tests/operator_commands.rs:437` | The validation class accepts a resolvable input set |
+| `operator_commands::plan_writes_the_same_bytes_as_ci_resolve_release` | `tests/operator_commands.rs:584` | One plan encoder, two surfaces |
+| `operator_commands::package_qualify_collect_manifest_matches_ci_aggregate` | `tests/operator_commands.rs:653` | The local path's final bytes equal the CI path's |
+| `operator_commands::help_names_every_command_and_its_class` | `tests/operator_commands.rs:1204` | The taxonomy is part of the help |
+| `operator_commands::existing_command_families_still_behave` | `tests/operator_commands.rs:1251` | The `ci` and `contract` families are unregressed |
 
 The coverage shape follows from the crate's role. Most tests assert argument
 handling, arity, path helpers, and renderer parity, because that is where the
@@ -789,7 +789,7 @@ rename fallback in `atomic_write` (`677-708`), and `reject_symlink_output`
 against a directory or symlink (`617-627`). `run()`'s exit-code mapping and
 `dispatch`'s unknown-top-level-token rejection are covered for the `contract`
 family (`4555`, `tests/contract_expand.rs:250`) and for the operator family
-(`tests/operator_commands.rs:395`) but still only in-process for the `ci`
+(`tests/operator_commands.rs:398`) but still only in-process for the `ci`
 family. See [testing-and-portability.md](testing-and-portability.md) for the
 workspace view.
 
