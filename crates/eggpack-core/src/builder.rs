@@ -1690,13 +1690,6 @@ mod tests {
         // The runner treats that as "nothing left to terminate".
         assert!(terminate_process_group(&mut child, "test termination").is_ok());
     }
-    /// The rule that decides whether a failed group signal may be ignored.
-    ///
-    /// `ESRCH` means the group holds no process. A group whose only member
-    /// is the unreaped zombie of an exited child is refused by macOS with
-    /// `EPERM`, and is benign for the same reason: there is no child left to
-    /// terminate. A group that holds a live process and cannot be signalled
-    /// is a hard failure, and the run fails closed.
     #[cfg(unix)]
     #[test]
     fn a_failed_group_signal_is_benign_only_when_nothing_is_left_to_terminate() {

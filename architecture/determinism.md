@@ -249,7 +249,7 @@ only the explicit `--output` path, and rejects a symlink target
 Tests pin both directions: identical bytes and a CRLF-converted copy both report
 a match while a one-token change to `contents: read` is drift
 (`crates/eggpack-ci/src/tests.rs:225-244`); the five-target matrix renders and
-checks with no drift (`crates/eggpack-ci/src/tests.rs:5217-5225`); rendering twice is asserted equal
+checks with no drift (`crates/eggpack-ci/src/tests.rs:5210`); rendering twice is asserted equal
 (`crates/eggpack-ci/src/tests.rs:174-175`).
 
 ## Round-trip stability

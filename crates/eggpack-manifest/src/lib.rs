@@ -476,7 +476,7 @@ mod tests {
             Err(ManifestError::TooLarge)
         ));
         assert!(worst_case.to_json().is_err());
-        // Within bounds, the round trip is exact.
+        // The serialized form parses.
         let ok = manifest(ArtifactForm::Direct {
             artifact: artifact("app"),
             install: "app".into(),

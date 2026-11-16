@@ -1247,9 +1247,9 @@ fn prepare_staging_payload_with_presentation_inner(
             return Err(fail("sidecar digest differs from artifact"));
         }
         let _ = actual_size;
-        // Sidecar filename must end with the artifact name plus .sha256
-        // for the fixtures used here; contract templates already bound the
-        // exact names above, so this is a consistency check only.
+        // Require the `.sha256` suffix.
+        // Contract expansion supplies the exact names, so this is
+        // only a consistency check.
         if !name.ends_with(".sha256") {
             return Err(fail("sidecar filename invalid"));
         }
@@ -2531,23 +2531,23 @@ struct FixtureInner {
     delete_calls: u32,
 }
 
-/// Deterministic in-memory GitHub fixture: a **test double, not an adapter**.
+/// Deterministic in-memory GitHub fixture: a test double, not an adapter.
 ///
-/// This type performs no network I/O whatsoever — every "remote" fact it
-/// returns comes from state seeded through the `seed_*`/`set_*`/`fail_*`
-/// injectors below, and the injectors exist so tests can model the remote
-/// answers staging must survive. It therefore implements `GithubApi` exactly
-/// as the real transport does, and nothing in the type system distinguishes
-/// the two: any code holding `&impl GithubApi` would accept this double and
-/// report staging success with no network traffic at all.
+/// It performs no network I/O.
+/// `seed_*`, `set_*`, and `fail_*` define every remote result.
+/// Tests use those injectors to model staging responses.
+/// It implements `GithubApi`, but the trait cannot distinguish
+/// it from the real transport.
+/// A production caller could report staging success without
+/// network traffic.
 ///
-/// It is kept out of the rendered documentation on purpose. Wiring it into a
-/// non-test code path is a defect even though it compiles, so the only
-/// supported consumers are `#[cfg(test)]` modules and test crates.
+/// It is hidden from rendered docs but is not test-gated.
+/// Production wiring is a defect even though it compiles.
+/// Use only in `#[cfg(test)]` modules or test crates.
 ///
-/// Fidelity limits that remain, by design: releases are listed in seeded order
-/// with no filtering, and `get_tag` resolves only explicitly registered tag
-/// objects.
+/// Fidelity limits: releases stay in seeded order.
+/// The fixture applies no filtering.
+/// `get_tag` resolves only explicitly registered tag objects.
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct FixtureGithub {

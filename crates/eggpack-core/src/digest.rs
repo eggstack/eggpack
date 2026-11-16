@@ -227,9 +227,7 @@ mod tests {
         let (size, _) = hash_stream(&mut File::open(&path).unwrap()).unwrap();
         assert_eq!(size, 10);
         fs::write(&path, b"").unwrap();
-        // The path now reads as empty, so the pre-read check refuses it.
         assert_eq!(file_digest(&path).unwrap_err(), DigestError::Empty);
-        // And the post-read step refuses the same path for the same reason.
         assert_eq!(
             post_read_check(&path, size).unwrap_err(),
             DigestError::ChangedDuringRead

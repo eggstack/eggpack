@@ -210,7 +210,7 @@ narrower and still real. The *shape* of the invocation is fixed and finite — o
 interpreter, one script path, one candidate path, no shell, no argument vector, no
 env map (`consumer_validator.rs:526-534`). The *environment* is built by the
 shared runner, which clears it and re-adds a five-variable allowlist
-(`crates/eggpack-core/src/builder.rs:735`, `:724`); the CI side contributes only
+(`crates/eggpack-core/src/builder.rs:735`, `753-754`); the CI side contributes only
 the caller's explicit `PATH` (`consumer_validator.rs:299-300`), stdin is null
 (`builder.rs:736`), and the working directory is explicit
 (`consumer_validator.rs:304`). The *outcome is bounded*: timeout, output limits, a
@@ -240,7 +240,7 @@ bounded runner in `eggpack-core`:
 
 Everything the old private runner did is therefore core's contract, not the CI
 crate's: process-group/job termination on every failure path, a cleared
-environment with a five-variable allowlist (`builder.rs:735`, `:724`), null
+environment with a five-variable allowlist (`builder.rs:735`, `753-754`), null
 stdin (`builder.rs:736`), the exact output truncation in `drain`
 (`builder.rs:942-958`, which keeps `n.min(limit - len)`), and the bounded reader
 joins. The runner outcome maps onto the consumer-validation outcome exactly
@@ -315,7 +315,7 @@ per-target `consumer_validators` map, and optional staging intent. Its doc
 exact future tag, GitHub release id, or artifact digests/sizes;
 `deny_unknown_fields` enforces the negative space, so an injected
 `"release_id":"v1"` is rejected
-(`crates/eggpack-ci/src/tests.rs:4574`).
+(`crates/eggpack-ci/src/tests.rs:4567-4579`).
 `ShapeStagingIntentV1` (`identity.rs:45`) is how staging is expressed in the
 shape: `provider` (must be `StagingProvider::GitHubDraft`,
 `identity.rs:135-139`), an explicit `tag_source` (`RefName` or `DispatchInput`),
@@ -338,7 +338,7 @@ transitively, later, inside `project_ci_plan` and
 projects the graph against the two placeholders `UNRESOLVED_RELEASE_ID`
 (`crates/eggpack-ci/src/identity.rs:37`) and `UNRESOLVED_SOURCE_REVISION`
 (`identity.rs:40`), rewrites identity-carrying input paths to workflow-private
-storage (`render_release.rs:333`, `:353`), renders, then asserts the rendered
+storage (`render_release.rs:333-334`, `:347`), renders, then asserts the rendered
 bytes contain neither placeholder (`render_release.rs:369-373`) — a direct proof
 that no release identity is embedded. `resolve_runtime_release_plan`
 (`identity.rs:162`) turns a runtime identity into a concrete plan through the
@@ -479,10 +479,10 @@ attributes** (80 `#[test]`, 2 `#[tokio::test]`), plus 16
 | `m002a_generated_orchestration_executes_end_to_end` | `tests.rs:1589` | the rendered command/argument/layout contract drives build → capture → qualify → gate → aggregate → M004 finalization directly |
 | `m003d_validator_config_validation` | `tests.rs:3186` | bounds on schema version, interpreter, script path, timeout, output limits |
 | `m003d_consumer_execution_matrix` | `tests.rs:3289` | pass; non-zero exit; timeout; stdout flood → `OutputLimit`; hermetic missing interpreter; size+digest mismatch; symlinked script; symlinked candidate; cancellation → `Cancelled`; misuse → `Err` |
-| `m003d_consumer_gate_matrix` (`tests.rs:4063`), `m003d_consumer_attach_rejects_mismatch` (`tests.rs:4179`), `m003d_consumer_render_gates_and_detects_drift` (`tests.rs:4364`), `m003d_python_mapping_and_hermetic_lookup` (`tests.rs:3940`) | | gate treatment of passed/failed/required/non-gating evidence; attaching a validator to an unknown target or non-existent selector fails; the consumer job renders and drift-detects; the `python3`/`python` mapping |
-| `m003d_shape_validation` (`tests.rs:4574`), `m003d_runtime_resolve_matrix` (`tests.rs:4608`), `m003d_reusable_check_detects_shape_drift` (`tests.rs:4833`), `m003d_runner_commands_cover_consumer_and_resolve` (`tests.rs:4439`) | | shape round-trips and rejects an injected `release_id`; runtime resolution deterministic and fails closed on bad tag/revision/selection; a shape change is detected as drift; `RunnerCommand` covers the consumer and resolve commands |
-| `m003g_validator_restores_exec_on_transferred_candidate` | `tests.rs:5732` | exec bits restored, bytes untouched |
-| `m005_zig_archive_mapping_is_finite_and_official`, `..._listing_validation_without_network`, `m005_provisioned_zig_dir_checks_without_network` | `tests.rs:5831`, `:6214`, `:6240` | exact archive names and the fixed `ziglang.org` URL; listing layout validation offline; provisioned dir validation offline, including symlinked and non-executable `zig` rejection |
+| `m003d_consumer_gate_matrix` (`tests.rs:4056`), `m003d_consumer_attach_rejects_mismatch` (`tests.rs:4172`), `m003d_consumer_render_gates_and_detects_drift` (`tests.rs:4357`), `m003d_python_mapping_and_hermetic_lookup` (`tests.rs:3933`) | | gate treatment of passed/failed/required/non-gating evidence; attaching a validator to an unknown target or non-existent selector fails; the consumer job renders and drift-detects; the `python3`/`python` mapping |
+| `m003d_shape_validation` (`tests.rs:4567`), `m003d_runtime_resolve_matrix` (`tests.rs:4601`), `m003d_reusable_check_detects_shape_drift` (`tests.rs:4826`), `m003d_runner_commands_cover_consumer_and_resolve` (`tests.rs:4432`) | | shape round-trips and rejects an injected `release_id`; runtime resolution deterministic and fails closed on bad tag/revision/selection; a shape change is detected as drift; `RunnerCommand` covers the consumer and resolve commands |
+| `m003g_validator_restores_exec_on_transferred_candidate` | `tests.rs:5725` | exec bits restored, bytes untouched |
+| `m005_zig_archive_mapping_is_finite_and_official`, `..._listing_validation_without_network`, `m005_provisioned_zig_dir_checks_without_network` | `tests.rs:5824`, `:6307`, `:6333` | exact archive names and the fixed `ziglang.org` URL; listing layout validation offline; provisioned dir validation offline, including symlinked and non-executable `zig` rejection |
 
 Three honest caveats:
 
@@ -492,11 +492,9 @@ Three honest caveats:
   ends at aggregate/finalization. **Publication is not exercised anywhere in this
   crate.**
 - The missing-interpreter case in `m003d_consumer_execution_matrix` is
-  `#[cfg(not(windows))]` (`tests.rs:3354`): Windows `CreateProcess` searches the
-  application directory, working directory, and system directories unconditionally,
-  so an emptied PATH cannot simulate a missing interpreter there
-  (`tests.rs:3351-3353`). The Windows lane proves the `python` mapping and the
-  preflight only through the other matrix cases.
+  `#[cfg(not(windows))]` (`tests.rs:3350`): Windows searches fixed paths despite
+  an empty PATH, so only non-Windows hosts can simulate a missing interpreter (`tests.rs:3347-3349`).
+  Windows covers its `python` mapping and preflight in other cases.
 - No test covers a validator that forks. Since CI M003m the validator runs through
   core's process-group runner, so the group semantics are core's contract; this
   crate simply no longer has a process-group gap to exercise.

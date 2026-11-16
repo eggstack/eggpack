@@ -25,17 +25,17 @@ use crate::runner::RunnerCommand;
 use eggpack_contract::DistributionContract;
 use eggpack_core::{BuildStrategy, HostArch, HostOs, Qualification};
 
-/// Emit a private working-directory creation step for generated release jobs.
+/// Emit a private working-directory creation step.
 ///
-/// Directory names are renderer constants drawn from the same job's CLI argv;
-/// no caller input ever reaches the shell. The check documents that only
-/// fixed safe relative paths are representable here.
+/// Paths are renderer constants derived from job argv; caller input
+/// never reaches the shell.
 ///
-/// The check is a refusal, not an assertion: the directory name can be
-/// derived from a contract target triple, and a contract may legally declare
-/// a triple at the contract's own name bound. Such a target produces a
-/// directory name longer than the bound below, and the renderer must refuse
-/// it rather than panic on a caller-supplied document.
+/// Only safe relative paths are emitted.
+///
+/// A contract-valid target may exceed the renderer's 128-byte
+/// directory bound.
+///
+/// Return an error rather than assert or panic on that input.
 fn mkdir_step(out: &mut String, name: &str, dir: &str) -> Result<(), CiError> {
     if dir.is_empty()
         || dir.len() > 128

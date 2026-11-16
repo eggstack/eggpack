@@ -288,7 +288,7 @@ same `resolve_runtime_release_plan_with_mode`
 (`crates/eggpack-ci/src/identity.rs:180-211`) and then validates the resolved
 plan (`crates/eggpack-cli/src/operator.rs:313-314`). The remaining uses are in
 tests (`crates/eggpack-core/src/lib.rs:915`, `:1102`;
-`crates/eggpack-ci/src/tests.rs:6144`).
+`crates/eggpack-ci/src/tests.rs:6123-6146`).
 
 The Zig rule is deferred on purpose, and the reason is written down at
 `crates/eggpack-core/src/lib.rs:508-512`: `zig` is an additive optional field so

@@ -410,7 +410,7 @@ impl DistributionContract {
             return Err(DistError::invalid("contract declares no targets"));
         }
         let all_triples: HashSet<&str> = raw.targets.iter().map(|t| t.triple.as_str()).collect();
-        // Duplicate triples fail without guessing.
+        // Target triples must be unique.
         {
             let mut seen: HashSet<&str> = HashSet::new();
             for t in &raw.targets {

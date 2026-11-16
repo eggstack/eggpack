@@ -314,8 +314,8 @@ invocation and required directories are created first. `plans/registry.md:159`
 records this as the closed M003e corrective ("renderer installs tool before use
 and creates output dirs") and notes that post-closure live dispatch then exposed
 a rejected `-p` install flag, corrected by M003f. The current ordering is
-asserted structurally by `assert_tool_before_use` (`tests.rs:5538`) and
-`assert_mkdir_before_output` (`tests.rs:5581`).
+asserted structurally by `assert_tool_before_use` (`tests.rs:5531`) and
+`assert_mkdir_before_output` (`tests.rs:5574`).
 
 **Cross-build tools.** `cross_tools_section` (`render_github.rs:132`) selects between two modes.
 With no `cross_tools` policy the render is `PreinstalledVerified`:
@@ -382,14 +382,14 @@ against fixtures pulled in with `include_str!`, so the comparison is against the
 tracked bytes as of compile time. There are thirteen `assert_golden` call sites
 (`tests.rs:176`, `tests.rs:410`, `tests.rs:1439`, `tests.rs:1464`, `tests.rs:1481`,
 `tests.rs:1498`, `tests.rs:2106`, `tests.rs:2178`, `tests.rs:2195`, `tests.rs:2212`,
-`tests.rs:7017`, `tests.rs:7034`, `tests.rs:7051`) and nine YAML goldens in
+`tests.rs:7010`, `tests.rs:7027`, `tests.rs:7044`) and nine YAML goldens in
 `crates/eggpack-ci/tests/fixtures/`
 (`m002-*`, `m003b-*-staging`, `native-direct`, `native-direct-multitarget`),
 alongside one contract input, `mixed-direct-targets.toml`.
 
 Three tests are `#[ignore]`d and all three mutate tracked fixtures:
 `m002a_regenerate_goldens` (`tests.rs:1508`), `m003b_regenerate_goldens` (`tests.rs:2113`), and
-`m005_regenerate_m001_multitarget_golden` (`tests.rs:6389`). Each now carries a comment
+`m005_regenerate_m001_multitarget_golden` (`tests.rs:6382`). Each now carries a comment
 above its `#[ignore]` recording that it mutates tracked fixtures, and each calls
 `write_golden`
 (`tests.rs:158`), which is `#[allow(dead_code)]` and writes directly under
@@ -403,8 +403,8 @@ not read-only. Non-golden behavioural coverage worth naming:
 `rendering_is_deterministic_parseable_read_only_and_hands_off_candidate` (`tests.rs:164`),
 `drift_check_normalizes_only_crlf_and_detects_manual_edits` (`tests.rs:225`),
 `m003b_staging_disabled_renders_byte_compatible` (`tests.rs:2090`),
-`m003d_reusable_check_detects_shape_drift` (`tests.rs:4833`),
-`m005_release_renderer_provisions_before_build_with_private_cache` (`tests.rs:6239`).
+`m003d_reusable_check_detects_shape_drift` (`tests.rs:4826`),
+`m005_release_renderer_provisions_before_build_with_private_cache` (`tests.rs:6232`).
 
 The review burden is the honest cost of the split. The crate is a 14-file
 module tree and carries 82 test attributes (80 `#[test]`, 2 `#[tokio::test]`) in

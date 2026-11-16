@@ -3344,13 +3344,9 @@ fn m003d_consumer_execution_matrix() {
         evidence.outcome,
         ConsumerValidationOutcome::Failed(ConsumerValidationFailure::OutputLimit)
     );
-    // Missing interpreter fails rather than skipping (hermetic PATH).
-    // Note: Windows CreateProcess searches the application directory,
-    // working directory, and system directories unconditionally, so an
-    // emptied PATH cannot simulate a missing interpreter there. The
-    // spawn/preflight failure branches are platform-independent code
-    // proven on Linux/macOS lanes, while the Windows lane proves the
-    // `python` mapping and preflight through every other matrix case.
+    // Missing-interpreter failures must not skip. Windows searches fixed
+    // paths despite empty PATH, so this simulation runs on non-Windows only.
+    // Windows covers its `python` mapping and preflight in other cases.
     #[cfg(not(windows))]
     {
         let script = m003d_write_script(&parent, "ok2.py", "pass\n");
@@ -3601,10 +3597,18 @@ fn m003m_run_bounded(
     })
 }
 
-/// Ask the fixture descendants to stop, so a descendant that survived the
-/// run does not outlive the test.
+/// Stop fixture descendants and wait for their heartbeat to settle before
+/// removing files they may still be writing.
 fn m003m_stop_descendants(parent: &Path) {
     let _ = std::fs::write(parent.join("stop"), b"stop\n");
+    let heartbeat = parent.join("heartbeat.txt");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while m003m_descendant_alive(&heartbeat) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "fixture descendant did not stop after cleanup was requested"
+        );
+    }
 }
 
 /// Whether the fixture descendant is still advancing its heartbeat.
@@ -3691,12 +3695,9 @@ fn m003m_runner_outcome_maps_onto_consumer_validation_outcome() {
         outcome,
         ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Cancelled)
     );
-    // Interpreter not launchable. Windows CreateProcess searches the
-    // application directory, the working directory, and the system
-    // directories unconditionally, so an emptied PATH cannot simulate a
-    // missing interpreter there. The spawn/preflight failure branches are
-    // platform-independent code proven on the Linux/macOS lanes, while the
-    // Windows lane proves every other row of the mapping.
+    // Windows searches fixed paths despite empty PATH; only non-Windows can
+    // simulate a missing interpreter. Other cases cover Windows' normal
+    // mapping and preflight.
     #[cfg(not(windows))]
     {
         let script = m003d_write_script(&parent, "ok.py", "pass\n");
@@ -6870,9 +6871,9 @@ fn m003l_sha256_acceptance_set_is_identical_at_every_call_site() {
         );
     }
     // The all-zeros placeholder is refused at every call site.
-    assert!(!validate_sha256_hex(&"0".repeat(64)).is_ok());
-    assert!(!eggpack_manifest::validate_sha256_hex(&"0".repeat(64)).is_ok());
-    assert!(!eggpack_core::validate_sha256_hex(&"0".repeat(64)).is_ok());
+    assert!(validate_sha256_hex(&"0".repeat(64)).is_err());
+    assert!(eggpack_manifest::validate_sha256_hex(&"0".repeat(64)).is_err());
+    assert!(eggpack_core::validate_sha256_hex(&"0".repeat(64)).is_err());
 }
 
 // ---------------------------------------------------------------------

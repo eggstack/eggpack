@@ -32,7 +32,7 @@ boundary is enforced in code, not by convention.
 | No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2380-2381`, `2026`, `2032` |
 
 `--clobber` is a workspace-wide non-goal enforced statically in `eggpack-ci`
-(`crates/eggpack-ci/src/render_release.rs:1309`, `:1316`), not by a flag
+(`crates/eggpack-ci/src/render_release.rs:1323-1328`), not by a flag
 validated here; the rendered workflow is asserted not to contain it by
 `crates/eggpack-ci/src/tests.rs:2237`.
 Publication remains a separate human action: nothing in this crate ever flips a
@@ -403,7 +403,7 @@ Deliberately **not** enforced here, listed honestly:
   is no `tracing`/`log` call in `lib.rs`.
 - **`--clobber` is not a flag in this crate at all**; it is a workspace-level
   non-goal guarded statically in `eggpack-ci`
-  (`crates/eggpack-ci/src/render_release.rs:1323-1324`,
+  (`crates/eggpack-ci/src/render_release.rs:1323-1328`,
   `crates/eggpack-ci/src/tests.rs:2236-2237`).
 - **No authenticity, signature, or provenance claim.** Digests in the payload,
   the upload responses and the receipt are SHA-256 integrity facts only
@@ -466,7 +466,7 @@ Dependents: `eggpack-cli` is a hard dependency
 rendered workflow invokes exactly those two runner commands and never publishes
 or clobbers (`crates/eggpack-ci/src/runner.rs:41-49`, `crates/eggpack-ci/src/runner.rs:71-82`,
 `crates/eggpack-ci/src/runner.rs:135-137`,
-`crates/eggpack-ci/src/tests.rs:1062-1065`, `crates/eggpack-ci/src/tests.rs:4740`).
+`crates/eggpack-ci/src/tests.rs:1062-1065`, `m003d_reusable_render_is_tag_independent` (`crates/eggpack-ci/src/tests.rs:4715`)).
 
 ## Related deep dives
 

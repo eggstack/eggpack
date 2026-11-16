@@ -22,7 +22,9 @@ This line is documentation/evidence reconciliation only. It does not own runtime
 - no new implementation milestone is marked ready merely because research can begin;
 - the registry remains the compact control surface, with detailed evidence in source roadmaps/plans/closures.
 
-## 3. Current state
+## 3. State at M001/M002 closure
+
+This recap records those closeouts; later status is in the milestone table below.
 
 M001 is closed. It reconciled the drift found after Release Manifest M003a and, in doing so, closed three milestones and cleared the ordering gate on a fourth. Its closure record is `plans/closure/planning-hygiene/001-status.md`.
 

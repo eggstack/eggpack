@@ -1673,9 +1673,9 @@ fn ci_stage_github_draft(args: &[String]) -> Result<(), String> {
         policy.max_metadata_bytes,
     )
     .map_err(|_| "github transport failed".to_owned())?;
-    // Staging directory is the parent of the payload file's sibling?
-    // The payload records flat relative paths; the CLI resolves them against
-    // an explicit --staging-dir when present, otherwise the payload's parent.
+    // Payload paths are flat and relative.
+    // Resolve them against --staging-dir when set; otherwise use the
+    // payload file's parent.
     let staging_dir = get_flag_optional(args, "staging-dir")
         .map(PathBuf::from)
         .or_else(|| payload_path.parent().map(PathBuf::from))

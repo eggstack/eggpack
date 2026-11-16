@@ -156,6 +156,13 @@ in `cli.md` were re-based by function name and verified at their new lines.
 classification and byte counts; its line count and the surrounding anchors are
 unchanged.
 
+**2026-11-16 — source-comment cleanup.** Comment-only edits shortened
+`builder.rs` by 7 lines, `digest.rs` by 2, and `eggpack-ci/src/tests.rs` by 7.
+The `render_release.rs` comment was shortened without moving lines; same-line
+rewrites in the CLI, manifest, and GitHub source also preserved anchors. Affected
+architecture citations were rechecked by symbol; the line-count table above
+remains pinned to `fa82486`.
+
 ## How to read this document
 
 This file has two jobs, deliberately:

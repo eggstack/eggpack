@@ -15,7 +15,7 @@ share one set of guarantees.
 
 | Site | Entry point | Spawn call | Deadline | Group handling | Environment |
 | --- | --- | --- | --- | --- | --- |
-| Core build + preflight | `run_bounded_cancellable` (`crates/eggpack-core/src/builder.rs:461`) | `group_spawn()` at `builder.rs:799` | `spec.timeout`, ≤ 86 400 s (`builder.rs:714`) | `command-group` group/job, `kill()` + `wait()` (`builder.rs:820-834`) | `env_clear()` + 20-var allowlist (`builder.rs:735`, `687-710`) |
+| Core build + preflight | `run_bounded_cancellable` (`crates/eggpack-core/src/builder.rs:461`) | `group_spawn()` at `builder.rs:799` | `spec.timeout`, ≤ 86 400 s (`builder.rs:714`) | `command-group` group/job, `kill()` + `wait()` (`builder.rs:820-834`) | `env_clear()` + 19-variable builder allowlist (`builder.rs:735`, `756-778`) |
 | Core qualification smoke (native) | `run_qualification_process` (`builder.rs:569`) | same `run_bounded` | `smoke.timeout_ms` | same shared path | narrower 5-var allowlist (`builder.rs:753-754`) |
 | Core qualification smoke (QEMU) | `run_qemu_process` (`builder.rs:580`) | same `run_bounded` | `smoke.timeout_ms` | same shared path | narrower 5-var allowlist |
 | Core git revision verification | `run_git_bounded` (`builder.rs:512`) | same `run_bounded` | 30 s (`GIT_TIMEOUT`, `builder.rs:29`) | same shared path | 7-var allowlist incl. `HOME` (`builder.rs:743-752`) |
