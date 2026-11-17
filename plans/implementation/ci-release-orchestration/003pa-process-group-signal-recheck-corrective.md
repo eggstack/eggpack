@@ -1,6 +1,6 @@
 # CI/Release Orchestration Milestone 003pa — Process-Group Signal Recheck Corrective
 
-Status: active
+Status: closed
 
 Corrects: CI/Release M003p, closed at `27cb16c` with closure `plans/closure/ci-release-orchestration/003p-status.md`. The historical plan and closure remain unchanged.
 
@@ -63,7 +63,7 @@ Affected invariants:
 - Changing CI validator error-to-outcome mapping or generated workflow bytes.
 - Changing timeout, cancellation, output-limit policy, process-group creation, or public APIs.
 - Suppressing `EPERM` unconditionally, adding privileged test setup, or claiming that a direct-child status proves the whole group is empty.
-- Commits, pushes, remote workflow dispatch, publication, or unrelated pre-existing worktree changes.
+- Remote workflow dispatch, publication, or changes to unrelated pre-existing worktree files. A commit/push requires explicit user authorization; the later authorization to push the implementation candidate solely for hosted CI is recorded in the closure record.
 
 ## 6. Required work packages
 
@@ -114,7 +114,7 @@ cargo test --workspace --all-targets --all-features --locked
 scripts/check-local.sh
 ```
 
-`scripts/check-local.sh` is the canonical gate and includes packaging and the Rust 1.89 MSRV lane. Hosted CI on the exact candidate remains required for closure; no remote dispatch or push is authorized by this plan.
+`scripts/check-local.sh` is the canonical gate and includes packaging and the Rust 1.89 MSRV lane. Hosted CI on the exact candidate remains required for closure. A later explicit user instruction authorized committing and pushing the implementation candidate solely to run CI; no remote workflow dispatch or publication occurred.
 
 ## 9. Acceptance criteria
 
@@ -132,8 +132,8 @@ scripts/check-local.sh
 
 ## 10. Stop conditions
 
-Stop and keep the milestone active if the retry returns any non-`ESRCH` error, if a live or unverified group is accepted, if any descendant test leaks a process, if the Windows path changes, if the local gate fails, if architecture citations are not verified, or if hosted CI for the exact candidate is unavailable or red. Do not commit, push, dispatch, or publish as part of this task.
+Stop and keep the milestone active if the retry returns any non-`ESRCH` error, if a live or unverified group is accepted, if any descendant test leaks a process, if the Windows path changes, if the local gate fails, if architecture citations are not verified, or if hosted CI for the exact candidate is unavailable or red. Do not dispatch or publish. Commit/push requires explicit user authorization; the authorized follow-up push used for CI is documented in the closure record.
 
 ## 11. Closure evidence
 
-The closure record must preserve the distinction between implementation, local checks, hosted CI actually observed, and unavailable evidence. It must include the reviewed baseline, exact candidate identifier if one exists, regression-test outcomes, full local-gate result, hosted lane matrix or explicit gap, invariant/security review, documentation/citation evidence, and the registry/roadmap disposition. The prior M003p closure remains unchanged.
+Closure record: `plans/closure/ci-release-orchestration/003pa-status.md`. M003pa is closed on implementation commit `329a3dfdb166580de4770b2c6b2f046358983003` after `scripts/check-local.sh` returned 0 and hosted run `44118309795` passed all four lanes on that exact SHA. The record distinguishes implementation evidence, local verification, hosted results, and the remaining informational observation. The prior M003p plan and closure remain unchanged.

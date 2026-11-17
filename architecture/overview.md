@@ -9,12 +9,13 @@ It deliberately does **not** replace Eggup: Eggup remains the consumer-side
 verified installation/update/rollback layer, and the product repository owns
 release/install policy. See [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md).
 
-Code baseline `1cd6d0bf43c93dc9fd572c2d69a3a675a2958b09` — the committed `HEAD`
-immediately before CI/Release M003pa's source change. The core line counts below
-were remeasured on the current worktree, including the M003pa `builder.rs` patch,
-and the affected citations were checked against that tree.
-This is a worktree verification, not an immutable closure baseline; remeasure and
-recheck against the exact candidate before closing M003pa.
+Code baseline `1cd6d0bf43c93dc9fd572c2d69a3a675a2958b09` — the committed source
+immediately before M003pa. The core line counts below were measured and affected
+citations checked by symbol against exact implementation candidate
+`329a3dfdb166580de4770b2c6b2f046358983003`; hosted run `44118309795` passed all
+four lanes. M003pa is closed; its evidence is recorded in
+`plans/closure/ci-release-orchestration/003pa-status.md`. Remeasure and recheck
+citations against any later source change.
 Milestone/evidence statuses are **not** restated here; `plans/registry.md` is the
 authority for those, and [principles-roadmap.md](principles-roadmap.md) narrates
 them.
@@ -164,17 +165,17 @@ rewrites in the CLI, manifest, and GitHub source also preserved anchors. Affecte
 architecture citations were rechecked by symbol; the line-count table above
 remains pinned to `fa82486`.
 
-**2026-11-17 — CI/Release M003pa process-group recheck (active).** The shared
-runner now retries after reaping an exited leader and accepts only retry success
-or `ESRCH`; a live or unverified group remains a hard failure. The helper and
-retry outcomes are covered by deterministic tests, and the live-descendant test
-uses an explicit release marker to prove that a surviving process would be
-observed. The `run_bounded` anchor is `builder.rs:698`; the timeout regression
-anchor is `builder.rs:1835`, both checked by symbol name. Current `eggpack-core`
-source count is 9109 (`builder.rs` 2078, `digest.rs` 325), measured on the
-current worktree based on `1cd6d0bf43c93dc9fd572c2d69a3a675a2958b09`.
-`scripts/check-local.sh` passed on the current code. Hosted CI is not yet run;
-the milestone remains active.
+**2026-11-17 — CI/Release M003pa process-group recheck (closed).** The shared
+runner retries after reaping an exited leader and accepts only retry success or
+`ESRCH`; a live or unverified group remains a hard failure. Deterministic helper
+coverage and the release-marker live-descendant regression passed. The
+`run_bounded` anchor is `builder.rs:698`; the timeout regression anchor is
+`builder.rs:1835`, both checked by symbol name. The `eggpack-core` source count is
+9109 (`builder.rs` 2078, `digest.rs` 325), measured against the implementation
+candidate `329a3dfdb166580de4770b2c6b2f046358983003` from baseline
+`1cd6d0bf43c93dc9fd572c2d69a3a675a2958b09`. `scripts/check-local.sh` passed, and
+hosted run `44118309795` passed Linux stable, Linux 1.89.0, macOS, and Windows on
+the exact candidate. Closure evidence: `plans/closure/ci-release-orchestration/003pa-status.md`.
 
 ## How to read this document
 
