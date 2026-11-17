@@ -625,53 +625,53 @@ fn run_bounded_inner(
     run_bounded(&run, cancellation, allowance)
 }
 
-/// Whether a failed group signal can be ignored.
+/// Whether a failed group signal is resolved by the kernel or a safe retry.
 ///
-/// `ESRCH` means the group holds no process at all, which is exactly the
-/// state the signal was meant to reach.
+/// `ESRCH` proves the group is absent. For another error, an exited leader
+/// must first be reaped and the whole group signalled again; only a successful
+/// retry or retry `ESRCH` establishes that termination is complete.
 ///
-/// Otherwise the supervised child may have exited between the decision to
-/// terminate and the signal itself. It then stays in the group as a zombie
-/// until it is reaped, and an unreaped zombie cannot be signalled: Linux
-/// signals the group anyway, while macOS refuses the whole group and reports
-/// `EPERM`. When the child has already exited there is no child left to
-/// terminate, so the failure is benign for the same reason `ESRCH` is.
+/// The initial error is not proof that the group is empty. In particular,
+/// macOS `EPERM` can mean a group member is unsignalable, not absent.
+/// `try_wait` reports only the supervised leader and cannot inventory the
+/// remaining process group.
 ///
-/// A group that holds a live process and still cannot be signalled is a hard
-/// failure. That is the case where the child has not exited and the errno is
-/// not `ESRCH`, and the run must fail closed.
+/// The retry closure is lazy and runs only after the leader has exited and
+/// been reaped. It sends the same group signal again, so live descendants are
+/// still targeted. Any retry error other than `ESRCH` remains a hard failure.
+/// Pipe EOF is not group inventory: descendants may close inherited pipes
+/// and remain alive. This helper is used by each Unix termination path.
 #[cfg(unix)]
-fn group_signal_failure_is_benign(error: &std::io::Error, child_exited: bool) -> bool {
+fn group_signal_failure_is_benign(
+    error: &std::io::Error,
+    child_exited: bool,
+    retry_group_signal: impl FnOnce() -> std::io::Result<()>,
+) -> bool {
     if error.raw_os_error() == Some(libc::ESRCH) {
         return true;
     }
-    child_exited
+    if !child_exited {
+        return false;
+    }
+    match retry_group_signal() {
+        Ok(()) => true,
+        Err(retry_error) => retry_error.raw_os_error() == Some(libc::ESRCH),
+    }
 }
 
-/// Terminate the supervised process group, tolerating a group with nothing
-/// left to terminate.
+/// Terminate the supervised process group, tolerating only proven completion.
 ///
-/// The group's only member is the supervised child. When that child has
-/// already exited it stays in the group as a zombie until it is reaped, and
-/// the group holds no process at all once it is reaped. Signalling a group
-/// that holds nothing is reported by the kernel as `ESRCH` — "no such
-/// process group" — and `command-group` documents that a group which has
-/// already exited produces an error from `kill`.
+/// On macOS, signalling a group containing an unreaped zombie can fail with
+/// `EPERM`; reaping the leader may make the group empty, but it may also leave
+/// live descendants. Therefore, after any non-`ESRCH` failure, the runner
+/// reaps an exited leader and retries the group signal. A successful retry
+/// reaches remaining members; retry `ESRCH` proves the group is empty. Every
+/// other retry error remains a hard failure.
 ///
-/// The two supported platforms disagree about the zombie case. Linux signals
-/// a zombie successfully, while macOS refuses to signal a group that holds
-/// one and reports `EPERM` for the whole group. A run whose child exited just
-/// before the runner noticed that its output bound was exceeded would
-/// therefore terminate cleanly on one platform and fail on the other, and it
-/// would report an output-bound violation as a launch failure, because the
-/// caller maps every runner error onto that outcome.
-///
-/// This is exact rather than permissive. `ESRCH` is the kernel's own
-/// statement that the group holds no process, and a child that has already
-/// exited is not a process that can outlive the run. A descendant that
-/// outlives the child is caught by the drain budget, which fails the run
-/// closed. Every other case — a group that holds a live process and cannot
-/// be signalled — remains a hard failure.
+/// The drain budget detects a descendant that keeps a pipe open, but a
+/// descendant that closes its pipes is not observable through that budget.
+/// Group termination, not pipe state or leader status, is the authority here.
+/// Existing timeout, cancellation, and output-limit classification is unchanged.
 fn terminate_process_group(
     child: &mut command_group::GroupChild,
     message: &str,
@@ -679,15 +679,17 @@ fn terminate_process_group(
     match child.kill() {
         Ok(()) => Ok(()),
         Err(error) => {
-            // `try_wait` reaps a child that has already exited, so this both
-            // observes and clears the zombie that made the signal fail.
-            let child_exited = matches!(child.try_wait(), Ok(Some(_)));
+            // Reap the leader before retrying; its exit alone says nothing
+            // about other members that may still be in the process group.
+            let child_wait = child.try_wait();
             #[cfg(unix)]
-            if group_signal_failure_is_benign(&error, child_exited) {
+            let child_exited = child_wait.as_ref().is_ok_and(Option::is_some);
+            #[cfg(unix)]
+            if group_signal_failure_is_benign(&error, child_exited, || child.kill()) {
                 return Ok(());
             }
             #[cfg(not(unix))]
-            let _ = child_exited;
+            let _ = child_wait;
             Err(build_err(message))
         }
     }
@@ -1692,15 +1694,91 @@ mod tests {
     }
     #[cfg(unix)]
     #[test]
-    fn a_failed_group_signal_is_benign_only_when_nothing_is_left_to_terminate() {
+    fn a_failed_group_signal_is_benign_only_after_recheck_proves_termination() {
         let no_such_group = std::io::Error::from_raw_os_error(libc::ESRCH);
         let not_permitted = std::io::Error::from_raw_os_error(libc::EPERM);
-        // The group is empty.
-        assert!(group_signal_failure_is_benign(&no_such_group, false));
-        // The group holds only the zombie of a child that already exited.
-        assert!(group_signal_failure_is_benign(&not_permitted, true));
-        // The group holds a live process that cannot be signalled.
-        assert!(!group_signal_failure_is_benign(&not_permitted, false));
+
+        assert!(group_signal_failure_is_benign(
+            &no_such_group,
+            false,
+            || { panic!("ESRCH must not trigger a retry") }
+        ));
+        assert!(!group_signal_failure_is_benign(
+            &not_permitted,
+            false,
+            || { panic!("a live or unverified child must not trigger a retry") }
+        ));
+        assert!(group_signal_failure_is_benign(&not_permitted, true, || Ok(
+            ()
+        )));
+        assert!(group_signal_failure_is_benign(&not_permitted, true, || {
+            Err(std::io::Error::from_raw_os_error(libc::ESRCH))
+        }));
+        assert!(!group_signal_failure_is_benign(
+            &not_permitted,
+            true,
+            || { Err(std::io::Error::from_raw_os_error(libc::EPERM)) }
+        ));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn terminating_an_exited_leader_still_signals_a_live_group_descendant() {
+        let root = crate::test_temp_dir("group-descendant-termination");
+        let started = root.join("descendant-started");
+        let release = root.join("descendant-release");
+        let survived = root.join("descendant-survived");
+        let started_arg = started.to_string_lossy().into_owned();
+        let release_arg = release.to_string_lossy().into_owned();
+        let survived_arg = survived.to_string_lossy().into_owned();
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "sh -c 'printf started > \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; printf survived > \"$3\"' sh \"$1\" \"$2\" \"$3\" >/dev/null 2>&1 & exit 0",
+            "group-fixture",
+            started_arg.as_str(),
+            release_arg.as_str(),
+            survived_arg.as_str(),
+        ]);
+        let mut child = command.group_spawn().unwrap();
+
+        let leader_deadline = Instant::now() + Duration::from_secs(3);
+        let leader_status = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) if Instant::now() < leader_deadline => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                _ => break None,
+            }
+        };
+        let descendant_deadline = Instant::now() + Duration::from_secs(1);
+        while !started.is_file() && Instant::now() < descendant_deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let terminated = terminate_process_group(&mut child, "test termination").is_ok();
+        if !terminated {
+            let _ = child.kill();
+        }
+        // If a live descendant was incorrectly left behind, releasing it makes
+        // it write a marker rather than relying on an arbitrary sleep duration.
+        fs::write(&release, "release").unwrap();
+        let survivor_deadline = Instant::now() + Duration::from_secs(1);
+        while !survived.is_file() && Instant::now() < survivor_deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        let descendant_started = started.is_file();
+        let descendant_survived = survived.exists();
+        let leader_succeeded = leader_status.is_some_and(|status| status.success());
+        fs::remove_dir_all(root).unwrap();
+
+        assert!(leader_succeeded, "the group leader must exit normally");
+        assert!(descendant_started, "the live descendant fixture must start");
+        assert!(terminated, "the process group must be terminated");
+        assert!(
+            !descendant_survived,
+            "the descendant must not outlive group termination"
+        );
     }
     #[test]
     fn nonzero_tool_exit_is_not_success() {
