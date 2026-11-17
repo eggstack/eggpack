@@ -1,6 +1,6 @@
 # Planning Hygiene M003 — Post-Implementation Review Baseline Reconciliation
 
-Status: **ready for implementation**.
+Status: **closed** — see `plans/closure/planning-hygiene/003-status.md`.
 
 Repository baseline: `eggstack/eggpack@fb81aa1400e1f333f6500075f78d944a9242b673` (2026-10-23).
 Source roadmap: `plans/subsystems/planning-hygiene-roadmap.md`.

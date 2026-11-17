@@ -1,6 +1,6 @@
 # CI/Release M003l — Producer Rule Authority Convergence Corrective
 
-Status: **blocked** on CI M003k merge, and on ADR-0006 for the digest-validator work package.
+Status: **closed** — see `plans/closure/ci-release-orchestration/003l-status.md`.
 
 Repository baseline: `eggstack/eggpack@fb81aa1400e1f333f6500075f78d944a9242b673` (2026-10-23).
 Source roadmap: `plans/subsystems/ci-release-orchestration-roadmap.md`.

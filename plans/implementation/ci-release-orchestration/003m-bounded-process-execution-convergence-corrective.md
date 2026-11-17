@@ -1,6 +1,6 @@
 # CI/Release M003m — Bounded Process Execution Convergence Corrective
 
-Status: **blocked** on CI M003l.
+Status: **closed** — see `plans/closure/ci-release-orchestration/003m-status.md`.
 
 Repository baseline: `eggstack/eggpack@fb81aa1400e1f333f6500075f78d944a9242b673` (2026-10-23).
 Source roadmap: `plans/subsystems/ci-release-orchestration-roadmap.md`.

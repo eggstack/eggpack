@@ -9,11 +9,13 @@ It deliberately does **not** replace Eggup: Eggup remains the consumer-side
 verified installation/update/rollback layer, and the product repository owns
 release/install policy. See [eggup-manifest-consumer-v1.md](eggup-manifest-consumer-v1.md).
 
-Code baseline `fa82486dab83d2369d330a3cef197a3651851c26` — the tree the line
-counts and the `file:line` citations in this directory were measured and
-verified against. That is the SHA the numbers below describe: this index changes
-no Rust source, so the counts and citations stay true of the tree it commits onto.
-Re-verify them against the workspace if you edit the overview again.
+Code baseline `1cd6d0bf43c93dc9fd572c2d69a3a675a2958b09` — the committed source
+immediately before M003pa. The core line counts below were measured and affected
+citations checked by symbol against exact implementation candidate
+`329a3dfdb166580de4770b2c6b2f046358983003`; hosted run `44118309795` passed all
+four lanes. M003pa is closed; its evidence is recorded in
+`plans/closure/ci-release-orchestration/003pa-status.md`. Remeasure and recheck
+citations against any later source change.
 Milestone/evidence statuses are **not** restated here; `plans/registry.md` is the
 authority for those, and [principles-roadmap.md](principles-roadmap.md) narrates
 them.
@@ -163,6 +165,18 @@ rewrites in the CLI, manifest, and GitHub source also preserved anchors. Affecte
 architecture citations were rechecked by symbol; the line-count table above
 remains pinned to `fa82486`.
 
+**2026-11-17 — CI/Release M003pa process-group recheck (closed).** The shared
+runner retries after reaping an exited leader and accepts only retry success or
+`ESRCH`; a live or unverified group remains a hard failure. Deterministic helper
+coverage and the release-marker live-descendant regression passed. The
+`run_bounded` anchor is `builder.rs:698`; the timeout regression anchor is
+`builder.rs:1835`, both checked by symbol name. The `eggpack-core` source count is
+9109 (`builder.rs` 2078, `digest.rs` 325), measured against the implementation
+candidate `329a3dfdb166580de4770b2c6b2f046358983003` from baseline
+`1cd6d0bf43c93dc9fd572c2d69a3a675a2958b09`. `scripts/check-local.sh` passed, and
+hosted run `44118309795` passed Linux stable, Linux 1.89.0, macOS, and Windows on
+the exact candidate. Closure evidence: `plans/closure/ci-release-orchestration/003pa-status.md`.
+
 ## How to read this document
 
 This file has two jobs, deliberately:
@@ -241,18 +255,19 @@ contract   manifest
 |---|---|---|
 | `eggpack-contract` | 2937 (2449 + 488 tests) | [contract.md](contract.md) |
 | `eggpack-manifest` | 1536 | [manifest.md](manifest.md) |
-| `eggpack-core` | 8935 (6 files) | [core.md](core.md) |
+| `eggpack-core` | 9109 (6 files) | [core.md](core.md) |
 | `eggpack-bootstrap` | 3587 | [bootstrap.md](bootstrap.md) |
 | `eggpack-ci` | 12945 (14 files) | [ci.md](ci.md) |
 | `eggpack-github` | 5498 (3439 + 2059 tests) | [github.md](github.md) |
 | `eggpack-cli` | 8523 (5711 + 2812 tests) | [cli.md](cli.md) |
 
-Counts are Rust source lines per crate, measured against the baseline named
-above: every `.rs` file under `crates/<crate>/`, production and test code alike.
-A count in parentheses is the split inside the total — `production + tests`. The
-test code lives in a `#[cfg(test)]` module in `src/` for every crate except
-`contract` (whose conformance and fixture tests are separate `tests/` targets)
-and `ci` and `github` (whose test modules are separate out-of-line files).
+Counts are Rust source lines per crate, measured on the current worktree
+described above: every `.rs` file under `crates/<crate>/`, production and test
+code alike. A count in parentheses is the split inside the total — `production +
+tests`. The test code lives in a `#[cfg(test)]` module in `src/` for every crate
+except `contract` (whose conformance and fixture tests are separate `tests/`
+targets) and `ci` and `github` (whose test modules are separate out-of-line
+files).
 
 ### `eggpack-contract` — layout authority and validators
 
@@ -300,10 +315,10 @@ revision verification and for the consumer validator:
 | File | Lines | Stage | Deep dive |
 |---|---|---|---|
 | `src/lib.rs` | 1384 | `PackConfig` → `ReleasePlan`, policy types, `build_manifest` | [core-planning.md](core-planning.md) |
-| `src/builder.rs` | 1902 | bindings, command specs, bounded execution, candidate discovery | [core-build.md](core-build.md) |
+| `src/builder.rs` | 2078 | bindings, command specs, bounded execution, candidate discovery | [core-build.md](core-build.md) |
 | `src/qualification.rs` | 2982 | qualification methods, host matching, evidence | [core-qualification.md](core-qualification.md) |
 | `src/finalization.rs` | 928 | `finalize_release`, archive assembly, manifest aggregation | [core-finalization.md](core-finalization.md) |
-| `src/digest.rs` | 327 | the one bounded file-digest authority | [core-finalization.md](core-finalization.md) |
+| `src/digest.rs` | 325 | the one bounded file-digest authority | [core-finalization.md](core-finalization.md) |
 | `src/floor.rs` | 1412 | bounded ELF compatibility-floor inspection | [core-qualification.md](core-qualification.md) |
 
 Crate-level orientation, dependency direction, and the cross-file data

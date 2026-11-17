@@ -1,6 +1,6 @@
 # Planning Hygiene M002 — Post-M003a Cross-Repository Handoff Reconciliation
 
-Status: ready
+Status: **closed** — see `plans/closure/planning-hygiene/002-status.md`.
 
 Class: planning / closure hygiene / cross-repository handoff reconciliation
 

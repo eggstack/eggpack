@@ -1,6 +1,6 @@
 # Contract and Conformance Roadmap
 
-Status: active
+Status: complete
 
 Long-term references:
 
