@@ -1,6 +1,6 @@
 # Eggup Interoperability Roadmap
 
-Status: active
+Status: complete
 
 Long-term references:
 

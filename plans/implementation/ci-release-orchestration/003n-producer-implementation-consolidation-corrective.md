@@ -1,6 +1,6 @@
 # CI/Release M003n — Producer Implementation Consolidation Corrective
 
-Status: **blocked** on CI M003m.
+Status: **closed** — see `plans/closure/ci-release-orchestration/003n-status.md`.
 
 Repository baseline: `eggstack/eggpack@fb81aa1400e1f333f6500075f78d944a9242b673` (2026-10-23).
 Source roadmap: `plans/subsystems/ci-release-orchestration-roadmap.md`.
