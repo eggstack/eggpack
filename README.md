@@ -43,6 +43,7 @@ publication remains a separate human action.
 ## Documentation
 
 - [Quickstart](docs/quickstart.md): complete sample release and workflow walkthrough.
+- [Release preparation](docs/release-process.md): versioning, verification, and the release/publication boundary.
 - [Release identity policy](docs/release-identity-policy.md): map `vMAJOR.MINOR.PATCH` tags to unprefixed manifest IDs.
 - [CLI command reference](crates/eggpack-cli/README.md): commands, flags, inputs, outputs, and exit behavior.
 - [Guide index](docs/README.md): user guides and reference links.

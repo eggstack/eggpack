@@ -189,7 +189,7 @@ versioned processes, and it will fail at CI runtime rather than at compile time.
 ## Dependencies / dependents
 
 Dependencies: `eggpack-contract`, `eggpack-core`, `serde`, `serde_json`,
-`sha2`. Dev-dependencies: `serde_yaml` (for test assertions only), plus
+`sha2`. Dev-dependencies: `serde-saphyr` (for test assertions only), plus
 `eggpack-manifest`, `eggpack-bootstrap`, `eggpack-github`, and `tokio` so the
 crate's own end-to-end orchestration tests can drive the real downstream crates
 without a network.
