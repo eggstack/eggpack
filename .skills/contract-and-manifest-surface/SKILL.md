@@ -39,12 +39,16 @@ So "it's optional, so it's safe" is false here. A shape change to the published
 manifest is a compatibility event, not a convenience. It needs a plan, an ADR if
 it establishes a public compatibility contract, and downstream coordination.
 
-`eggpack-manifest 0.1.1` is the latest version published on crates.io; `0.1.0`
-remains published and resolvable. This tree prepares `0.1.2`, which is not
-published by this change. The published `0.1.1` carries two narrowings of the
-acceptance set — the ADR-0006 all-zeros digest refusal and the document bound
-that `ReleaseManifest::validate` now measures — and both are recorded as
-compatibility events in `plans/closure/release-manifest/004-status.md`.
+`eggpack-manifest 0.1.2` is the latest version published on crates.io;
+`0.1.0` and `0.1.1` remain published and resolvable. Version `0.1.2` was
+published from source commit `d924a44bb6cd640998f197be7c2eb723cc891cbd`, with
+checksum `4bbbe8d12026adf7c8e8ddaecbed0c6ac403a5621d4dd1ac9949f8daf8149a09`
+and tag `eggpack-manifest-v0.1.2`. It adds no runtime or public API change; the
+crate delta is version/package metadata and a test comment. The published
+`0.1.1` carries two narrowings of the acceptance set — the ADR-0006 all-zeros
+digest refusal and the document bound that `ReleaseManifest::validate` now
+measures — and both are recorded as compatibility events in
+`plans/closure/release-manifest/004-status.md`.
 `eggup-eggpack` consumes `=0.1.0` and is the named affected consumer; it pins an
 exact version, so it does not pick up later patches automatically, and its bump
 needs a plan registered in the Eggup repository. The other six workspace crates

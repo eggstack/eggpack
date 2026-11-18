@@ -8,10 +8,10 @@ a GitHub release.
 
 Eggpack has two independently versioned release units:
 
-| Unit | Version source | Current candidate | Publication state |
+| Unit | Version source | Version in this tree | Publication state |
 |---|---|---:|---|
-| `eggpack` CLI and the six workspace crates that inherit the workspace version | `[workspace.package].version` in the root `Cargo.toml` | `0.1.1` (from `0.1.0`) | The six crates are not published to crates.io. A workspace version bump does not publish them. |
-| `eggpack-manifest` | Its explicit `version` in `crates/eggpack-manifest/Cargo.toml` | `0.1.2` (from `0.1.1`) | `0.1.1` is the latest published version. `0.1.2` is only a candidate until separately authorized and published. |
+| The six workspace crates inheriting the workspace version, including `eggpack-cli` | `[workspace.package].version` in the root `Cargo.toml` | `0.1.1` (from `0.1.0`) | The six crates remain unpublished to crates.io; a workspace version bump does not publish them or produce a CLI artifact release. |
+| `eggpack-manifest` | Its explicit `version` in `crates/eggpack-manifest/Cargo.toml` | `0.1.2` (from `0.1.1`) | Published 2026-11-18; release identity and verification evidence are below. |
 
 Only `eggpack-manifest` has been published from this workspace. It has its own
 version because its compatibility and publication history is independent of the
@@ -58,14 +58,27 @@ already-existing exact tag and can create or reconcile a **draft** only. It does
 not create or move tags, publish a release, or overwrite immutable assets. A
 human must separately review and publish any draft.
 
-A crates.io publication of `eggpack-manifest` is also a separate, explicit
-human-controlled action with its own package-source, compatibility, and
+A crates.io publication of `eggpack-manifest` is a separate, explicit
+human-controlled action with package-source, compatibility, and
 post-publication evidence requirements. Use the completed `eggpack-manifest`
-0.1.1 M004 plan and closure as the precedent; do not infer or run a publication
-command from this preparation guide. Never use `--allow-dirty` for publication.
+0.1.1 M004 plan and closure as the precedent, and never use `--allow-dirty`
+for publication.
 
-For this preparation, no tag was created, no draft was staged, no package was
-published, and no GitHub release was created.
+The `eggpack-manifest 0.1.2` publication completed on 2026-11-18 from source
+commit `d924a44bb6cd640998f197be7c2eb723cc891cbd`. Hosted CI run
+[44322496383](https://github.com/eggstack/eggpack/actions/runs/44322496383)
+passed all four lanes on that commit. `cargo package -p eggpack-manifest
+--locked` and `cargo publish -p eggpack-manifest --locked --dry-run` passed from
+the clean tree. Crates.io reports `0.1.2` as non-yanked with checksum
+`4bbbe8d12026adf7c8e8ddaecbed0c6ac403a5621d4dd1ac9949f8daf8149a09`; the
+annotated tag `eggpack-manifest-v0.1.2` points at the same source commit. An
+external consumer pinned to `=0.1.2` resolved the registry checksum and passed
+a schema-v1 JSON parse/round-trip smoke test. Relative to `0.1.1`, the crate
+change is version/package metadata and a test comment only; the runtime
+implementation and public API are unchanged.
+
+No GitHub draft or GitHub release was created, and no CLI/workspace crate or
+CLI artifact was published.
 
 ## References
 
