@@ -78,7 +78,7 @@ draft to published.
 | `RemoteRelease` | `1635` | Release summary including `draft`, `immutable`, `upload_url`. |
 | `RemoteAsset` | `1656` | `{ id, name, size, state, digest }`; `digest` is `Option<String>` shaped `sha256:<hex>`. |
 | `trait GithubApi` | `1674` | The provider seam (`1669-1734`). |
-| `EggfetchTransport` | `2264` | Production transport over `eggfetch-core 0.2.0`; `impl GithubApi` at `2395-2627`. |
+| `EggfetchTransport` | `2264` | Production transport over `eggfetch-core 0.3.0`; `impl GithubApi` at `2395-2627`. |
 | `FixtureGithub` | `2661` | In-memory double; `impl GithubApi` at `2824-3022`. |
 | `fixture_release` / `fixture_asset` | `2786` / `2808` | Constructors for fixture records. |
 
@@ -439,7 +439,7 @@ Dependencies (`crates/eggpack-github/Cargo.toml:14-26`): `eggpack-contract`
 (layout authority — `DistributionContract`, `ExpandedAssets`),
 `eggpack-manifest` (`ReleaseManifest`), `eggpack-core` (finalized-release
 types), `eggpack-bootstrap` (installer rendering), plus `serde` / `serde_json`,
-`sha2`, `tokio` (`rt,time,macros,net,io-util`), `eggfetch-core 0.2.0` with
+`sha2`, `tokio` (`rt,time,macros,net,io-util`), `eggfetch-core 0.3.0` with
 `default-features = false` and features `standard-http1`, `tls-rustls`,
 `tls-native-roots`, `json`, `bytes`, `futures-util`, and `url`. Dev-only:
 `tokio` with `rt-multi-thread`.

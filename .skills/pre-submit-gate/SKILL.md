@@ -51,9 +51,10 @@ dependency or version drift silently rewrites `Cargo.lock` and you find out at
 
 ## `cargo package` needs the patch flags — copy them, do not invent them
 
-`eggpack-contract` and `eggpack-manifest` are not published to crates.io yet, so
-packaging any crate that depends on them fails unless each unpublished
-dependency is patched to its local path:
+`eggpack-contract` remains unpublished. `eggpack-manifest 0.1.2` is the
+latest published version and is the version carried by this tree. Package checks
+patch both to local paths so dependent crates are validated against the current
+workspace sources:
 
 ```bash
 cargo package -p eggpack-ci --locked --allow-dirty \
@@ -66,10 +67,11 @@ cargo package -p eggpack-ci --locked --allow-dirty \
 
 The set is exactly the transitive in-workspace dependency closure of the crate
 being packaged. The authoritative copy for all seven is `scripts/check-local.sh` —
-read it rather than reconstructing it. **Never bare `cargo publish`**: the only
-crate published from this workspace is `eggpack-manifest` 0.1.0, publication is a
-deliberate milestone, and `--allow-dirty` on `package` is for local verification
-only.
+read it rather than reconstructing it. **Never bare `cargo publish`**:
+`eggpack-manifest` is the only crate published from this workspace; `0.1.2` is
+the latest published version. The six workspace crates inheriting the workspace
+version remain unpublished. Publication is a deliberate milestone, and
+`--allow-dirty` on `package` is for local verification only.
 
 `--allow-dirty` is safe *here* because packaging is a local verification step and
 publishing is a separate human action. Do not carry that flag into a release.

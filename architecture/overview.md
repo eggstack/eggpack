@@ -380,7 +380,7 @@ runtime identity contract (`ReleaseWorkflowShapeV1`,
 the in-memory GitHub double `FixtureGithub` and its fault injectors live in
 `src/lib.rs`, **not** in `tests.rs`, and are not test-gated — they ship in the
 crate's public API. Depends on `contract`,
-`manifest`, `core`, and `bootstrap`; adds `tokio` + `eggfetch-core 0.2.0` for
+`manifest`, `core`, and `bootstrap`; adds `tokio` + `eggfetch-core 0.3.0` for
 HTTP. Materializes a local `StagingPayloadV1` from a finalized release
 (`prepare_staging_payload`, `prepare_staging_payload_with_presentation`) and
 reconciles it into a **draft** through the `GithubApi` trait

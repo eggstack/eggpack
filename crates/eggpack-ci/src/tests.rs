@@ -180,14 +180,14 @@ fn rendering_is_deterministic_parseable_read_only_and_hands_off_candidate() {
         CIPlan::from_json(&encoded.replace("\"schema_version\":1", "\"schema_version\":2"))
             .is_err()
     );
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&output).unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&output).unwrap();
     assert!(parsed.get("jobs").is_some());
-    let permissions = parsed["permissions"].as_mapping().unwrap();
+    let permissions = parsed["permissions"].as_object().unwrap();
     assert_eq!(permissions.len(), 1);
     assert_eq!(permissions.get("contents").unwrap().as_str(), Some("read"));
-    let jobs = parsed["jobs"].as_mapping().unwrap();
+    let jobs = parsed["jobs"].as_object().unwrap();
     for (_, job) in jobs {
-        let permissions = job["permissions"].as_mapping().unwrap();
+        let permissions = job["permissions"].as_object().unwrap();
         assert_eq!(permissions.len(), 1);
         assert_eq!(permissions.get("contents").unwrap().as_str(), Some("read"));
     }
@@ -405,7 +405,7 @@ fn canonical_multi_target_native_and_cross_jobs_are_sorted_and_explicit() {
     assert!(graph.validate().is_ok());
     let github = policy();
     let workflow = render_github(&graph, &github).unwrap();
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&workflow).unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&workflow).unwrap();
     assert!(parsed.get("jobs").is_some());
     assert_golden(
         &workflow,
@@ -1030,11 +1030,11 @@ fn m002_renderer_is_deterministic_read_only_pinned_and_gated() {
     let policy = m002_policy();
     let first = render_release_github(&graph, &policy).unwrap();
     assert_eq!(first, render_release_github(&graph, &policy).unwrap());
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&first).unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&first).unwrap();
     assert!(parsed.get("jobs").is_some());
     // Read-only permissions everywhere.
-    for (_, job) in parsed["jobs"].as_mapping().unwrap() {
-        let permissions = job["permissions"].as_mapping().unwrap();
+    for (_, job) in parsed["jobs"].as_object().unwrap() {
+        let permissions = job["permissions"].as_object().unwrap();
         assert_eq!(permissions.len(), 1);
         assert_eq!(permissions.get("contents").unwrap().as_str(), Some("read"));
     }
@@ -2230,7 +2230,7 @@ fn m003b_rendered_staging_is_least_privilege_and_exact() {
         vec!["linux-x64"],
     );
     let yaml = render_release_github(&graph, &policy).unwrap();
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&yaml).unwrap();
     // Top-level read-only; no id-token write anywhere.
     assert!(!yaml.contains("id-token: write"));
     assert!(!yaml.contains("gh release"));
@@ -2251,10 +2251,10 @@ fn m003b_rendered_staging_is_least_privilege_and_exact() {
     let group = concurrency.get("group").unwrap().as_str().unwrap();
     assert!(!group.contains("inputs.release_tag"));
     assert!(group.contains("github.ref"));
-    let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+    let jobs = parsed.get("jobs").unwrap().as_object().unwrap();
     let mut writers = Vec::new();
     for (name, job) in jobs {
-        let name = name.as_str().unwrap();
+        let name = name.as_str();
         let permissions = job.get("permissions").unwrap();
         let contents = permissions.get("contents").unwrap().as_str().unwrap();
         if contents == "write" {
@@ -2271,7 +2271,7 @@ fn m003b_rendered_staging_is_least_privilege_and_exact() {
     let needs: Vec<&str> = stage
         .get("needs")
         .unwrap()
-        .as_sequence()
+        .as_array()
         .unwrap()
         .iter()
         .map(|value| value.as_str().unwrap())
@@ -2283,13 +2283,11 @@ fn m003b_rendered_staging_is_least_privilege_and_exact() {
     assert!(condition.contains("github.ref_type == 'tag'"));
     // No untrusted PR trigger may reach the write job: the workflow
     // triggers are push + workflow_dispatch only (no pull_request).
-    let triggers = parsed.get("on").unwrap().as_mapping().unwrap();
+    let triggers = parsed.get("on").unwrap().as_object().unwrap();
     assert!(triggers.get("push").is_some());
-    assert!(!triggers.keys().any(|key| key
-        .as_str()
-        .is_some_and(|name| name.contains("pull_request"))));
-    let steps = stage.get("steps").unwrap().as_sequence().unwrap();
-    let text = serde_yaml::to_string(&serde_yaml::Value::Sequence(steps.clone())).unwrap();
+    assert!(!triggers.keys().any(|name| name.contains("pull_request")));
+    let steps = stage.get("steps").unwrap().as_array().unwrap();
+    let text = serde_saphyr::to_string(&serde_json::Value::Array(steps.clone())).unwrap();
     assert!(text.contains("_prepare-stage"));
     assert!(text.contains("_stage-github-draft"));
     // Stage consumes the exact aggregate artifact, not rebuilt binaries.
@@ -2413,28 +2411,28 @@ fn m003c_tag_source_controls_checkout_input_and_stage_guard() {
     assert_eq!(fetches, frozen);
     assert!(frozen > 0);
     assert!(!dispatch.contains("if: github.event_name == 'push' && github.ref_type == 'tag'"));
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&dispatch).unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&dispatch).unwrap();
     assert!(!contains_unsafe_dispatch_expression_in_run(&dispatch));
-    let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+    let jobs = parsed.get("jobs").unwrap().as_object().unwrap();
     {
         let job_name = "stage";
         let steps = jobs
-            .get(serde_yaml::Value::String(job_name.to_owned()))
+            .get(job_name)
             .unwrap()
             .get("steps")
             .unwrap()
-            .as_sequence()
+            .as_array()
             .unwrap();
         let validation = steps
             .iter()
             .find(|step| {
-                step.get("name").and_then(serde_yaml::Value::as_str)
+                step.get("name").and_then(serde_json::Value::as_str)
                     == Some("Resolve and validate immutable release source")
             })
             .unwrap();
         let script = validation
             .get("run")
-            .and_then(serde_yaml::Value::as_str)
+            .and_then(serde_json::Value::as_str)
             .unwrap();
         assert!(!script.contains("${{"));
         assert!(script.contains("EGGPACK_RELEASE_TAG"));
@@ -2444,19 +2442,19 @@ fn m003c_tag_source_controls_checkout_input_and_stage_guard() {
                 .get("env")
                 .unwrap()
                 .get("EGGPACK_RELEASE_TAG")
-                .and_then(serde_yaml::Value::as_str),
+                .and_then(serde_json::Value::as_str),
             Some("${{ inputs.release_tag }}")
         );
         let checkout = steps
             .iter()
             .position(|step| {
-                step.get("name").and_then(serde_yaml::Value::as_str) == Some("Check out source")
+                step.get("name").and_then(serde_json::Value::as_str) == Some("Check out source")
             })
             .unwrap();
         let validate = steps
             .iter()
             .position(|step| {
-                step.get("name").and_then(serde_yaml::Value::as_str)
+                step.get("name").and_then(serde_json::Value::as_str)
                     == Some("Resolve and validate immutable release source")
             })
             .unwrap();
@@ -2490,9 +2488,9 @@ fn m003k_tag_resolution_precedes_checkout_and_treats_values_as_data() {
     );
     policy.staging.as_mut().unwrap().tag_source = StagingTagSource::DispatchInput;
     let yaml = render_release_github(&graph, &policy).unwrap();
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&yaml).unwrap();
     assert!(!contains_unsafe_dispatch_expression_in_run(&yaml));
-    let exact_preflight = parsed["jobs"]["preflight"]["steps"].as_sequence().unwrap();
+    let exact_preflight = parsed["jobs"]["preflight"]["steps"].as_array().unwrap();
     assert!(
         exact_preflight
             .iter()
@@ -2509,10 +2507,10 @@ fn m003k_tag_resolution_precedes_checkout_and_treats_values_as_data() {
     reusable_policy.triggers = vec![WorkflowTrigger::WorkflowDispatch];
     reusable_policy.staging.as_mut().unwrap().environment = Some("release-staging".into());
     let reusable = render_reusable_release_github(&contract, &shape, &reusable_policy).unwrap();
-    let reusable_yaml: serde_yaml::Value = serde_yaml::from_str(&reusable).unwrap();
+    let reusable_yaml: serde_json::Value = serde_saphyr::from_str(&reusable).unwrap();
     assert!(!contains_unsafe_dispatch_expression_in_run(&reusable));
     let preflight_steps = reusable_yaml["jobs"]["preflight"]["steps"]
-        .as_sequence()
+        .as_array()
         .unwrap();
     let resolve_tag = preflight_steps
         .iter()
@@ -2540,7 +2538,7 @@ fn m003k_tag_resolution_precedes_checkout_and_treats_values_as_data() {
     assert!(reusable.contains("needs.resolve.outputs.source_sha"));
     assert!(reusable.contains("needs.preflight.outputs.source_sha"));
     let resolve_steps = reusable_yaml["jobs"]["resolve"]["steps"]
-        .as_sequence()
+        .as_array()
         .unwrap();
     let resolve_checkout = resolve_steps
         .iter()
@@ -3328,13 +3326,13 @@ fn m003d_consumer_execution_matrix() {
         evidence.outcome,
         ConsumerValidationOutcome::Failed(ConsumerValidationFailure::Timeout)
     );
-    // Output limit fails (script floods stdout, then would exit 0).
+    // Output limit fails while the flooder is still alive and must be killed.
     let mut limited = validator.clone();
     limited.stdout_limit = 1024;
     let script = m003d_write_script(
         &parent,
         "flood.py",
-        "import sys\nsys.stdout.write('x' * 100000)\n",
+        "import sys, time\nsys.stdout.write('x' * 100000)\nsys.stdout.flush()\ntime.sleep(60)\n",
     );
     let evidence = run_consumer_validator(&m003d_request(
         &limited, &script, &candidate, size, &sha, &work, None,
@@ -3665,7 +3663,7 @@ fn m003m_runner_outcome_maps_onto_consumer_validation_outcome() {
     let script = m003d_write_script(
         &parent,
         "flood.py",
-        "import sys\nsys.stdout.write('x' * 100000)\n",
+        "import sys, time\nsys.stdout.write('x' * 100000)\nsys.stdout.flush()\ntime.sleep(60)\n",
     );
     let evidence = run_consumer_validator(&m003d_request(
         &limited, &script, &candidate, size, &sha, &work, None,
@@ -4368,8 +4366,8 @@ fn m003d_consumer_render_gates_and_detects_drift() {
     policy.release_inputs.as_mut().unwrap().consumer_validators =
         Some("validators/consumer.json".into());
     let yaml = render_release_github(&graph, &policy).unwrap();
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
-    let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&yaml).unwrap();
+    let jobs = parsed.get("jobs").unwrap().as_object().unwrap();
     // Consumer validation job runs after core qualification.
     let validate_job = jobs.get("validate_build_x86_64_unknown_linux_gnu").unwrap();
     assert_eq!(
@@ -4381,21 +4379,21 @@ fn m003d_consumer_render_gates_and_detects_drift() {
     let gate_needs: Vec<&str> = gate
         .get("needs")
         .unwrap()
-        .as_sequence()
+        .as_array()
         .unwrap()
         .iter()
         .map(|value| value.as_str().unwrap())
         .collect();
     assert_eq!(gate_needs, vec!["validate_build_x86_64_unknown_linux_gnu"]);
     // Validator receives exact handoff bytes; stage stays the writer.
-    let text = serde_yaml::to_string(&serde_yaml::Value::Mapping(jobs.clone())).unwrap();
+    let text = serde_saphyr::to_string(&serde_json::Value::Object(jobs.clone())).unwrap();
     assert!(text.contains("_validate-consumer"));
     assert!(text.contains("--consumer-validators"));
     assert!(text.contains("--source-root"));
     assert!(text.contains("eggpack-consumer-evidence-x86_64-unknown-linux-gnu"));
     let mut writers = Vec::new();
     for (name, job) in jobs {
-        let name = name.as_str().unwrap();
+        let name = name.as_str();
         let contents = job
             .get("permissions")
             .unwrap()
@@ -4767,8 +4765,8 @@ fn m003d_reusable_render_is_tag_independent() {
             }
         }
         // Only stage writes; no publication authority.
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&first).unwrap();
-        let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+        let parsed: serde_json::Value = serde_saphyr::from_str(&first).unwrap();
+        let jobs = parsed.get("jobs").unwrap().as_object().unwrap();
         let mut writers = Vec::new();
         for (name, job) in jobs {
             let contents = job
@@ -4779,7 +4777,7 @@ fn m003d_reusable_render_is_tag_independent() {
                 .as_str()
                 .unwrap();
             if contents == "write" {
-                writers.push(name.as_str().unwrap().to_owned());
+                writers.push(name.as_str().to_owned());
             }
         }
         assert_eq!(writers, vec!["stage".to_string()]);
@@ -4821,7 +4819,7 @@ fn m003i_mapped_workflow_binds_tag_safely_and_preserves_event_mapping() {
         assert!(workflow.contains("--identity-mode"), "{workflow}");
         assert!(workflow.contains("--tag' \"$EGGPACK_RELEASE_TAG\""));
         assert!(workflow.contains("--expected-tag"));
-        let parsed: serde_yaml::Value = serde_yaml::from_str(&workflow).unwrap();
+        let parsed: serde_json::Value = serde_saphyr::from_str(&workflow).unwrap();
         assert!(parsed.get("on").is_some());
     }
 
@@ -5178,7 +5176,7 @@ fn m006_shape_and_policy() -> (DistributionContract, ReleaseWorkflowShapeV1, Git
 /// neighbouring job.
 fn job_text(yaml: &str, job: &str) -> String {
     serde_json::to_string(
-        serde_yaml::from_str::<serde_yaml::Value>(yaml)
+        serde_saphyr::from_str::<serde_json::Value>(yaml)
             .unwrap()
             .get("jobs")
             .and_then(|jobs| jobs.get(job))
@@ -5187,8 +5185,8 @@ fn job_text(yaml: &str, job: &str) -> String {
     .unwrap()
 }
 
-fn job_field(yaml: &str, job: &str, field: &str) -> serde_yaml::Value {
-    serde_yaml::from_str::<serde_yaml::Value>(yaml)
+fn job_field(yaml: &str, job: &str, field: &str) -> serde_json::Value {
+    serde_saphyr::from_str::<serde_json::Value>(yaml)
         .unwrap()
         .get("jobs")
         .and_then(|jobs| jobs.get(job))
@@ -5206,8 +5204,8 @@ fn job_runs_on(yaml: &str, job: &str) -> String {
 
 fn job_needs(yaml: &str, job: &str) -> Vec<String> {
     match job_field(yaml, job, "needs") {
-        serde_yaml::Value::String(one) => vec![one],
-        serde_yaml::Value::Sequence(items) => items
+        serde_json::Value::String(one) => vec![one],
+        serde_json::Value::Array(items) => items
             .iter()
             .map(|item| item.as_str().expect("needs entry").to_owned())
             .collect(),
@@ -5360,8 +5358,8 @@ fn m006_eggsact_five_target_matrix_renders_and_checks_without_drift() {
         assert!(!job_text(&yaml, job).contains("zig"), "{job} cross tools");
     }
     // Least privilege is unchanged by the widened declaration surface.
-    let parsed: serde_yaml::Value = serde_yaml::from_str(&yaml).unwrap();
-    let jobs = parsed.get("jobs").unwrap().as_mapping().unwrap();
+    let parsed: serde_json::Value = serde_saphyr::from_str(&yaml).unwrap();
+    let jobs = parsed.get("jobs").unwrap().as_object().unwrap();
     let mut writers = Vec::new();
     for (name, job) in jobs {
         let contents = job
@@ -5372,7 +5370,7 @@ fn m006_eggsact_five_target_matrix_renders_and_checks_without_drift() {
             .as_str()
             .unwrap();
         if contents == "write" {
-            writers.push(name.as_str().unwrap().to_owned());
+            writers.push(name.as_str().to_owned());
         }
     }
     assert_eq!(writers, vec!["stage".to_string()]);
@@ -5497,12 +5495,12 @@ fn m006_native_qualification_still_fails_closed() {
 
 /// Ordered (name, run-or-uses body) steps of one generated job.
 fn job_step_bodies(yaml: &str, job: &str) -> Vec<(String, String)> {
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    let value: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
     let steps = value
         .get("jobs")
         .and_then(|jobs| jobs.get(job))
         .and_then(|job| job.get("steps"))
-        .and_then(|steps| steps.as_sequence())
+        .and_then(|steps| steps.as_array())
         .unwrap_or_else(|| panic!("missing steps for job: {job}"));
     steps
         .iter()
@@ -5537,21 +5535,16 @@ fn step_position(steps: &[(String, String)], needle: &str) -> usize {
 /// M003e general invariant: every generated job step invoking the Eggpack
 /// CLI is preceded in the same job by the pinned-tool install step.
 fn assert_tool_before_use(yaml: &str) {
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    let value: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
     let jobs = value
         .get("jobs")
-        .and_then(|jobs| jobs.as_mapping())
+        .and_then(|jobs| jobs.as_object())
         .expect("rendered workflow has no jobs");
     for (name, job) in jobs {
         let steps = job
             .get("steps")
-            .and_then(|steps| steps.as_sequence())
-            .unwrap_or_else(|| {
-                panic!(
-                    "job has no steps: {}",
-                    name.as_str().unwrap_or("<non-string>")
-                )
-            });
+            .and_then(|steps| steps.as_array())
+            .unwrap_or_else(|| panic!("job has no steps: {}", name.as_str()));
         let mut installed = false;
         for step in steps {
             let step_name = step
@@ -5568,7 +5561,7 @@ fn assert_tool_before_use(yaml: &str) {
                     assert!(
                         installed,
                         "job {} invokes the tool without a preceding install",
-                        name.as_str().unwrap_or("<non-string>")
+                        name.as_str()
                     );
                 }
             }
@@ -5580,21 +5573,16 @@ fn assert_tool_before_use(yaml: &str) {
 /// output file is preceded in the same job by the `mkdir -p` of its
 /// exact output parent.
 fn assert_mkdir_before_output(yaml: &str) {
-    let value: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
+    let value: serde_json::Value = serde_saphyr::from_str(yaml).unwrap();
     let jobs = value
         .get("jobs")
-        .and_then(|jobs| jobs.as_mapping())
+        .and_then(|jobs| jobs.as_object())
         .expect("rendered workflow has no jobs");
     for (name, job) in jobs {
         let steps = job
             .get("steps")
-            .and_then(|steps| steps.as_sequence())
-            .unwrap_or_else(|| {
-                panic!(
-                    "job has no steps: {}",
-                    name.as_str().unwrap_or("<non-string>")
-                )
-            });
+            .and_then(|steps| steps.as_array())
+            .unwrap_or_else(|| panic!("job has no steps: {}", name.as_str()));
         let mut created: Vec<String> = Vec::new();
         for step in steps {
             if let Some(run) = step.get("run").and_then(|run| run.as_str()) {
@@ -5620,7 +5608,7 @@ fn assert_mkdir_before_output(yaml: &str) {
                         created.iter().any(|dir| dir == required
                             || (required.ends_with('/') && dir.starts_with(required))),
                         "job {} writes without a preceding mkdir for {required}",
-                        name.as_str().unwrap_or("<non-string>")
+                        name.as_str()
                     );
                 }
             }

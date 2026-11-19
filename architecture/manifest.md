@@ -290,17 +290,21 @@ Two consequences are load-bearing for a downstream consumer:
 - **`ReleaseManifest` stays at `schema_version: 1`.** No field is added, no
   field is removed, and the schema version does not move. A consumer that
   parses `ReleaseManifest v1` keeps parsing it.
-- **The published crate takes a patch release.** `crates/eggpack-manifest/Cargo.toml`
-  carries `version = "0.1.1"`; the workspace version stays `0.1.0` for the
-  other six crates, and `^0.1.0` dependents resolve `0.1.1` unchanged.
-  **`0.1.1` is published** — crates.io, checksum
-  `352c3e327159615b763298e911e239f1decc4a2c9e28c28be8ddd28e50515e37`, not
+- **The published crate takes a patch release.** At M004,
+  `crates/eggpack-manifest/Cargo.toml` carried `version = "0.1.1"`, while the
+  workspace version was `0.1.0` for the other six crates; `^0.1.0` dependents
+  resolved `0.1.1` unchanged. The current release advanced the workspace version
+  to `0.1.1` and published the independently versioned manifest crate at
+  `0.1.2`. **`0.1.2` is published** — crates.io, checksum
+  `4bbbe8d12026adf7c8e8ddaecbed0c6ac403a5621d4dd1ac9949f8daf8149a09`, not
   yanked, from publication source commit
-  `4ce4fb850ffa0e141f1a807b60c150173507a92b`, tagged
-  `eggpack-manifest-v0.1.1`. `0.1.0` remains published and resolvable.
-  Release Manifest M004 owns the publication and the compatibility record for
-  both narrowings; its closure record is
-  `plans/closure/release-manifest/004-status.md`.
+  `d924a44bb6cd640998f197be7c2eb723cc891cbd`, tagged
+  `eggpack-manifest-v0.1.2`; hosted run `44322496383` passed all four lanes.
+  Relative to `0.1.1`, the crate diff contains only version/package metadata and
+  a test comment; its runtime implementation and public API are unchanged.
+  `0.1.0` and `0.1.1` remain published and resolvable. Release Manifest M004
+  owns the `0.1.1` publication and the compatibility record for both narrowings;
+  its closure record is `plans/closure/release-manifest/004-status.md`.
 
 **`eggup-eggpack` is the affected downstream consumer.** It consumes registry
 `eggpack-manifest =0.1.0` and must be given the `0.1.1` patch release and told
