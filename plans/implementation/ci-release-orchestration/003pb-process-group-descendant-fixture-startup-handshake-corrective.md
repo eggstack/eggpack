@@ -1,6 +1,6 @@
 # CI/Release M003pb — Process-Group Descendant Fixture Startup Handshake Corrective
 
-Status: active
+Status: closed
 
 Corrects: CI/Release M003pa, closed at implementation 329a3dfdb166580de4770b2c6b2f046358983003 and recorded in plans/closure/ci-release-orchestration/003pa-status.md. That closure remains historical and unchanged.
 
@@ -16,9 +16,9 @@ Make the live-descendant process-group regression deterministic by ensuring the 
 
 ## 2. Why ready and current evidence
 
-The user's request authorizes fixing the local validation failure and revalidating locally and through hosted CI. No schema, API, dependency, or cross-repository prerequisite is involved. Commit/push remains separately gated on explicit user authorization.
+The user's request authorizes fixing the local validation failure and revalidating locally and through hosted CI. No schema, API, dependency, or cross-repository prerequisite is involved. The user separately authorized commit/push on 2026-11-21; implementation commit `edce774bf3597a37789ba59587cc2a5be56e3cee` was pushed and merged to `main` at `23ebb10941bb2b38b808f61edddff3ed3d1f2961`.
 
-The saved scripts/check-local.sh output exited 101 in the core unit tests at terminating_an_exited_leader_still_signals_a_live_group_descendant, failing the assertion that the descendant fixture had started (crates/eggpack-core/src/builder.rs:1776). The same focused test passed in isolation. The fixture starts a background shell and immediately exits its leader; the Rust test only then waits a bounded interval for the child's start marker. Scheduling delay can therefore yield a false test failure before the termination behavior is meaningfully exercised. There is no evidence that the production retry logic failed. After the handshake edit, the focused test passed five consecutive runs, formatting and git diff --check passed, and scripts/check-local.sh exited 0. Hosted CI remains pending explicit commit/push authorization.
+The saved scripts/check-local.sh output exited 101 in the core unit tests at terminating_an_exited_leader_still_signals_a_live_group_descendant, failing the assertion that the descendant fixture had started (crates/eggpack-core/src/builder.rs:1776). The same focused test passed in isolation. The fixture starts a background shell and immediately exits its leader; the Rust test only then waits a bounded interval for the child's start marker. Scheduling delay can therefore yield a false test failure before the termination behavior is meaningfully exercised. There is no evidence that the production retry logic failed. After the handshake edit, the focused test passed five consecutive runs, formatting and git diff --check passed, and scripts/check-local.sh exited 0. Exact-SHA push and pull-request CI runs 44935151048 and 44935155340 passed all four lanes; merged-main run 44941146518 passed all four lanes on `23ebb10941bb2b38b808f61edddff3ed3d1f2961`.
 
 ## 3. Invariants
 
@@ -40,13 +40,13 @@ The saved scripts/check-local.sh output exited 101 in the core unit tests at ter
 
 - Any changes to production runner or signal semantics, the generated workflow, dependency versions, schemas, or user-facing release behavior.
 - Package publication, tags, releases, or remote workflow dispatch.
-- Commit or push until explicit user authorization is received.
+- Commit/push and publication without explicit authorization. The user authorized this corrective's commit/push; its separate release is tracked by Workspace Release M001.
 
 ## 5. Ordered work packages
 
 1. Update the fixture command so the background descendant writes its ready marker and waits on the release file, while the group leader waits for the ready marker before exiting.
 2. Run the focused regression repeatedly; confirm it observes a successful leader exit, a started live descendant, successful group termination, and no survivor marker. Confirm failure paths still terminate/release the fixture.
-3. Reverify source citations, run formatting and the canonical local gate, then request authorization before pushing the exact candidate for hosted CI.
+3. Reverify source citations, run formatting and the canonical local gate, then obtain authorization before pushing the exact candidate. Authorization was received; the exact candidate and merged source passed the hosted runs recorded in the closure.
 
 ## 6. Failure, restart, and compatibility
 
@@ -64,7 +64,7 @@ cargo test -p eggpack-core --all-targets --all-features --locked group_signal --
 cargo fmt --all -- --check
 scripts/check-local.sh
 
-The canonical gate includes workspace checks, clippy, tests, docs, packaging, and the Rust 1.89 MSRV lane. Hosted CI on the exact implementation SHA (Linux stable, Linux 1.89.0, macOS, Windows) is required for closure, but may be triggered only after explicit authorization to commit and push. Passing older hosted runs on M003pa is not evidence for this candidate.
+The canonical gate includes workspace checks, clippy, tests, docs, packaging, and the Rust 1.89 MSRV lane. Hosted CI on the exact implementation SHA (Linux stable, Linux 1.89.0, macOS, Windows) is required for closure. The user authorized commit/push; exact-SHA runs 44935151048 and 44935155340 passed all four lanes, and merged-main run 44941146518 also passed all four lanes. Passing older hosted runs on M003pa is not evidence for this candidate.
 
 ## 8. Documentation, acceptance, and stop conditions
 
