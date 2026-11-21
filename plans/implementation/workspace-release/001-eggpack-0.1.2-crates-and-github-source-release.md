@@ -1,6 +1,6 @@
 # Workspace Release M001 — Eggpack 0.1.2 Crates.io Publication and GitHub Source Release
 
-Status: active
+Status: closed
 
 Subsystem roadmap: `plans/subsystems/workspace-release-roadmap.md`
 
@@ -16,7 +16,7 @@ The user approved the six-crate crates.io publication, a GitHub `v0.1.2` release
 
 The prior active implementation corrective, CI/Release M003pb, is closed in `plans/closure/ci-release-orchestration/003pb-status.md`. PR #6 merged to `main` at `23ebb10941bb2b38b808f61edddff3ed3d1f2961`; its tree hash `880352cfea924f0434e4b176cbcf8a81b7fdbd3c` equals the exact implementation tree at `edce774bf3597a37789ba59587cc2a5be56e3cee`. Main push run [44941146518](https://github.com/eggstack/eggpack/actions/runs/44941146518) passed all four lanes on the exact merge SHA; push run [44935151048](https://github.com/eggstack/eggpack/actions/runs/44935151048) and PR run [44935155340](https://github.com/eggstack/eggpack/actions/runs/44935155340) passed on the exact implementation SHA.
 
-The source version for the six workspace crates is already `0.1.2`. The six crate IDs were absent from crates.io at plan opening; `eggpack-manifest 0.1.2` is already published. No project tag `v0.1.2` or GitHub release exists. The manifest tag `eggpack-manifest-v0.1.2` is separate and must remain untouched.
+At plan opening, the six workspace crate IDs were absent from crates.io; `eggpack-manifest 0.1.2` was already published. At that point no project `v0.1.2` tag or GitHub release existed. The manifest tag `eggpack-manifest-v0.1.2` is separate and remains unchanged.
 
 The repository has no self-release workflow for Eggpack. The release is therefore an explicit, manually controlled Cargo and GitHub operation, consistent with ADR-0003’s human publication gate. No automatic publication workflow or new permission is introduced.
 

@@ -10,17 +10,16 @@ Eggpack has two independently versioned release units:
 
 | Unit | Version source | Version in this tree | Publication state |
 |---|---|---:|---|
-| The six workspace crates inheriting the workspace version, including `eggpack-cli` | `[workspace.package].version` in the root `Cargo.toml` | `0.1.2` (from `0.1.1`) | The six crates remain unpublished to crates.io; a workspace version bump does not publish them or produce a CLI artifact release. |
+| The six workspace crates inheriting the workspace version, including `eggpack-cli` | `[workspace.package].version` in the root `Cargo.toml` | `0.1.2` (from `0.1.1`) | Published to crates.io on 2026-11-21; public source-only GitHub release `v0.1.2` is linked below. The release contains no uploaded binaries or custom assets. |
 | `eggpack-manifest` | Its explicit `version` in `crates/eggpack-manifest/Cargo.toml` | `0.1.2` (from `0.1.1`) | Published 2026-11-18; release identity and verification evidence are below. |
 
-Only `eggpack-manifest` has been published from this workspace. It has its own
-version because its compatibility and publication history is independent of the
-CLI/workspace version. The two release units currently both carry version `0.1.2`;
-that matching number does not merge their release identities or publication
-states. The schema remains v1 unless a separately reviewed compatibility change
-says otherwise. `eggup-eggpack` has an exact `=0.1.0`
-manifest dependency; a registry release does not update that downstream pin,
-which is owned and planned in the Eggup repository.
+Both release units have now been published at `0.1.2`; their matching version
+number does not merge their independent release identities or publication
+histories. `eggpack-manifest` retains its own compatibility and publication
+history. The schema remains v1 unless a separately reviewed compatibility
+change says otherwise. `eggup-eggpack` has an exact `=0.1.0` manifest dependency;
+a registry release does not update that downstream pin, which is owned and
+planned in the Eggup repository.
 
 ## Verification before release
 
@@ -79,8 +78,48 @@ a schema-v1 JSON parse/round-trip smoke test. Relative to `0.1.1`, the crate
 change is version/package metadata and a test comment only; the runtime
 implementation and public API are unchanged.
 
-No GitHub draft or GitHub release was created, and no CLI/workspace crate or
-CLI artifact was published.
+The `eggpack-manifest 0.1.2` publication did not create a GitHub release. The
+separate workspace-crate release completed later and is recorded below.
+
+## Workspace crates 0.1.2 and source release
+
+The six workspace crates were published from source commit
+`35b3fc26de63437947aa4f36764c17bd0ebb9f65`, after the canonical local gate,
+clean package checks, and hosted CI passed on that exact source. Hosted run
+[44946729915](https://github.com/eggstack/eggpack/actions/runs/44946729915) passed
+`linux (stable)`, `linux (1.89.0)`, `portability (macos-latest)`, and
+`portability (windows-latest)`. All six clean `cargo package --locked` checks
+passed without `--allow-dirty`. Each crate's `cargo publish --locked --dry-run`
+passed before its single publish operation; publication and registry readback
+were sequential in the dependency order below.
+
+| Order | Crate | crates.io version | SHA-256 checksum | Yanked |
+|---:|---|---|---|---|
+| 1 | [`eggpack-contract`](https://crates.io/crates/eggpack-contract/0.1.2) | `0.1.2` | `7ebc5d638b024a46bbc0bbe8cdae3c1e7d93597b0547880915b62daf09599264` | no |
+| 2 | [`eggpack-core`](https://crates.io/crates/eggpack-core/0.1.2) | `0.1.2` | `cab8120cbf84d0e96e356be38deae0fa61e7c041234d6beae433108dc76edb92` | no |
+| 3 | [`eggpack-bootstrap`](https://crates.io/crates/eggpack-bootstrap/0.1.2) | `0.1.2` | `6951ce753ae7b34ded55df7d82581d81388704e1bd7d08b460d569b4e7d564b9` | no |
+| 4 | [`eggpack-github`](https://crates.io/crates/eggpack-github/0.1.2) | `0.1.2` | `47df8bfc7cc828d09598448e629d781df00461c0f1a941b91bf7f980353a61d4` | no |
+| 5 | [`eggpack-ci`](https://crates.io/crates/eggpack-ci/0.1.2) | `0.1.2` | `3e368a8716fc234313300a06d21bc556769f79809a5f6a8ec96f9e32d03d04a6` | no |
+| 6 | [`eggpack-cli`](https://crates.io/crates/eggpack-cli/0.1.2) | `0.1.2` | `90d9b1e46e26a25edc372de3344cb546d1cf61e89eb57c37a51d5f31202c8e78` | no |
+
+The external registry-only consumer check passed with exact `=0.1.2`
+dependencies and no path/Git overrides. Cargo warned that `eggpack-cli` is
+binary-only and ignored as a library dependency; its version nevertheless
+resolved in the consumer lockfile. Separately, `cargo install --registry
+crates-io eggpack-cli --version 0.1.2 --locked` into an ignored workspace
+`target/` root succeeded, and `eggpack --help` ran successfully.
+
+Annotated tag `v0.1.2` has tag object
+`d6dbe9307f11a1116689c8534fc994461b8adfee` and peels to the release source
+commit above. The [public GitHub release](https://github.com/eggstack/eggpack/releases/tag/v0.1.2),
+published 2026-11-21, is non-draft and non-prerelease with no uploaded assets;
+GitHub-generated source archives are the only release downloads. The separate
+`eggpack-manifest-v0.1.2` tag and manifest package were not changed.
+
+No prebuilt CLI binaries, custom assets, signatures, attestations, or provenance
+were supplied. SHA-256 values above are integrity checks only and do not establish
+authenticity or provenance. Detailed milestone evidence is in
+[`plans/closure/workspace-release/001-status.md`](../plans/closure/workspace-release/001-status.md).
 
 ## References
 
