@@ -1,6 +1,6 @@
 # Eggpack Workspace Release Roadmap
 
-Status: active
+Status: complete
 
 Long-term references:
 
@@ -55,11 +55,11 @@ Publication remains explicit and manual. This roadmap does not add an automated 
 
 ## 4. Current state
 
-The six workspace packages—`eggpack-contract`, `eggpack-core`, `eggpack-bootstrap`, `eggpack-github`, `eggpack-ci`, and `eggpack-cli`—carry version `0.1.2` in the source tree and were absent from crates.io when this milestone was opened (2026-11-21). Their internal dependency requirements use the compatible `0.1.0` range. `eggpack-manifest 0.1.2` is already published and remains separate.
+The six workspace packages—`eggpack-contract`, `eggpack-core`, `eggpack-bootstrap`, `eggpack-github`, `eggpack-ci`, and `eggpack-cli`—were published to crates.io at `0.1.2` in the dependency order recorded in `plans/closure/workspace-release/001-status.md`. All six registry records are non-yanked and have their checksums recorded there. `eggpack-manifest 0.1.2` remains a separate release unit and was not republished.
 
-PR [eggstack/eggpack#6](https://github.com/eggstack/eggpack/pull/6) merged to `main` at `23ebb10941bb2b38b808f61edddff3ed3d1f2961`. Its source tree is identical to implementation commit `edce774bf3597a37789ba59587cc2a5be56e3cee`; exact implementation and merged-main CI are green. No project tag `v0.1.2` or GitHub release exists. The existing `eggpack-manifest-v0.1.2` tag is not the workspace release tag and must not be changed.
+PR [eggstack/eggpack#6](https://github.com/eggstack/eggpack/pull/6) merged to `main` at `23ebb10941bb2b38b808f61edddff3ed3d1f2961`. The release source is `35b3fc26de63437947aa4f36764c17bd0ebb9f65`; hosted run [44946729915](https://github.com/eggstack/eggpack/actions/runs/44946729915) passed all four lanes on that exact SHA. Annotated tag `v0.1.2` peels to that source commit, and [the public GitHub release](https://github.com/eggstack/eggpack/releases/tag/v0.1.2) is stable, non-draft, non-prerelease, and has no uploaded assets. The separate `eggpack-manifest-v0.1.2` tag was left unchanged.
 
-The user approved publication of the six crates at their existing `0.1.2` version and a GitHub `v0.1.2` source-only release, and authorized merging PR #6. Prebuilt CLI binaries were explicitly excluded. The active milestone plan is `plans/implementation/workspace-release/001-eggpack-0.1.2-crates-and-github-source-release.md`.
+The approved M001 scope is complete. The closure record is `plans/closure/workspace-release/001-status.md`. Prebuilt CLI binaries, signatures, attestations, and provenance were not part of the release.
 
 ## 5. Release sequence and authority
 
@@ -88,9 +88,9 @@ Publication is sequential, not parallel, so each registry dependency can be read
 
 ### M001 — Publish the six workspace crates and cut GitHub source release v0.1.2
 
-Plan: `plans/implementation/workspace-release/001-eggpack-0.1.2-crates-and-github-source-release.md` (**active**).
+Plan: `plans/implementation/workspace-release/001-eggpack-0.1.2-crates-and-github-source-release.md` (**closed**; evidence: `plans/closure/workspace-release/001-status.md`).
 
-Acceptance requires all six exact crate versions to be visible and non-yanked with recorded checksums; an external registry-only Cargo consumer resolves and builds the six exact versions; the annotated `v0.1.2` tag peels to the reviewed source SHA; and the GitHub Release is public, non-draft, non-prerelease, source-only, and names that tag. The `eggpack-manifest-v0.1.2` publication is not repeated or altered.
+Acceptance requires all six exact crate versions to be visible and non-yanked with recorded checksums; an external registry-only Cargo consumer resolves the exact versions without path/Git dependencies and checks the library crates. Because `eggpack-cli` is binary-only and ignored as a library dependency, its registry installation and `eggpack --help` smoke check are separate acceptance evidence. The annotated `v0.1.2` tag must peel to the reviewed source SHA, and the GitHub Release must be public, non-draft, non-prerelease, source-only, and name that tag. The `eggpack-manifest-v0.1.2` publication is not repeated or altered.
 
 ## 8. Cross-cutting security and recovery requirements
 
