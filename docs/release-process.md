@@ -10,13 +10,15 @@ Eggpack has two independently versioned release units:
 
 | Unit | Version source | Version in this tree | Publication state |
 |---|---|---:|---|
-| The six workspace crates inheriting the workspace version, including `eggpack-cli` | `[workspace.package].version` in the root `Cargo.toml` | `0.1.1` (from `0.1.0`) | The six crates remain unpublished to crates.io; a workspace version bump does not publish them or produce a CLI artifact release. |
+| The six workspace crates inheriting the workspace version, including `eggpack-cli` | `[workspace.package].version` in the root `Cargo.toml` | `0.1.2` (from `0.1.1`) | The six crates remain unpublished to crates.io; a workspace version bump does not publish them or produce a CLI artifact release. |
 | `eggpack-manifest` | Its explicit `version` in `crates/eggpack-manifest/Cargo.toml` | `0.1.2` (from `0.1.1`) | Published 2026-11-18; release identity and verification evidence are below. |
 
 Only `eggpack-manifest` has been published from this workspace. It has its own
 version because its compatibility and publication history is independent of the
-CLI/workspace version. The schema remains v1 unless a separately reviewed
-compatibility change says otherwise. `eggup-eggpack` has an exact `=0.1.0`
+CLI/workspace version. The two release units currently both carry version `0.1.2`;
+that matching number does not merge their release identities or publication
+states. The schema remains v1 unless a separately reviewed compatibility change
+says otherwise. `eggup-eggpack` has an exact `=0.1.0`
 manifest dependency; a registry release does not update that downstream pin,
 which is owned and planned in the Eggup repository.
 

@@ -6,8 +6,8 @@ two bounded jobs: turn a finalized release into a local, inspectable
 `StagingPayloadV1`, and reconcile that payload into a **draft** release on an
 exact pre-existing tag. It never publishes.
 
-`crates/eggpack-github/src/lib.rs` (3431 lines), tests in `src/tests.rs`
-(2059 lines). `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]` at
+`crates/eggpack-github/src/lib.rs` (3440 lines), tests in `src/tests.rs`
+(2060 lines). `#![forbid(unsafe_code)]` and `#![deny(missing_docs)]` at
 `lib.rs:9-10`, so every public item carries a doc comment. All citations below
 are to `crates/eggpack-github/src/lib.rs` unless another path is given.
 
@@ -19,17 +19,17 @@ boundary is enforced in code, not by convention.
 
 | Boundary | Enforced where | Citation |
 | --- | --- | --- |
-| Draft-only | `create_release` body hardcodes `"draft": true`; no user input reaches it | `2483-2490` |
-| Draft-only | created release re-asserted as a mutable draft before use | `2026-2028` |
-| Draft-only | a pre-existing release must already be a mutable draft | `2032-2034` |
-| Draft-only | receipt is always `draft: true, immutable: false`, and re-validated | `2204-2205`, `353-355` |
-| Never "latest" | `"make_latest": "false"` sent as a string | `2489` |
-| Exact existing tag | tag must peel to `payload.source_revision`, checked before **and** after staging | `1990-1997`, `2185-2192` |
-| Exact existing tag | the trait has no tag create/update/delete method at all | `1674-1734` |
-| No tag mutation | no `target_commitish` in the create body; the tag is never created or moved | `2483-2490` |
-| No `--clobber` | the string does not occur in this crate; the only mutating calls are create, upload, and the narrow starter delete | `2602-2626` |
-| No auto-publish | no `publish` endpoint and no `draft: false` field; `deny_unknown_fields` rejects such a document | `56`, `2487` |
-| No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2380-2381`, `2026`, `2032` |
+| Draft-only | `create_release` body hardcodes `"draft": true`; no user input reaches it | `2357-2364` |
+| Draft-only | created release re-asserted as a mutable draft before use | `1900-1908` |
+| Draft-only | a pre-existing release must already be a mutable draft | `1905-1908` |
+| Draft-only | receipt is always `draft: true, immutable: false`, and re-validated | `2070-2084`, `439-452` |
+| Never "latest" | `"make_latest": "false"` sent as a string | `2357-2364` |
+| Exact existing tag | tag must peel to `payload.source_revision`, checked before **and** after staging | `1873-1880`, `2059-2066` |
+| Exact existing tag | the trait has no tag create/update/delete method at all | `1517-1577` |
+| No tag mutation | no `target_commitish` in the create body; the tag is never created or moved | `2357-2364` |
+| No `--clobber` | the string does not occur in this crate; mutation paths are create, upload, and the narrow starter delete | `2347-2389`, `2427-2474`, `2476-2501`, `1994-2010` |
+| No auto-publish | no publish method is exposed; the create request sets `draft: true` | `1517-1577`, `2269-2501`, `2357-2364` |
+| No immutable overwrite | `immutable` is read from the API and must be false on create and on reuse | `2248-2255`, `1900-1908` |
 
 `--clobber` is a workspace-wide non-goal enforced statically in `eggpack-ci`
 (`crates/eggpack-ci/src/render_release.rs:1323-1328`), not by a flag
@@ -46,16 +46,16 @@ draft to published.
 | --- | --- | --- |
 | `GithubError` | `40` | Newtype over a bounded, redacted message; `Display` `42-46`, `fail()` `50-52`. No response body is ever embedded. |
 | `GitHubDraftPolicyV1` | `95` | Strict per-run policy: `schema_version`, `owner`, `repository`, `tag`, `title`, `body`, `prerelease`, `token_env`, and transport bounds; mapped runtime identity optionally adds the explicitly versioned tuple `release_identity_schema_version`, `release_identity_mode`, `release_id`, and `source_revision`. These fields are omitted for legacy exact-tag serialization; `deny_unknown_fields` remains enforced. |
-| `.from_json` / `.to_json` | `153` / `164` | Parses within `MAX_POLICY_JSON` (256 KiB, `26`) and validates; serialization validates first. |
-| `.validate` | `170` | `schema_version == 1`; owner/repo/tag/title/body bounds; `token_env` must be `GITHUB_TOKEN` (`179`); timeout 5–120 s; metadata ≤ 8 MB; pages 1–32. |
-| `.download_origin` | `195` | `https://github.com/<owner>/<repo>/releases/download/<tag>` — the exact-tag installer origin. |
-| `StagingAssetKind` | `213` | `FinalizedArtifact`, `ChecksumSidecar`, `ReleaseManifest`, `PosixInstaller`, `PowershellInstaller`, `ProductPosixWrapper`, `ProductPowershellWrapper`. The payload schema stays v1; a v1 reader that does not know the wrapper variants rejects such a payload (fail-closed) rather than misreading it — `205-210`. |
-| `StagingAsset` | `261` | `name`, `path` (must equal `name`), non-zero `size`, lowercase `sha256`, `media_type`, `kind`. |
-| `StagingPayloadV1` | `279` | The materialized plan: identity, owner/repo/tag, title, prerelease, body, and 1–1024 assets sorted by name. |
-| `.from_json` / `.to_json` / `.validate` | `306` / `317` / `325` | Bounded at 1 MiB; validates identity bounds, flat names, `path == name`, non-zero size, digest shape, media-type bound, and case-insensitive uniqueness (`360`). |
-| `GitHubDraftReceiptV1` | `371` | Producer evidence of the staged draft: `github_release_id`, `draft`, `immutable`, ordered assets, `created`, `uploaded`, `reused`. |
-| `.from_json` / `.to_json` / `.validate` | `402` / `413` / `419` | Requires `draft && !immutable` and `uploaded + reused == assets.len()` (`432-438`). |
-| `FIXED_MANIFEST_NAME` | `31` | `release-manifest.json` — a **private** constant, not public API. Companion privates: `FIXED_POSIX_NAME` `32`, `FIXED_POWERSHELL_NAME` `33`. |
+| `.from_json` / `.to_json` | `157` / `168` | Parses within `MAX_POLICY_JSON` (256 KiB, `26`) and validates; serialization validates first. |
+| `.validate` | `174` | `schema_version == 1`; owner/repo/tag/title/body bounds; `token_env` must be `GITHUB_TOKEN` (`213-215`); timeout 5–120 s; metadata ≤ 8 MB; pages 1–32. |
+| `.download_origin` | `229-234` | `https://github.com/<owner>/<repo>/releases/download/<tag>` — the exact-tag installer origin. |
+| `StagingAssetKind` | `252-269` | `FinalizedArtifact`, `ChecksumSidecar`, `ReleaseManifest`, `PosixInstaller`, `PowershellInstaller`, `ProductPosixWrapper`, `ProductPowershellWrapper`. The payload schema stays v1; a v1 reader that does not know the wrapper variants rejects such a payload (fail-closed) rather than misreading it — `244-249`. |
+| `StagingAsset` | `274-287` | `name`, `path` (must equal `name`), non-zero `size`, lowercase `sha256`, `media_type`, `kind`. |
+| `StagingPayloadV1` | `292-315` | The materialized plan: identity, owner/repo/tag, title, prerelease, body, and 1–1024 assets sorted by name. |
+| `.from_json` / `.to_json` / `.validate` | `319` / `330` / `338` | Bounded at 1 MiB; validates identity bounds, flat names, `path == name`, non-zero size, digest shape, media-type bound, and case-insensitive uniqueness (`375`). |
+| `GitHubDraftReceiptV1` | `384-411` | Producer evidence of the staged draft: `github_release_id`, `draft`, `immutable`, ordered assets, `created`, `uploaded`, `reused`. |
+| `.from_json` / `.to_json` / `.validate` | `415` / `426` / `432` | Requires `draft && !immutable` and `uploaded + reused == assets.len()` (`439-452`). |
+| `FIXED_MANIFEST_NAME` | `32` | `release-manifest.json` — a **private** constant, not public API. Companion privates: `FIXED_POSIX_NAME` `33`, `FIXED_POWERSHELL_NAME` `34`. |
 
 ### Entry points, remote types, transport
 
@@ -68,30 +68,30 @@ draft to published.
 | `InstallerPresentationV1` | `733` | `schema_version` + `mode`; `generated_default()` and validation follow this type. |
 | `InstallerPresentationModeV1` | `743` | `GeneratedDefault` or `ProductWrappers(ProductWrapperSourcesV1)`. |
 | `ProductWrapperSourcesV1` | `753` | Wrapper source paths plus the staged names for the generated exact installers. |
-| `GitHubDraftTemplateV1` | `1244` | Identity-independent draft template; must not carry release id, revision, tag, GitHub id, or digests. |
-| `.resolve(tag)` / `.resolve_with_identity(...)` | `1302` / `1326` | Legacy resolver keeps exact-tag behavior; the identity resolver carries the finite checked-in mapped ID and source revision for opt-in mode. No templating language. |
-| `verify_tag_source` | `1922` | Bounded annotated-tag peel (≤ 8) down to the exact source revision. |
-| `stage_with_bytes` | `2127` | Public reconciliation entry point over in-memory bytes. |
-| `stage_with_dir` | `2389` | Public reconciliation entry point over a staging directory. |
-| `RefTarget` | `1761` | `{ sha, kind }` for `refs/tags/<tag>`. |
-| `TagObject` | `1770` | One annotated-tag peel step. |
-| `RemoteRelease` | `1635` | Release summary including `draft`, `immutable`, `upload_url`. |
-| `RemoteAsset` | `1656` | `{ id, name, size, state, digest }`; `digest` is `Option<String>` shaped `sha256:<hex>`. |
-| `trait GithubApi` | `1674` | The provider seam (`1669-1734`). |
-| `EggfetchTransport` | `2264` | Production transport over `eggfetch-core 0.3.0`; `impl GithubApi` at `2395-2627`. |
-| `FixtureGithub` | `2661` | In-memory double; `impl GithubApi` at `2824-3022`. |
-| `fixture_release` / `fixture_asset` | `2786` / `2808` | Constructors for fixture records. |
+| `GitHubDraftTemplateV1` | `880-907` | Identity-independent draft template; must not carry release id, revision, tag, GitHub id, or digests. |
+| `.resolve(tag)` / `.resolve_with_identity(...)` | `961-983` / `985-1002` | Legacy resolver keeps exact-tag behavior; the identity resolver carries the finite checked-in mapped ID and source revision for opt-in mode. No templating language. |
+| `verify_tag_source` | `1621-1657` | Bounded annotated-tag peel (≤ 8) down to the exact source revision. |
+| `stage_with_bytes` | `1826` | Public reconciliation entry point over in-memory bytes. |
+| `stage_with_dir` | `2088` | Public reconciliation entry point over a staging directory. |
+| `RefTarget` | `1460` | `{ sha, kind }` for `refs/tags/<tag>`. |
+| `TagObject` | `1469` | One annotated-tag peel step. |
+| `RemoteRelease` | `1478` | Release summary including `draft`, `immutable`, `upload_url`. |
+| `RemoteAsset` | `1499` | `{ id, name, size, state, digest }`; `digest` is `Option<String>` shaped `sha256:<hex>`. |
+| `trait GithubApi` | `1517` | The provider seam (`1517-1577`). |
+| `EggfetchTransport` | `2138` | Production transport over `eggfetch-core 0.4.0`; `impl GithubApi for EggfetchTransport` at `2269`. |
+| `FixtureGithub` | `2553` | In-memory double; `impl GithubApi` at `2733`. |
+| `fixture_release` / `fixture_asset` | `2692` / `2717` | Constructors for fixture records. |
 
 ## The `GithubApi` seam
 
-`trait GithubApi: Send + Sync` (`1674-1734`) has seven methods: `get_ref`,
+`trait GithubApi: Send + Sync` (`1517-1577`) has seven methods: `get_ref`,
 `get_tag`, `list_releases`, `create_release`, `list_assets`, `upload_asset`,
 `delete_asset`. Futures use return-position `impl Future`, so there is no
 `async_trait` boxing.
 
 The trait is why the whole reconciliation flow is testable without a network.
-`verify_tag_source` (`1778`), `stage_with_bytes` (`1949`) and `stage_with_dir`
-(`2214`) all take `&impl GithubApi`; the transport is the only injected
+`verify_tag_source` (`1621-1657`), `stage_with_bytes` (`1826`) and `stage_with_dir`
+(`2088`) all take `&impl GithubApi`; the transport is the only injected
 dependency, so the full sequence — tag resolve, draft lookup, create, upload,
 verify, receipt — runs against an in-memory double.
 
@@ -100,50 +100,50 @@ What the trait asks of an implementation:
 - Return the typed records, so validation lives in one place in the core rather
   than being re-derived per transport.
 - Surface `502` and `422` as errors whose message **starts with** `http_502` /
-  `http_422_duplicate` (documented `1714-1715`, classified `1753-1759`). This is
+  `http_422_duplicate` (documented `1557-1569`, classified `1596-1602`). This is
   a message-prefix protocol, not a typed error, and it is how the core applies
   its narrow recovery.
 - Treat `delete_asset` as reserved: "only the narrow starter recovery may call
-  this" (`1727`).
+  this" (`1570-1577`).
 
-The public `upload_asset` boundary takes `Box<dyn Read + Send>` (`1723`), while
+The public `upload_asset` boundary takes `Box<dyn Read + Send>` (`1560-1569`), while
 the internal core holds a seekable handle through the private `ReadSeek` trait
-(`1736-1751`) so it can size-check and hash a file before streaming it. Two
-implementations exist: `EggfetchTransport` (`2395-2627`) and `FixtureGithub`
-(`2824-3022`).
+(`1579-1581`) so it can size-check and hash a file before streaming it. Two
+implementations exist: `EggfetchTransport` (`2269-2501`) and `FixtureGithub`
+(`2733-2949`).
 
 ## `FixtureGithub` and the fault injectors
 
 **`FixtureGithub` is not test-gated. It is compiled into the shipped library
-and is part of this crate's public API.** The only two conditional attributes in
-the crate are `#[cfg(unix)]` at `544` and `#[cfg(test)] mod tests;` at
-`3024-3025`. `FixtureGithub` (`2661`), its inherent `impl` (`2665-2783`),
-`fixture_release` (`2786`), `fixture_asset` (`2808`) and
-`impl GithubApi for FixtureGithub` (`2824-3022`) are all unconditional — even
+and is part of this crate's public API.** The crate has a Unix-specific helper (`#[cfg(unix)]`, `643`), the main test
+module (`#[cfg(test)] mod tests;`, `2951-2952`), and two additional test-only
+modules (`2956-2957`, `3029-3030`). `FixtureGithub` (`2553`), its inherent
+`impl` (`2557-2690`), `fixture_release` (`2692`), `fixture_asset` (`2717`) and
+`impl GithubApi for FixtureGithub` (`2733-2949`) are all unconditional — even
 though the section header above them reads "Deterministic fixture transport for
-tests" (`2629-2631`). `stage_with_bytes` (`1949`) is likewise public, and its
+tests" (`2509-2511`). `stage_with_bytes` (`1826`) is likewise public, and its
 only in-repo caller is the test suite.
 
-State lives in `FixtureInner` under a `Mutex` (`2638-2663`), seeded with a
+State lives in `FixtureInner` under a `Mutex` (`2513-2532`), seeded with a
 lightweight tag pointing at a commit, ids from 100 / 1000, and
-`upload_fail_502_create_starter: true` (`2681`).
+`upload_fail_502_create_starter: true` (`2553-2555`, `2574`).
 
 | Injector / observer | Line | What it proves |
 | --- | --- | --- |
-| `with_tag` | `2667` | A lightweight tag resolving straight to the source revision is accepted. |
-| `set_ref` | `2692` | Tag movement between the pre- and post-stage verify is caught by the TOCTOU guard (`2185`); an unresolvable tag (`None`) fails. |
-| `add_tag_object` | `2699` | Annotated tags peel to the exact commit; a chain deeper than `MAX_TAG_PEEL_DEPTH` (8) fails (`1813`). |
-| `seed_release` | `2708` | A pre-seeded published or immutable release makes staging reject without mutation (`2032`). |
-| `set_asset_page` | `2719` | Pagination edges: a short final page terminates successfully, a full page on the last allowed page fails closed (`1903-1910`); a duplicate or unexpected asset on a later page is still caught. |
-| `fail_upload_502_next` | `2728` | On 502 the core re-lists, deletes a single `state == "starter" && size == 0` record for that name, and still returns an error (`2120-2136`). `create_starter = false` proves the same path with no starter present. |
-| `fail_upload_422_next` | `2735` | A duplicate-name 422 fails closed immediately with no recovery (`2117-2119`). |
-| `rename_next_upload` | `2741` | The server's echoed name is authoritative — a renamed upload response is rejected (`2098-2100`). |
-| `digest_mismatch_next` | `2747` | A wrong `sha256` in the upload response is rejected (`2107-2111`) and in the final set (`2176-2181`). |
-| `size_mismatch_next` | `2753` | A wrong size in the upload response is rejected (`2104-2106`). |
-| `create_calls` | `2759` | Proves no release was created on a pre-flight failure (tag mismatch, absent token). |
-| `upload_calls` | `2764` | Proves no upload was attempted before a local digest failure. |
-| `delete_calls` | `2769` | Proves the delete path fires **only** in the narrow 502 starter recovery, never for a pre-existing uploaded asset. |
-| `assets_for` | `2774` | Reads back the exact post-stage remote asset set. |
+| `with_tag` | `2559` | A lightweight tag resolving straight to the source revision is accepted. |
+| `set_ref` | `2585` | Tag movement between the pre- and post-stage verify is caught by the TOCTOU guard (`2059-2066`); an unresolvable tag (`None`) fails. |
+| `add_tag_object` | `2592` | Annotated tags peel to the exact commit; a chain deeper than `MAX_TAG_PEEL_DEPTH` (8) fails (`1621-1657`). |
+| `seed_release` | `2601` | A pre-seeded published or immutable release makes staging reject without mutation (`1905-1908`). |
+| `set_asset_page` | `2612` | Pagination edges: a short final page terminates successfully, a full page on the last allowed page fails closed (`1744-1769`); a duplicate or unexpected asset on a later page is still caught. |
+| `fail_upload_502_next` | `2621` | On 502 the core re-lists, deletes a single `state == "starter" && size == 0` record for that name, and still returns an error (`1994-2010`). `create_starter = false` proves the same path with no starter present. |
+| `fail_upload_422_next` | `2628` | A duplicate-name 422 fails closed immediately with no recovery (`1991-1993`). |
+| `rename_next_upload` | `2634` | The server's echoed name is authoritative — a renamed upload response is rejected (`1972-1974`). |
+| `digest_mismatch_next` | `2640` | A wrong `sha256` in the upload response is rejected (`1981-1985`) and in the final set (`2050-2055`). |
+| `size_mismatch_next` | `2646` | A wrong size in the upload response is rejected (`1978-1980`). |
+| `create_calls` | `2662` | Proves no release was created on a pre-flight failure (tag mismatch, absent token). |
+| `upload_calls` | `2667` | Proves no upload was attempted before a local digest failure. |
+| `delete_calls` | `2672` | Proves the delete path fires **only** in the narrow 502 starter recovery, never for a pre-existing uploaded asset. |
+| `assets_for` | `2677` | Reads back the exact post-stage remote asset set. |
 
 These injectors are the evidence for draft-only, no-clobber, and
 verify-after-upload: the only way to observe a remote mutation is a counter the
@@ -152,10 +152,11 @@ have prevented the call.
 
 Two honest limitations of the double: `create_release` always returns
 `draft: true, immutable: false`, so the "server returned a non-draft
-creation" rejection at `2026` is unreachable through it. Its release listing
+creation" rejection at `1900-1902` is unreachable through it. Its release listing
 pages like the real endpoint (100 per page) and its `create_release` refuses a
-tag that already has a release with `422 already_exists`, so release-listing
-truncation and duplicate-tag creation are both reachable in tests.
+tag that already has a release with `422 already_exists` (`2766-2783`,
+`2785-2828`), so release-listing truncation and duplicate-tag creation are both
+reachable in tests.
 
 ## Staging payload materialization
 
@@ -175,7 +176,7 @@ root plus contract, manifest and policy into an inspectable directory and
 payload:
 
 1. Validate policy and manifest, require `contract.product.id ==
-   manifest.product_id` (`1044-1050`), reject a symlinked finalized root (`1066`).
+   manifest.product_id` (`1044-1050`), reject a symlinked finalized root (`1064`).
 2. Build the expected inventory from `contract.expand` per manifest target and
    cross-check it against the manifest form — Direct (`1076-1098`), Bundle (entry
    count and name set, `1099-1135`), Archive (`1136-1157`); any other pairing fails
@@ -189,35 +190,35 @@ payload:
    `sha256  filename` content against the artifact it names, bounded at 4 KiB
    and required to end `.sha256` (`1220-1255`).
 6. Create the output directory only if absent, require a real non-symlink parent,
-   and set `0700` on unix (`1257`, `533-551`). Every later failure calls the
-   `cleanup` closure, which removes the whole output directory (`1258-1260`).
+   and set `0700` on unix (`1258`, `632-650`). Every later failure calls the
+   `cleanup` closure, which removes the whole output directory (`1259-1261`).
 7. Copy the finalized files exactly (`1262-1271`); write `release-manifest.json`
    and prove it round-trips to identical bytes (`1272-1295`).
 8. Render deterministic installers with `BootstrapSpec { origin, fixture_http:
    false }` (`1297-1310`) and reject any `latest/download` origin (`1311-1315`).
 9. Assign media types and kinds, digest each staged file, sort by name
-   (`1365-1435`); finalize and validate the payload (`1436-1448`).
+   (`1365-1432`); finalize and validate the payload (`1436-1448`).
 
 The payload is deliberately a **separate materialized artifact** rather than an
 implicit side effect of uploading. It is a bounded, strictly validated JSON
 document, and the adapter re-validates it and re-verifies every local file's
 size and digest against it before touching the network (`verify_file`,
-`1789-1820`). Preparation and staging are separate CLI subcommands, so the exact
+`1792-1821`). Preparation and staging are separate CLI subcommands, so the exact
 byte set, ordering, digests and kinds are reviewable before any remote object
 exists. Determinism is preserved by sorting assets by name in both construction
 (`1435`) and serialization (`333`).
 
 ## Reconciliation: the remote state machine
 
-`stage_with_source` (`1839-2082`) is the whole remote state machine;
-`stage_with_bytes` (`1823-1837`) and `stage_with_dir` (`2085-2122`) are thin
+`stage_with_source` (`1842-2085`) is the whole remote state machine;
+`stage_with_bytes` (`1826-1840`) and `stage_with_dir` (`2088-2122`) are thin
 adapters over it.
 
-1. Validate the token shape **before any I/O** (`1849-1851`).
+1. Validate the token shape **before any I/O** (`1852-1854`).
 2. Validate payload and policy; require exact agreement on owner, repository,
-   tag, title, prerelease and body (`1852-1868`).
+   tag, title, prerelease and body (`1855-1871`).
 3. `verify_tag_source` — the tag must already exist and peel to
-   `payload.source_revision` (`1870-1877`, implementation `1618-1654`).
+   `payload.source_revision` (`1873-1880`, implementation `1621-1657`).
 4. Paginated release lookup over pages `1..=max_list_pages`
    (`list_all_releases`), then `find_exact_release`, which fails on more than one
    same-tag record. A full page on the last permitted page fails closed with
@@ -226,81 +227,83 @@ adapters over it.
    creation attempt for a tag that already has one.
 5. If absent, `create_release`, then assert the tag matches and the release is a
    mutable draft (`1887-1900`). If present, assert it is a mutable draft
-   (`1903-1905`), the tag matches (`1906-1908`), and title, prerelease and body all match
-   (`1909-1914`).
-6. `check_upload_url` (`1918-1923`) pins the release's `upload_url` to `https`,
+   (`1905-1908`), the tag matches (`1909-1910`), and title, prerelease and body all match
+   (`1912-1916`).
+6. `check_upload_url` (`1921-1926`) pins the release's `upload_url` to `https`,
    host `uploads.github.com`, the exact
    `/repos/<owner>/<repo>/releases/<id>/assets` path, and no userinfo,
-   fragment, or query, port 443 or unset (`1672-1692`).
-7. Pre-flight `list_all_assets` (`1932`): reject a case-insensitive duplicate
-   remote name (`1936-1938`) and any asset not in the payload (`1939-1941`).
-8. For each payload asset in name order (`1926`): absent remotely →
+   fragment, or query, port 443 or unset (`1675-1695`).
+7. Pre-flight `list_all_assets` (`1935`): reject a case-insensitive duplicate
+   remote name (`1937-1941`) and any asset not in the payload (`1942-1944`).
+8. For each payload asset in name order (`1954-1956`): absent remotely →
    `verify_file` the local bytes against the payload, then `upload_asset`
-   (`2083-2095`), rejecting a response whose `name`, `state`, `size` or `digest`
-   disagrees (`2098-2111`); a `422` fails with no recovery (`2117-2119`); a `502`
+   (`1957-1969`), rejecting a response whose `name`, `state`, `size` or `digest`
+   disagrees (`1971-1985`); a `422` fails with no recovery (`1991-1993`); a `502`
    re-lists, deletes a single zero-byte `starter` for that name if exactly one
-   exists, and still returns an error (`2120-2136`); present remotely requires
+   exists, and still returns an error (`1994-2010`); present remotely requires
    `state == "uploaded"`, exact size, and `digest == "sha256:<hex>"`
-   (`2141-2156`).
-9. Final `list_all_assets` (`2160`): no duplicates, count must equal the
+   (`2015-2029`).
+9. Final `list_all_assets` (`2034`): no duplicates, count must equal the
    expected count, and every expected name must match on state, size and digest
-   (`2161-2183`).
-10. `verify_tag_source` again (`2185-2192`) — the TOCTOU guard, since the tag
+   (`2035-2056`).
+10. `verify_tag_source` again (`2059-2066`) — the TOCTOU guard, since the tag
     could have moved mid-run.
 11. Emit the receipt with `draft: true`, `immutable: false`, the `created` flag,
-    `uploaded` / `reused` counts, and assets sorted by name (`2194-2210`).
+    `uploaded` / `reused` counts, and assets sorted by name (`2070-2085`).
 
 Pagination is one shared bounded paginator, `list_all_pages`, used for both the
 release and asset listings: pages `1..=policy.max_list_pages` are fetched, a
 short page (fewer than `LIST_PAGE_SIZE` = 100, `37`) terminates successfully, and
 a full page on the last permitted page fails closed with "release/asset
-pagination bound exhausted". Default 16 pages, maximum 32 (`100-102`, `141-143`).
+pagination bound exhausted". Default 16 pages, maximum 32 (`134-136`, `151-153`,
+`222-224`).
 
-Bounded transfer: `streamed_upload_body` (`1869-1891`) streams the asset through
+Bounded transfer: `streamed_upload_body` (`1712-1734`) streams the asset through
 `futures_util::stream::try_unfold` in `UPLOAD_CHUNK_BYTES` (64 KiB, `35`) chunks
 with an explicit declared length, converting a length that overflows the
 platform `usize` into an error. The declared length is checked against the real
-file size before the request is built (`1873-1874`, `verify_file` at `1917`).
+file size before the request is built (`1716-1717`, `verify_file` at `1792-1821`).
 
 Source identity: the tag must exist beforehand. The `GithubApi` trait has no
-create/update/delete-ref method (`1674-1734`) and the create request omits
-`target_commitish` (`2483-2490`), so no code path in this crate can create or
+create/update/delete-ref method (`1517-1577`) and the create request omits
+`target_commitish` (`2357-2364`), so no code path in this crate can create or
 move a tag.
 
 ## Token handling and redaction
 
-`read_token(env_name)` (`493-502`) requires `env_name == "GITHUB_TOKEN"` (`494`),
-reads `std::env::var` (`497`), and rejects an empty value, one over 4096 bytes,
-or one containing control characters (`498`). Every failure returns the fixed
+`read_token(env_name)` (`583-592`) requires `env_name == "GITHUB_TOKEN"` (`584-585`),
+reads `std::env::var` (`587`), and rejects an empty value, one over 4096 bytes,
+or one containing control characters (`588-590`). Every failure returns the fixed
 message `"github token is absent"` — the value is never echoed and the
 underlying `VarError` is discarded. The same rules are re-checked at every point
-of use: the first statement of `stage_with_source` (`1975-1977`) and in
-`EggfetchTransport::new` (`2289-2291`). `token_env` is additionally allowlisted
-to `GITHUB_TOKEN` in both the policy (`132-134`) and the template (`1174-1176`).
+of use: the first statement of `stage_with_source` (`1852-1854`) and in
+`EggfetchTransport::new` (`2158-2182`). `token_env` is additionally allowlisted
+to `GITHUB_TOKEN` in the policy (`125-127`, `213-215`) and the template
+(`895-897`, `941-943`).
 
 Redaction, as verified:
 
 - `Debug for EggfetchTransport` writes the token field as the literal
   `"<redacted>"` and uses `finish_non_exhaustive`, so no other field is printed
-  either (`2271-2278`).
+  either (`2145-2152`).
 - The token appears in no serializable type: neither `StagingPayloadV1`
-  (`206-229`) nor `GitHubDraftReceiptV1` (`298-325`) has a token field, and
+  (`289-315`) nor `GitHubDraftReceiptV1` (`381-411`) has a token field, and
   `to_json` validates before encoding.
 - No error message in the crate interpolates the token or a response body; all
   failures are fixed strings via `fail()` (`50-52`).
 - The test `token_absent_rejects_before_io_and_redacts_diagnostics`
-  (`src/tests.rs:1303-1328`) asserts `create_calls() == 0` and
+  (`src/tests.rs:1397-1422`) asserts `create_calls() == 0` and
   `upload_calls() == 0` for an empty token, and that a distinctive secret
   appears in neither the error string nor the transport's `Debug` output.
 
 The token is only ever sent to the GitHub API host. Every request URL is built
 from `API_BASE` (`https://api.github.com`, `21`) or `UPLOAD_BASE`
-(`https://uploads.github.com`, `22`) via `upload_url` (`1854-1867`); the
-credential is attached per-request as a bearer `AuthScheme` (`2311-2314`) and
-never placed in a URL, query string, or body. `check_upload_url` (`1832-1852`)
+(`https://uploads.github.com`, `22`) via `upload_url` (`1697-1710`); the
+credential is attached through the bearer-auth helper (`2185-2187`) for API
+requests (for example `2278`) and is never placed in a URL, query string, or body. `check_upload_url` (`1675-1695`)
 additionally rejects a server-supplied `upload_url` pointing anywhere else. The
 only non-GitHub host anywhere in the crate is the loopback listener in
-`src/tests.rs:1357`, a bare `eggfetch-core` client with no credential.
+`src/tests.rs:1444-1487`, a bare `eggfetch-core` client with no credential.
 
 ## Presentation and product wrappers
 
@@ -309,7 +312,7 @@ crate treats as opaque bytes: it is read from the verified source tree and stage
 verbatim as the public `install.sh` / `install.ps1`, while the
 Eggpack-generated *exact* installer is staged beside it under a distinct name
 (`install-exact.sh` / `install-exact.ps1` in the fixture,
-`src/tests.rs:1402-1407`). Per the comment at `1487-1488`, the wrapper is the
+`src/tests.rs:1577-1697`). Per the comment at `1322-1324`, the wrapper is the
 friendly public surface while the generated exact installer remains available as
 qualified-bootstrap evidence. The crate never parses, interpolates into, or
 executes a wrapper — `read_wrapper_source` (`851-868`) returns raw bytes,
@@ -319,82 +322,82 @@ The mode is opt-in. `generated_default()` (`766-771`) selects
 `GeneratedDefault`, and `prepare_staging_payload_with_presentation` routes that
 mode into the one builder with no behavioural difference (`690-710`);
 `generated_default_preserves_exact_m003a_behavior`
-(`src/tests.rs:1418-1458`) asserts byte-identical payloads and identical file
+(`src/tests.rs:1512-1574`) asserts byte-identical payloads and identical file
 inventories. Only an explicit `ProductWrappers` policy changes the public
 surface, and even then the exact generated installers are still staged and still
-carry `PosixInstaller` / `PowershellInstaller` kinds (`1551-1560`) while the
-wrappers carry `ProductPosixWrapper` / `ProductPowershellWrapper`
-(`1561-1570`). Generating the exact installer is therefore the default and stays
+carry `PosixInstaller` / `PowershellInstaller` kinds (`252-269`, `1392-1412`)
+while the wrappers carry `ProductPosixWrapper` / `ProductPowershellWrapper`
+(`252-269`, `1392-1412`). Generating the exact installer is therefore the default and stays
 available under the wrapper mode; hand-maintained wrapper bytes are the narrow
 deviation, not the norm.
 
 Bounds and validation:
 
-- `MAX_WRAPPER_BYTES = 1 MiB` (`950`), enforced in `read_wrapper_source`
-  (`1093-1095`) with a re-stat after read (`1097-1099`).
-- Wrapper source paths (`validate_wrapper_source_path`, `1050-1066`): bounded,
+- `MAX_WRAPPER_BYTES = 1 MiB` (`717`), enforced in `read_wrapper_source`
+  (`851-868`) with a re-stat after read.
+- Wrapper source paths (`validate_wrapper_source_path`, `817-833`): bounded,
   relative, no `\`, no NUL, no leading `/`, no `:`, no empty / `.` / `..`
   segments, segments ≤ 128 bytes, no control characters.
-- Wrapper sources must be distinct files (`1033-1035`).
+- Wrapper sources must be distinct files (`791-815`).
 - Generated installer names must be flat, must not collide with each other
   case-insensitively, and must not collide with the three reserved staging names
-  (`1036-1043`, `1068-1077`).
+  (`1032-1041`, `1160-1177`).
 - The source root must be a real non-symlink directory and the resolved file a
-  regular non-symlink file beneath it (`1085`, `1090-1092`).
+  regular non-symlink file beneath it (`851-868`, `870-880`).
 
-`GitHubDraftTemplateV1` (`1113-1140`) exists so a repository can hold a static,
+`GitHubDraftTemplateV1` (`880-907`) exists so a repository can hold a static,
 identity-independent draft template resolved against a tag at run time. It
 deliberately carries no release id, source revision, exact tag, GitHub release
-id, or digest (`1103-1110`), and `resolve` (`1194-1212`) only validates the tag
+id, or digest (`870-880`), and `resolve` (`961-983`) only validates the tag
 with the same `validate_tag` used by the policy and concatenates it onto the
 fixed title prefix. `draft_template_resolves_distinct_tags_from_identical_bytes`
-(`src/tests.rs:1799`) pins that identical template bytes resolve to distinct
+(`src/tests.rs:1893-1942`) pins that identical template bytes resolve to distinct
 per-tag policies.
 
 ## Safety properties
 
 | Property | Enforced where | Citation |
 | --- | --- | --- |
-| Created release must be a mutable draft | post-create assertion | `1896-1899` |
-| Published / immutable release is never adopted | draft + `!immutable` gate | `1902-1905` |
-| Tag must already exist and match the source revision | bounded peel, pre and post | `1618-1654`, `1870-1877`, `2056-2063` |
-| No tag creation or mutation | no such trait method; no `target_commitish` | `1514-1576`, `2266-2270` |
+| Created release must be a mutable draft | post-create assertion | `1900-1902` |
+| Published / immutable release is never adopted | draft + `!immutable` gate | `1900-1908` |
+| Tag must already exist and match the source revision | bounded peel, pre and post | `1621-1657`, `1873-1880`, `2059-2066` |
+| No tag creation or mutation | no such trait method; no `target_commitish` | `1517-1577`, `2357-2364` |
 | Exact-tag origin only, no `latest/download` | installer content guard | `1311-1315` |
-| Local bytes match the payload before upload | size + streamed digest | `1789-1820`, `2112` |
-| Upload response name must match | post-upload check | `1969-1971` |
-| Upload response state must be `uploaded` | post-upload check | `1972-1974` |
-| Fail closed on upload size mismatch | post-upload check | `1975-1977` |
-| Fail closed on upload digest mismatch | `sha256:<hex>` comparison | `1978-1981` |
-| Reuse requires matching state, size and digest | reuse branch | `2141-2156` |
-| Duplicate-name 422 fails with no recovery | error branch | `2117-2119` |
-| Unexpected remote asset fails closed | pre-flight inventory | `2068-2069` |
-| Duplicate remote name (case-insensitive) fails closed | pre-flight inventory | `2065-2067` |
-| Final exact-set verification after upload | post-upload inventory | `2160-2183` |
-| Two same-tag release records fail closed | exact-release lookup | `1826-1828` |
-| Title / prerelease / body drift fails without mutation | existing-draft comparison | `2038-2043` |
-| Upload host pinned to `uploads.github.com` over exact https | URL check | `1832-1852` |
-| Asset pagination bound fails closed on a full last page | pagination loop | `1903-1910` |
-| 3xx fails closed; no redirect to any host | status gate, read and upload | `2325-2327`, `2586-2588` |
-| No retries; bounded per-request time and body size | client built with timeout only, no retry configuration | `2261-2263`, `2299-2302` |
-| No deletion of a pre-existing uploaded asset | delete only for `state == "starter" && size == 0`, exactly one match | `2120-2134` |
-| No clobber / overwrite of an existing draft | reuse-only path; no replace or overwrite endpoint | `2141-2156` |
-| Token absent before any I/O | first statement of the core | `1975-1977` |
-| Token redacted in diagnostics | literal `"<redacted>"` in `Debug` | `2271-2278` |
-| Symlinks, traversal, non-flat names rejected | validators plus `symlink_metadata` checks | `370-490`, `504-531`, `690-694`, `1085-1092` |
-| Output dir created absent-only, `0700`, cleaned on failure | private-dir helper plus `cleanup` | `533-551`, `759-762` |
-| Payload / receipt schemas strict and bounded | `deny_unknown_fields`, size and count bounds | `56`, `205`, `297`, `252-292`, `346-367` |
+| Local bytes match the payload before upload | size + streamed digest | `1792-1821`, `1957-1958` |
+| Upload response name must match | post-upload check | `1972-1974` |
+| Upload response state must be `uploaded` | post-upload check | `1975-1977` |
+| Fail closed on upload size mismatch | post-upload check | `1978-1980` |
+| Fail closed on upload digest mismatch | `sha256:<hex>` comparison | `1981-1985` |
+| Reuse requires matching state, size and digest | reuse branch | `2015-2029` |
+| Duplicate-name 422 fails with no recovery | error branch | `1991-1993` |
+| Unexpected remote asset fails closed | pre-flight inventory | `1942-1944` |
+| Duplicate remote name (case-insensitive) fails closed | pre-flight inventory | `1937-1941` |
+| Final exact-set verification after upload | post-upload inventory | `2034-2056` |
+| Two same-tag release records fail closed | exact-release lookup | `1659-1673` |
+| Title / prerelease / body drift fails without mutation | existing-draft comparison | `1912-1916` |
+| Upload host pinned to `uploads.github.com` over exact https | URL check | `1675-1695` |
+| Asset pagination bound fails closed on a full last page | pagination loop | `1744-1769` |
+| 3xx fails closed; no redirect to any host | status gate, read and upload | `2199-2200`, `2460-2462` |
+| No retries; bounded per-request time and body size | client built with timeout only, no retry configuration | `2172-2176`, `2279-2281`, `2447-2449` |
+| No deletion of a pre-existing uploaded asset | delete only for `state == "starter" && size == 0`, exactly one match | `1994-2010` |
+| No clobber / overwrite of an existing draft | reuse-only path; no replace or overwrite endpoint | `2015-2029` |
+| Token absent before any I/O | first statement of the core | `1852-1854` |
+| Token redacted in diagnostics | literal `"<redacted>"` in `Debug` | `2145-2152` |
+| Symlinks, traversal, non-flat names rejected | validators plus `symlink_metadata` checks | `534-568`, `623-650`, `817-868`, `1064`, `1180-1194` |
+| Output dir created absent-only, `0700`, cleaned on failure | private-dir helper plus `cleanup` | `632-650`, `1258-1261` |
+| Payload / receipt schemas strict and bounded | `deny_unknown_fields`, size and count bounds | `273`, `291`, `383`, `356-375`, `439-452` |
 
 Deliberately **not** enforced here, listed honestly:
 
 - **A cap on total uploaded bytes.** There is a per-request response bound and a
-  platform-`usize` conversion (`1873-1874`), but no maximum asset size. A payload
-  is bounded by asset count (≤ 1024, `270`) rather than total size.
+  platform-`usize` conversion (`1716-1717`), but no maximum asset size. A payload
+  is bounded by asset count (≤ 1024, `356-358`) rather than total size.
 - **`immutable` defaults to `false` when the API omits it**
-  (`#[serde(default)]`, `2386-2387`). This is the one place where a missing
+  (`#[serde(default)]`, `2248-2255`). This is the one place where a missing
   field resolves to a permissive value, and it is deliberate: making the field
   mandatory would fail *every* release read against an API that does not return
   it, which is a strictly worse failure than the one it prevents. The gate at
-  `2032` therefore sees `immutable == false` without having observed it. In
+  `1905-1908` therefore sees `immutable == false` without having observed it. In
   practice the outcome is still fail-closed — a genuinely immutable release
   rejects the asset upload server-side — but the rejection arrives as a transport
   error rather than a clear "not a mutable draft", and the field is not evidence
@@ -407,7 +410,7 @@ Deliberately **not** enforced here, listed honestly:
   `crates/eggpack-ci/src/tests.rs:2236-2237`).
 - **No authenticity, signature, or provenance claim.** Digests in the payload,
   the upload responses and the receipt are SHA-256 integrity facts only
-  (`1789-1820`, `1978-1981`, `2062-2072`).
+  (`1792-1821`, `1981-1985`, `2050-2055`, `2070-2084`).
 
 ## Boundaries / non-goals
 
@@ -416,7 +419,7 @@ Not owned or not done by this crate: publication (no `publish` endpoint, no
 immutable overwrite, release selection, update, and rollback. It does not own
 build, qualification or finalization (`eggpack-core`); it does not own installer
 semantics, only calling `eggpack_bootstrap::render_posix_with_policy` /
-`render_powershell_with_policy` (`802`, `808`); it does not render CI
+`render_powershell_with_policy` (`1301-1305`, `1307-1311`); it does not render CI
 workflows; and it does not touch registries, Issues, or PRs. The draft is left
 for a human to publish.
 
@@ -429,7 +432,7 @@ wording. The file digest belongs to `eggpack-core` (`file_digest`,
 (`crates/eggpack-github/src/lib.rs:604`) applies it and maps each refusal to
 this crate's staging diagnostic. The exact-tag safety rule belongs to
 `eggpack-core` (`validate_exact_tag_safety`,
-`crates/eggpack-core/src/lib.rs:313`); `validate_tag`
+`crates/eggpack-core/src/lib.rs:315`); `validate_tag`
 (`crates/eggpack-github/src/lib.rs:494`) applies it. The full rule map is in
 [validation-model.md](validation-model.md).
 
@@ -439,10 +442,10 @@ Dependencies (`crates/eggpack-github/Cargo.toml:14-26`): `eggpack-contract`
 (layout authority — `DistributionContract`, `ExpandedAssets`),
 `eggpack-manifest` (`ReleaseManifest`), `eggpack-core` (finalized-release
 types), `eggpack-bootstrap` (installer rendering), plus `serde` / `serde_json`,
-`sha2`, `tokio` (`rt,time,macros,net,io-util`), `eggfetch-core 0.3.0` with
-`default-features = false` and features `standard-http1`, `tls-rustls`,
-`tls-native-roots`, `json`, `bytes`, `futures-util`, and `url`. Dev-only:
-`tokio` with `rt-multi-thread`.
+`sha2`, `tokio` (`rt,time,macros,net,io-util`), `eggfetch-core 0.4.0` with `default-features = false` and features
+`standard-http1`, `tls-rustls`, `tls-native-roots`, and `json`; direct
+dependencies `bytes`, `futures-util`, and `url`. Dev-only: `tokio` with
+`rt-multi-thread`.
 
 The in-house HTTP stack is a deliberate choice over a heavyweight client: the
 lean `eggfetch-core` profile gives explicit control over the security-relevant
@@ -456,17 +459,17 @@ platform's CA configuration; combined with the fixed `api.github.com` /
 Dependents: `eggpack-cli` is a hard dependency
 (`crates/eggpack-cli/Cargo.toml:24`) and the only production caller.
 `_prepare-stage` uses `GitHubDraftTemplateV1::from_json`
-(`crates/eggpack-cli/src/main.rs145`), `InstallerPresentationV1::from_json`
-(`:1038`) and `prepare_staging_payload_with_presentation` /
-`prepare_staging_payload` (`:1076`, `:1088`); `_stage-github-draft` uses
-`StagingPayloadV1::from_json` (`:1118`), `read_token` (`:1124`),
-`EggfetchTransport::new` (`:1126`) and `stage_with_dir` (`:1144`).
+(`crates/eggpack-cli/src/main.rs:491`), `InstallerPresentationV1::from_json`
+(`:1582`) and `prepare_staging_payload_with_presentation` /
+`prepare_staging_payload` (`:1620`, `:1632`); `_stage-github-draft` uses
+`StagingPayloadV1::from_json` (`:1662`), `read_token` (`:1668`),
+`EggfetchTransport::new` (`:1670`) and `stage_with_dir` (`:1688`).
 `eggpack-ci` depends on this crate **for dev only**
 (`crates/eggpack-ci/Cargo.toml:25`, under `[dev-dependencies]`), to assert the
-rendered workflow invokes exactly those two runner commands and never publishes
-or clobbers (`crates/eggpack-ci/src/runner.rs:41-49`, `crates/eggpack-ci/src/runner.rs:71-82`,
-`crates/eggpack-ci/src/runner.rs:135-137`,
-`crates/eggpack-ci/src/tests.rs:1062-1065`, `m003d_reusable_render_is_tag_independent` (`crates/eggpack-ci/src/tests.rs:4715`)).
+rendered workflow invokes exactly those two staging commands and never publishes
+or clobbers (`crates/eggpack-ci/src/runner.rs:85-116`, argv mappings at
+`:296-356`, staging tests at `crates/eggpack-ci/src/tests.rs:2043-2085` and
+`:2219-2324`, `m003d_reusable_render_is_tag_independent` at `:4721`).
 
 ## Related deep dives
 

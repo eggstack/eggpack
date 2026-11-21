@@ -2130,7 +2130,7 @@ pub async fn stage_with_dir(
 
 /// Production GitHub transport with fixed hosts.
 ///
-/// Uses `eggfetch-core 0.3.0` with explicit lean features (`standard-http1`,
+/// Uses `eggfetch-core 0.4.0` with explicit lean features (`standard-http1`,
 /// `tls-rustls`, `tls-native-roots`, `json`) rather than the default
 /// retry/redirect policy. Retries are disabled and redirects are not followed;
 /// 3xx responses fail closed. Bounded timeouts and body sizes apply to every

@@ -30,7 +30,7 @@ Build the CLI once:
 ```sh
 cargo build -p eggpack-cli
 EGGPACK=./target/debug/eggpack
-$EGGPACK --version   # eggpack 0.1.1
+$EGGPACK --version   # eggpack 0.1.2
 ```
 
 ## 1. Create a scratch release repo

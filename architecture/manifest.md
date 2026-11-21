@@ -293,9 +293,11 @@ Two consequences are load-bearing for a downstream consumer:
 - **The published crate takes a patch release.** At M004,
   `crates/eggpack-manifest/Cargo.toml` carried `version = "0.1.1"`, while the
   workspace version was `0.1.0` for the other six crates; `^0.1.0` dependents
-  resolved `0.1.1` unchanged. The current release advanced the workspace version
-  to `0.1.1` and published the independently versioned manifest crate at
-  `0.1.2`. **`0.1.2` is published** — crates.io, checksum
+  resolved `0.1.1` unchanged. The subsequent manifest-only release advanced its
+  explicit version to `0.1.2`, which remains the latest published manifest
+  version. The current workspace source also carries version `0.1.2` for its six
+  crates, but those packages remain unpublished; matching numbers are distinct
+  release units. **`0.1.2` is published** — crates.io, checksum
   `4bbbe8d12026adf7c8e8ddaecbed0c6ac403a5621d4dd1ac9949f8daf8149a09`, not
   yanked, from publication source commit
   `d924a44bb6cd640998f197be7c2eb723cc891cbd`, tagged

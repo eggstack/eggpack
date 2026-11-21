@@ -1733,7 +1733,7 @@ mod tests {
         let mut command = Command::new("sh");
         command.args([
             "-c",
-            "sh -c 'printf started > \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; printf survived > \"$3\"' sh \"$1\" \"$2\" \"$3\" >/dev/null 2>&1 & exit 0",
+            "sh -c 'printf started > \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; printf survived > \"$3\"' sh \"$1\" \"$2\" \"$3\" >/dev/null 2>&1 & while [ ! -e \"$1\" ]; do sleep 0.01; done; exit 0",
             "group-fixture",
             started_arg.as_str(),
             release_arg.as_str(),

@@ -73,6 +73,12 @@ Post-publication downstream review confirmed that Eggup consumed this handoff an
 
 One further Release Manifest implementation **was** implied, and it was missing from this roadmap until M004 was registered: ADR-0006 accepted on 2026-10-23 obliges the published crate to take a `0.1.1` patch release, and no plan or closure record tracked that obligation. M004 owned that publication and the compatibility record ADR-0006 §5.4 requires, and it closed on 2026-10-26: `eggpack-manifest 0.1.1` is published, checksum `352c3e327159615b763298e911e239f1decc4a2c9e28c28be8ddd28e50515e37`, from publication source commit `4ce4fb850ffa0e141f1a807b60c150173507a92b`, tagged `eggpack-manifest-v0.1.1`. `0.1.0` remains published and resolvable. No further Release Manifest implementation is implied.
 
+The latest published `eggpack-manifest` version is `0.1.2`; exact publication
+evidence is maintained in `docs/release-process.md`. In the current source tree,
+the six workspace crates are also at `0.1.2` but remain unpublished. These are
+independent release units: this workspace version bump does not reopen M004 or
+bump/publish the manifest crate.
+
 ## 5. Target architecture
 
 ```text
