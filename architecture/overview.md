@@ -288,17 +288,17 @@ redefine a layout name; downstream crates reference these types instead.
 ### `eggpack-manifest` — final-bytes evidence document
 
 Single `src/lib.rs`. Leaf parser/serializer with no I/O (`serde` + `serde_json`
-only), and the only crate here that is published for third-party consumption
-(`eggpack-manifest 0.1.0` on crates.io, consumed by `eggup-eggpack`). The
-published crate took a `0.1.1` patch release carrying the ADR-0006
-all-zeros refusal, published from
-`4ce4fb850ffa0e141f1a807b60c150173507a92b` and tagged
-`eggpack-manifest-v0.1.1` under Release Manifest M004. That patch carries **two**
-narrowings of the published crate's acceptance set: the ADR-0006 digest rule
-and the document bound that `ReleaseManifest::validate` now measures, so a
-manifest whose canonical encoding exceeds `MAX_DOCUMENT_BYTES` is refused
-where `0.1.0` accepted and serialized it. Owns
-`ReleaseManifest` plus `TargetRecord`, `ArtifactForm`, `ArtifactRecord`,
+only), and the only crate here published for third-party consumption
+(`eggpack-manifest 0.1.2` on crates.io, consumed by `eggup-eggpack`). Its `0.1.1`
+release under M004 carried the ADR-0006 all-zeros digest refusal and the separate
+document-bound narrowing: manifests whose canonical encoding exceeds
+`MAX_DOCUMENT_BYTES` are refused where `0.1.0` accepted and serialized them.
+The latest published manifest version is `0.1.2`; that release changed package
+metadata and a test comment only, with no runtime or public API change. The six
+workspace crates now carry source version `0.1.2` independently and remain
+unpublished. Exact release evidence is in
+[the release guide](../docs/release-process.md).
+It owns `ReleaseManifest` plus `TargetRecord`, `ArtifactForm`, `ArtifactRecord`,
 `BundleRecord`, `ArchiveMemberRecord`, and `ByteEvidence`, with hard bounds
 `MAX_DOCUMENT_BYTES`, `MAX_TARGETS`, `MAX_RECORDS`, and
 `MAX_EVIDENCE_REFERENCES`. It describes **final bytes only** — never intent,

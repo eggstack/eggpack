@@ -1,8 +1,9 @@
 [package]
 name = "eggpack-manifest"
 # ADR-0006 (Option A) narrowed the published digest acceptance set, so this
-# crate carries its own version. 0.1.1 is published; this release prep advances
-# the workspace crates to 0.1.1 and prepares this crate at 0.1.2.
+# crate carries a version independent of the workspace crates. 0.1.2 is the
+# latest published manifest version; the workspace crates are separately at
+# 0.1.2 in source and remain unpublished.
 version = "0.1.2"
 edition.workspace = true
 rust-version.workspace = true

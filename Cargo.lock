@@ -205,7 +205,7 @@ dependencies = [
 
 [[package]]
 name = "eggpack-bootstrap"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "eggpack-contract",
  "eggpack-manifest",
@@ -219,7 +219,7 @@ dependencies = [
 
 [[package]]
 name = "eggpack-ci"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "eggpack-bootstrap",
  "eggpack-contract",
@@ -235,7 +235,7 @@ dependencies = [
 
 [[package]]
 name = "eggpack-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "eggpack-bootstrap",
  "eggpack-ci",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "eggpack-contract"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "toml",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "eggpack-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "command-group",
  "eggpack-contract",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "eggpack-github"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "bytes",
  "eggfetch-core",
